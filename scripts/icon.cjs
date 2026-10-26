@@ -22,10 +22,11 @@ app.whenReady().then(async () => {
       g.beginPath();
       g.roundRect(100, 100, 824, 824, 185);
       g.fill();
-      // The mark fills its square: drawn in the tile's middle, its pixels whole - 7 of them across, 80 each.
-      const size = 560;
+      // The mark in the tile's middle, its pixels whole - 7 of them across and 8 down, 72 each.
+      const width = 7 * 72;
+      const height = 8 * 72;
       g.imageSmoothingEnabled = false;
-      g.drawImage(image, (1024 - size) / 2, (1024 - size) / 2, size, size);
+      g.drawImage(image, (1024 - width) / 2, (1024 - height) / 2, width, height);
       done(canvas.toDataURL("image/png").split(",")[1]);
     };
     image.src = "data:image/svg+xml;base64,${logo}";

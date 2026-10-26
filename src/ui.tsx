@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mountJellyfish, mountSprite, type Mounted } from "./pixels/turri-pixels.js";
 import type { Usage } from "./types.ts";
 
@@ -38,7 +38,8 @@ const HERO_HEIGHT = 460;
 /** The lifecycle's box: the polyp on the floor at its foot, the jellyfish risen to where the hero hangs. */
 const LIFECYCLE_WIDTH = 400;
 const LIFECYCLE_HEIGHT = 600;
-/** Below this, the jellyfish's pixels run together: the logo is drawn instead. */
+/** Below this, the jellyfish's pixels run together: the logo is drawn instead - 7 pixels wide and 8 high, at a size in whole
+ * multiples of 7 so its pixels stay crisp. */
 const LOGO_BELOW = 48;
 
 /**
@@ -54,7 +55,7 @@ export function Jellyfish({ size = 48, swimming = true, lifecycle = false, class
         className={`jellyfish logo-mark ${swimming ? "swimming" : ""} ${className}`}
         src="./jellyfish/logo-mark.svg"
         width={size}
-        height={size}
+        height={Math.round((size * 8) / 7)}
         alt=""
         draggable={false}
       />
@@ -175,15 +176,44 @@ export function Fold({ title, summary, className = "", folded, children }: { tit
   );
 }
 
-/** Working: four pixels chasing each other round a square. */
+/**
+ * The logo mark's pixels in reading order - its bell (pink), its gut (orange), its tentacles (neon): 31 of them, the
+ * building loader's steps.
+ */
+const BUILDING = ["..PPP..", ".PPPPP.", "PPPOPPP", "PPPPPPP", ".......", ".N.N.N.", ".N.N.N.", "N..N..N"].flatMap((row, y) =>
+  [...row].flatMap((cell, x) => (cell === "." ? [] : [{ x, y, part: cell === "P" ? "bell" : cell === "O" ? "gut" : "tentacle" }])),
+);
+/** A pixel every 60ms; the whole mark held for half a second, then over again. */
+const BUILDING_STEP = 60;
+const BUILDING_CYCLE = BUILDING.length * BUILDING_STEP + 500;
+const stillBuilding = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** How many of the mark's pixels are lit now: one clock for every loader in the window, so they fill in step. */
+const buildingStep = () => (stillBuilding() ? BUILDING.length : Math.min(BUILDING.length, Math.floor((performance.now() % BUILDING_CYCLE) / BUILDING_STEP)));
+const buildingListeners = new Set<() => void>();
+let buildingTimer: ReturnType<typeof setInterval> | undefined;
+function onBuildingStep(listener: () => void) {
+  buildingListeners.add(listener);
+  buildingTimer ??= setInterval(() => buildingListeners.forEach((each) => each()), BUILDING_STEP);
+  return () => {
+    buildingListeners.delete(listener);
+    if (buildingListeners.size > 0) return;
+    clearInterval(buildingTimer);
+    buildingTimer = undefined;
+  };
+}
+
+/**
+ * Working: turri's building loader, from its design system - the logo mark filling in a pixel at a time, in reading
+ * order, over its own outline, held once whole, then starting over. Still and whole with reduced motion.
+ */
 export function Spinner() {
+  const step = useSyncExternalStore(onBuildingStep, buildingStep);
   return (
-    <span className="spinner" aria-label="working">
-      <i />
-      <i />
-      <i />
-      <i />
-    </span>
+    <svg className="spinner" viewBox="0 0 7 8" shapeRendering="crispEdges" role="img" aria-label="working">
+      {BUILDING.map(({ x, y, part }, index) => (
+        <rect key={index} x={x} y={y} width={1} height={1} className={index < step ? part : "track"} />
+      ))}
+    </svg>
   );
 }
 

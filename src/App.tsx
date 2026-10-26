@@ -781,7 +781,7 @@ export function App() {
           <header className="toolbar">
             {!chatOpen && (
               <button className={`button open-chat ${chats.asking.size > 0 ? "asking" : ""}`} onClick={() => setChatOpen(true)} title={chats.asking.size > 0 ? "turri is asking you something" : `talk to turri (${keys("J")})`}>
-                <Jellyfish size={16} swimming={false} /> turri{chats.asking.size > 0 && " · asks"}
+                <Jellyfish size={14} swimming={false} /> turri{chats.asking.size > 0 && " · asks"}
               </button>
             )}
             <div className="segmented" role="tablist">

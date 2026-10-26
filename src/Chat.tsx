@@ -490,7 +490,7 @@ export function Chat(props: {
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
         {props.busy && !props.streaming && (
           <div className="chat-working">
-            <Jellyfish size={20} /> {props.working ?? "thinking"}
+            <Jellyfish size={21} /> {props.working ?? "thinking"}
           </div>
         )}
         {props.queued.map((text, index) => (

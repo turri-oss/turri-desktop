@@ -54,7 +54,7 @@ export function Welcome({ onOpened, onNew, onDoctor, onSignIn, guide = false }: 
     <div className="welcome">
       {/* The name in the title bar, beside the window's buttons: the middle is the jellyfish's. */}
       <header className="welcome-bar drag">
-        <Jellyfish size={30} swimming={false} />
+        <Jellyfish size={28} swimming={false} />
         <span className="logo">turri</span>
       </header>
       <div className="bubbles" aria-hidden>
