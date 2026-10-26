@@ -75,7 +75,7 @@ Then tell turri what to build:
 - **Check this machine** (Help menu) - `turri doctor` in the window: bash, git, the OS sandbox, a model provider, and in a project its toolchains and what its testing scripts run - each with what to do about it, and the models asked only when you say. Anything missing is said on the welcome screen and at the foot of the sidebar; a project just started is checked at once, its models asked too, and the checks shown only when something wants seeing to.
 - **Getting started** - just installed, the welcome screen leads the way to your first project: the machine - with where to get git, the sandbox and each toolchain, or Apple's developer tools on a Mac - signing in, and the project.
 - **Settings** (⌘,) - the look, the models new projects start on, how the app updates itself. **About** has the versions, what turri sends and where - [privacy](docs/privacy.md): no telemetry - and the third-party notices.
-- A window for each project, native menus and shortcuts, notifications when a pulse lands, turri's dark and light themes.
+- A window for each project, native menus and shortcuts, turri's dark and light themes.
 
 Shortcuts are written here as on macOS; on Linux Ctrl takes ⌘'s place - Ctrl+J, Ctrl+S - and the preview's terminal copies and pastes with Ctrl+Shift+C and Ctrl+Shift+V, leaving Ctrl+C to the shell.
 

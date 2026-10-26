@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, session, shell, type MenuItemConstructorOptions, type Rectangle } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, type MenuItemConstructorOptions, type Rectangle } from "electron";
 import { fork, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -204,8 +204,8 @@ function runningEverywhere(): number {
 
 // ---------- updates ----------
 
-// The app's own, from its GitHub releases: the menu says where it is - checking, downloading, ready to restart - and a
-// notification says when one is ready. A download's progress changes no menu.
+// The app's own, from its GitHub releases: the menu says where it is - checking, downloading, ready to restart. A
+// download's progress changes no menu.
 let updateStatus: UpdateState["status"] | undefined;
 const updates = createUpdates({
   prerelease: settings.prerelease,
@@ -216,10 +216,6 @@ const updates = createUpdates({
     if (state.status === updateStatus) return;
     updateStatus = state.status;
     buildMenu();
-    if (state.status !== "ready" || !Notification.isSupported()) return;
-    const notice = new Notification({ title: `turri ${state.version} is ready`, body: "restart to update - or it is installed when turri quits" });
-    notice.on("click", () => void restartToUpdate());
-    notice.show();
   },
 });
 
@@ -461,18 +457,6 @@ function createWorkspace(): Workspace {
       workspace.running = (data.jobs as Array<{ status: string }>).filter((job) => job.status === "running").length;
       showRunning();
       if (!window.isDestroyed()) window.setProgressBar(workspace.running > 0 ? 2 : -1); // 2: indeterminate on macOS
-    }
-    if (event === "finished" && !window.isDestroyed() && !window.isFocused()) {
-      const done = data.status === "succeeded";
-      // Which project's, with several open.
-      const subtitle = dir === undefined ? undefined : basename(dir);
-      const title = done ? `${data.module ?? "turri"}: regenerated` : `${data.module ?? "turri"}: ${data.status}`;
-      // A subtitle is macOS's alone: elsewhere the project is said in the title.
-      const notice = new Notification({ title: MAC || subtitle === undefined ? title : `${subtitle} - ${title}`, subtitle, body: data.title ?? "", silent: done });
-      // A click brings the window the pulse ran in forward.
-      notice.on("click", () => !window.isDestroyed() && bringForward(window));
-      notice.show();
-      if (!done) app.dock?.bounce("informational");
     }
   }
 

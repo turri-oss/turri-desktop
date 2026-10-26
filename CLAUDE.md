@@ -5,7 +5,7 @@ turri desktop (this repo, `turri-oss/turri-desktop`) is a proof of concept: [tur
 ## Shape
 
 ```
-electron/main.ts     the windows, each a workspace (its project, engine, preview, terminal), native menus, notifications, dock, appearance and zoom - and the bridge to each engine
+electron/main.ts     the windows, each a workspace (its project, engine, preview, terminal), native menus, dock, appearance and zoom - and the bridge to each engine
 electron/turri-version.ts  which turri runs - npm's pinned version, or a clone at a commit - and whether it is behind
 electron/updates.ts  the app's own updates, from its GitHub releases: checked, downloaded, installed on a restart
 electron/settings.ts the app's settings beyond its look - new projects' models, updates - in settings.json
