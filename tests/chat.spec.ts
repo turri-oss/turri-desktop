@@ -48,10 +48,11 @@ test.describe("the chat", () => {
     await box.fill("/regenerate hel");
     await box.press("Tab");
     await expect(box).toHaveValue("/regenerate hello.plain ");
-    // Nothing it fits: tab leaves the draft as it is.
+    // Nothing it fits: tab leaves the draft as it is, and the focus in the box.
     await box.fill("/regenerate xyz");
     await box.press("Tab");
     await expect(box).toHaveValue("/regenerate xyz");
+    await expect(box).toBeFocused();
     // Two it fits: both offered, the arrows choose and enter takes one.
     writeFileSync(join(project, "helper.plain"), "***definitions***\n\n- :Helper: helps.\n");
     await expect(window.locator(".sidebar")).toContainText("helper.plain");

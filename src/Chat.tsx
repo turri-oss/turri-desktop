@@ -587,7 +587,11 @@ export function Chat(props: {
             if (event.key === "Tab" && suggestions.length > 0) {
               event.preventDefault();
               setDraft(`${suggestions[0]!.name} `);
-            } else if (event.key === "Tab" && !event.shiftKey && completeFile()) event.preventDefault();
+            } else if (event.key === "Tab" && !event.shiftKey) {
+              // Tab is the box's: it completes what it can and otherwise does nothing - the focus stays here.
+              event.preventDefault();
+              completeFile();
+            }
           }}
         />
         <div className="composer-bar">
