@@ -80,7 +80,8 @@ export interface Job {
   activity: string[];
   now?: { label: string; since: number };
   usage: Usage;
-  agents: Array<{ label: string; model?: string; turns: number; compactions: number; usage: Usage }>;
+  /** Its agents, by label - which turri leaves out for one (its release agent). */
+  agents: Array<{ label?: string; model?: string; turns: number; compactions: number; usage: Usage }>;
   report?: string;
   announce?: string;
   error?: string;

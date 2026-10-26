@@ -163,6 +163,26 @@ test.describe("the regen view", () => {
     await expect(card.locator(".failure-mark")).toHaveText("debugger failed");
   });
 
+  test("traces an agent turri gave no label - its release agent - as an agent", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const usage = { input: 1200, output: 300, cacheRead: 0, cacheWrite: 0, cost: 0.01 };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), {
+      ...pulse(),
+      status: "running",
+      finishedAt: undefined,
+      activity: ["releasing what this pulse landed"],
+      agents: [
+        { label: "coder", turns: 3, compactions: 0, usage },
+        { model: "haiku", turns: 1, compactions: 0, usage },
+      ],
+    });
+    await window.getByRole("tab", { name: "regen" }).click();
+    const card = await opened(window.locator(".job", { hasText: "the greeting by name" }));
+    await unfold(card, "agent trace");
+    await expect(card.locator(".agent-chip")).toHaveCount(2);
+    await expect(card.locator(".agent-chip").nth(1)).toContainText("agent · 1 turn");
+  });
+
   test("opens a pulse clicked in the chat, in the regen view", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), pulse());

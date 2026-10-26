@@ -335,9 +335,10 @@ function Trace({ job, folded }: { job: Job; folded: Folded }) {
       )}
       {job.agents.length > 0 && (
         <div className="agents">
-          {job.agents.map((agent) => (
-            <span key={agent.label} className="agent-chip" title={agent.model}>
-              {withPlain(turriSays(agent.label))} · {agent.turns} turn{agent.turns === 1 ? "" : "s"}
+          {/* An agent turri started without a label - its release agent - is named for what it is. */}
+          {job.agents.map((agent, index) => (
+            <span key={agent.label ?? index} className="agent-chip" title={agent.model}>
+              {withPlain(turriSays(agent.label ?? "agent"))} · {agent.turns} turn{agent.turns === 1 ? "" : "s"}
               {tokens(agent.usage) && ` · ${tokens(agent.usage)}`}
             </span>
           ))}
