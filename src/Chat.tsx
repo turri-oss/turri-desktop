@@ -266,16 +266,17 @@ export function Chat(props: {
   };
 
   // ctrl+c, as in turri's terminal, wherever the focus is while the chat is open - but in the preview's terminal, whose
-  // shell it is: a question asked declined - each one, however many in a row, the turn going on; with none, what the
-  // chat shown is doing stopped; doing nothing, its draft cleared, and with none turri left - the window closes. On
-  // Linux, where ctrl+c copies, what is selected is copied, and an editor outside the chat keeps it.
+  // shell it is, and in the dive, which has no chat: a question asked declined - each one, however many in a row, the
+  // turn going on; with none, what the chat shown is doing stopped; doing nothing, its draft cleared, and with none
+  // turri left - the window closes. On Linux, where ctrl+c copies, what is selected is copied, and an editor outside the
+  // chat keeps it.
   const latest = useRef({ props, draft, setDraft });
   latest.current = { props, draft, setDraft };
   useEffect(() => {
     const pressed = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== "c") return;
       const at = event.target instanceof Element ? event.target : null;
-      if (at?.closest(".xterm")) return;
+      if (at?.closest(".xterm, .dive")) return;
       if (!MAC && (window.getSelection()?.toString() || (at?.closest("textarea, input, [contenteditable]") && !at.closest(".chat")))) return;
       event.preventDefault();
       const { props: now, draft: typed, setDraft: clear } = latest.current;

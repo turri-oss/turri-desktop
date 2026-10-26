@@ -757,8 +757,9 @@ function buildMenu() {
       label: "View",
       submenu: [
         { label: "***plain", accelerator: "CmdOrCtrl+1", click: menuAction("view:spec") },
-        { label: "regen", accelerator: "CmdOrCtrl+2", click: menuAction("view:work") },
         { label: "preview", accelerator: "CmdOrCtrl+3", click: menuAction("view:preview") },
+        { type: "separator" },
+        { label: "Dive", accelerator: "CmdOrCtrl+2", click: menuAction("dive") },
         { type: "separator" },
         { label: "Show or Hide the Files", accelerator: "CmdOrCtrl+B", click: menuAction("sidebar") },
         { label: "Show or Hide the Chat", accelerator: "CmdOrCtrl+J", click: menuAction("chat") },
@@ -1009,7 +1010,8 @@ app.whenReady().then(() => {
   if (DEV) first.window.webContents.once("did-finish-load", async () => {
     if (process.env.TURRI_APP_OPEN) first.send("project:opened", await first.openProject(process.env.TURRI_APP_OPEN));
     if (process.env.TURRI_APP_SCREENSHOT) {
-      if (process.env.TURRI_APP_VIEW) setTimeout(() => first.send("menu", `view:${process.env.TURRI_APP_VIEW}`), 300);
+      // work: regen, in the dive.
+      if (process.env.TURRI_APP_VIEW) setTimeout(() => first.send("menu", process.env.TURRI_APP_VIEW === "work" ? "dive" : `view:${process.env.TURRI_APP_VIEW}`), 300);
       setTimeout(async () => {
         writeFileSync(process.env.TURRI_APP_SCREENSHOT!, (await first.window.webContents.capturePage()).toPNG());
         app.quit();

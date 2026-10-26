@@ -31,7 +31,7 @@ async function openStdlib(app: ElectronApplication) {
 test.describe("the stdlib view", () => {
   test("opens from the ***plain menu on ⌘4, not from a tab among the views", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
-    await expect(window.locator(".toolbar").getByRole("tab")).toHaveCount(3);
+    await expect(window.locator(".toolbar").getByRole("tab")).toHaveCount(2);
     await expect(window.locator(".toolbar").getByRole("tab", { name: "stdlib" })).toHaveCount(0);
     const item = await app.evaluate(({ Menu }) => {
       const menus = Menu.getApplicationMenu()!.items;

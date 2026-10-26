@@ -288,6 +288,62 @@ code {
 .sidebar-toggle:hover {
   color: var(--fg);
 }
+/* The dive's way in, beside the files' toggle: ! on it once a pulse failed, until regen is shown. */
+.dive-open {
+  position: relative;
+  color: var(--fg-3);
+}
+.dive-open:hover {
+  color: var(--fg);
+}
+.dive-open .tab-failed {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  margin: 0;
+}
+
+/* The dive: the whole window, in place of the chat, the views and the files - kept, out of sight. */
+.app.away {
+  display: none;
+}
+.dive {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+.dive-top {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px 0 12px;
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+  flex: none;
+}
+:root[data-platform="darwin"]:not([data-fullscreen="true"]) .dive-top {
+  padding-left: 78px; /* the traffic lights' room, as the toolbar keeps it */
+}
+.dive-top button,
+.dive-top .segmented {
+  -webkit-app-region: no-drag;
+}
+/* The dive's sections and its mark at the right, the way back alone at the left. */
+.dive-top .segmented {
+  margin-left: auto;
+}
+.dive-mark {
+  display: grid;
+  place-items: center;
+  color: var(--tested);
+}
+.dive-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 /* The chat's right edge, against the views, a little wider than its border to catch the pointer; lit while hovered
    or dragged. */
 .chat-resize {

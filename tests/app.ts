@@ -1,4 +1,4 @@
-import { _electron as electron, test as base, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -139,6 +139,18 @@ export async function tellChat(app: ElectronApplication, window: Page, event: st
   const chats = await window.evaluate(() => (window as unknown as { turri: { call: (method: string) => Promise<Array<{ id: string; shown: boolean }>> } }).turri.call("chats"));
   const chat = (chats.find((each) => each.shown) ?? chats[0])!.id;
   await app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send(`engine:${sent.event}`, { chat: sent.chat, data: sent.data }), { event, chat, data });
+}
+
+/** Regen shown: the dive, opened by the dive button at the toolbar's right. */
+export async function showRegen(window: Page) {
+  await window.locator(".toolbar .dive-open").click();
+  await expect(window.locator(".dive").getByRole("tab", { name: /^regen/, selected: true })).toBeVisible();
+}
+
+/** Back from the dive to the project's window, by its ‹. */
+export async function leaveRegen(window: Page) {
+  await window.locator(".dive .dive-back").click();
+  await expect(window.locator(".dive")).toHaveCount(0);
 }
 
 /** A menu bar item clicked, by its label - as its key would. */

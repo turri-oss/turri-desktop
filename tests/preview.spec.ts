@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test } from "./app.ts";
+import { expect, showRegen, test } from "./app.ts";
 
 // turri's browser and terminal tools bring the window to the one they use ("preview:reveal", "terminal:reveal"): sent
 // here as they would be.
@@ -152,7 +152,7 @@ test.describe("terminal_screenshot", () => {
     await window.getByRole("button", { name: "open a terminal" }).click();
     await expect(window.locator(".preview-terminal .xterm-screen")).toBeVisible();
     // The window away from the preview: the screenshot brings it back to the terminal first.
-    await window.getByRole("tab", { name: "regen" }).click();
+    await showRegen(window);
     const shot = await request<{ data: string; mimeType: string; rows: number; cols: number }>("terminal", "screenshot", {});
     expect(shot.mimeType).toBe("image/jpeg");
     await expect(window.locator(".preview-terminal")).toBeVisible();

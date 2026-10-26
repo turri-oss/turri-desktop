@@ -20,14 +20,15 @@ import { FileTree } from "./FileTree.tsx";
 import { FileView } from "./FileView.tsx";
 import { PreviewView } from "./PreviewView.tsx";
 import { StdlibView } from "./StdlibView.tsx";
+import { DiveScreen } from "./DiveScreen.tsx";
 import { ConceptUses, type Followed, type Link, type Place, type Use } from "./PlainLinks.tsx";
 import { Empty, Icon, Jellyfish, PlainName, Spinner, TurriVersionLine, withPlain } from "./ui.tsx";
 import { Chat } from "./Chat.tsx";
 import { useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
 
-/** The views, as the toolbar has them, left to right: ctrl+tab goes along them. */
-const VIEWS: View[] = ["spec", "work", "preview"];
+/** The views, as the toolbar has them, left to right: ctrl+tab goes along them. regen is the dive's. */
+const VIEWS: View[] = ["spec", "preview"];
 
 const EMPTY_STATUS: Status = { modules: [], jobs: [], planned: [] };
 
@@ -115,15 +116,21 @@ export function App() {
   const [guide, setGuide] = useState(false);
   // Regenerate, chosen how - open with the functional specs it starts on, if any.
   const [choosing, setChoosing] = useState<string[] | null>(null);
+  // The dive, in the whole window's place - regen: the dive button in the toolbar, ⌘2, /pulses, a pulse clicked
+  // in the chat. Left by its ‹, or by anything that shows the window again - a view, the chat, a ***plain to open.
+  const [dive, setDive] = useState(false);
+  const diveNow = useRef(false);
+  diveNow.current = dive;
   // Lines of a spec to bring into view and light: a pulse's part of it, shown from the work.
   const [reveal, setReveal] = useState<{ file: string; lines: number[]; texts?: string[]; point?: Point; at: number } | null>(null);
-  // Lit once, where it was asked for: gone as the person looks elsewhere - another view, file or template - so coming back
+  // Lit once, where it was asked for: gone as the person looks elsewhere - another view, file or template, the dive - so
+  // coming back
   // lights nothing again.
   useEffect(() => {
     if (reveal === null) return;
-    const there = view === "stdlib" ? template === reveal.file : view === "spec" && selected === reveal.file;
+    const there = !dive && (view === "stdlib" ? template === reveal.file : view === "spec" && selected === reveal.file);
     if (!there) setReveal(null);
-  }, [view, selected, template, reveal]);
+  }, [view, selected, template, reveal, dive]);
   // A pulse to open in the work view: one the chat says ended, clicked there.
   // The pulse last asked for - marked in regen, and, until regen has brought it into view, to reveal - and the pulses
   // whose cards are open there, and the parts of them (`<id>/<part>`), kept as regen is left and shown again.
@@ -133,12 +140,10 @@ export function App() {
     setOpenPulses((now) => new Set(now).add(id));
     setFocusPulse({ id, at: Date.now(), reveal: true });
   };
-  // Pulses that failed while regen was not shown, the newest last: the regen tab says ! until it is shown, and then
+  // Pulses that failed while regen was not shown, the newest last: the dive button says ! until it is shown, and then
   // opens the newest of them, once, and brings it into view - so a failure is looked at.
   const [unseenFailed, setUnseenFailed] = useState<string[]>([]);
   const knownFailed = useRef(new Set<string>());
-  const viewNow = useRef<View>("spec");
-  viewNow.current = view;
   const [dirty, setDirty] = useState(false);
   const saveRef = useRef<(() => Promise<void>) | null>(null);
   // The conversation with turri.
@@ -312,14 +317,15 @@ export function App() {
       ),
       // The config changed - /turri-config, say: its settings in the sidebar, and the model the chat runs on now.
       window.turri.on("engine:config", () => void refreshProject()),
-      // turri works in the preview with its browser tools: the window shows it, so the person sees what it does.
-      window.turri.on("preview:reveal", () => (setView("preview"), openPane("browser"))),
-      window.turri.on("terminal:reveal", () => (setView("preview"), openPane("terminal"))),
+      // turri works in the preview with its browser tools: the window shows it, so the person sees what it does - back
+      // from the dive too.
+      window.turri.on("preview:reveal", () => (setDive(false), setView("preview"), openPane("browser"))),
+      window.turri.on("terminal:reveal", () => (setDive(false), setView("preview"), openPane("terminal"))),
       window.turri.on("preview:testing", (now: boolean) => setTesting(now)),
       // /login typed in the chat: pi's terminal would sign in there, the window does it in its sheet.
       window.turri.on("engine:auth:open", ({ provider }: { provider: string | null }) => setSignIn({ provider })),
       // /pulses typed in the chat: turri's side panel in a terminal, the regen view here.
-      window.turri.on("engine:regen:open", () => setView("work")),
+      window.turri.on("engine:regen:open", () => setDive(true)),
     ];
     return () => off.forEach((stop) => stop());
   }, [opened, refreshProject, say]);
@@ -387,6 +393,7 @@ export function App() {
   /** ⌥⌘←: the focus to the chat - its message box, or the question asked in its place - opened if it is hidden. */
   const focusChat = useCallback(() => {
     inViews.current = false;
+    setDive(false);
     setChatOpen(true);
     requestAnimationFrame(() => document.querySelector<HTMLElement>("aside.chat .composer textarea, aside.chat .question-card button, aside.chat .question-card input, aside.chat .question-card textarea")?.focus());
   }, []);
@@ -454,10 +461,11 @@ export function App() {
   useEffect(
     () =>
       window.turri.on("menu", (action: string) => {
-        if (action.startsWith("view:")) setView(action.slice(5) as View);
+        if (action.startsWith("view:")) (setDive(false), setView(action.slice(5) as View));
         // ctrl+tab in the preview's page, which the window does not hear: the views, from the preview.
         else if (action === "view-next" || action === "view-previous") (inViews.current = true, stepView(action === "view-next" ? 1 : -1));
         else if (action === "focus-chat") focusChat();
+        else if (action === "dive") setDive((on) => !on);
         else if (action === "regenerate-how" && spec?.ok) setChoosing([]);
         // Regenerate What Changed: only with something changed - the menu offers it only then.
         else if (action === "regenerate" && changed) void regenerate();
@@ -487,11 +495,13 @@ export function App() {
     [regenerate, glimpse, conform, project, spec, changed, view, pane, toggleSidebar, newChat, closeChat, chats.shownId, stepView, focusChat],
   );
 
-  // What the person is looking at, for turri to know: the view, and the file open in it - or the preview's browser or terminal.
+  // What the person is looking at, for turri to know: the view, and the file open in it - or the preview's browser or
+  // terminal - or regen, in the dive.
   useEffect(() => {
     if (project === null) return;
+    if (dive) return void window.turri.call("look", { view: "work", file: null, pane: null }).catch(() => {});
     void window.turri.call("look", { view, file: view === "spec" ? selected : view === "stdlib" ? template : null, pane: view === "preview" ? pane : null }).catch(() => {});
-  }, [project?.dir, view, selected, pane, template]);
+  }, [project?.dir, view, selected, pane, template, dive]);
 
   // The project's first ***plain written: the chat and the files as the person keeps them.
   useEffect(() => {
@@ -599,19 +609,19 @@ export function App() {
   const runningFor = (module: string) => allJobs.find((job) => job.module === module && job.status === "running");
   const running = allJobs.filter((job) => job.status === "running");
 
-  // A pulse newly failed, regen not shown: the tab says so.
+  // A pulse newly failed, regen not shown: the dive button says so.
   useEffect(() => {
     const failed = allJobs.filter((job) => job.status === "failed" && !knownFailed.current.has(job.id)).reverse();
     if (failed.length === 0) return;
     for (const job of failed) knownFailed.current.add(job.id);
-    if (viewNow.current !== "work") setUnseenFailed((now) => [...now, ...failed.map((job) => job.id)]);
+    if (!diveNow.current) setUnseenFailed((now) => [...now, ...failed.map((job) => job.id)]);
   }, [allJobs]);
-  // Regen shown with failures unseen: the newest opened and brought into view, and the tab's ! gone.
+  // Regen shown with failures unseen: the newest opened and brought into view, and the dive button's ! gone.
   useEffect(() => {
-    if (view !== "work" || unseenFailed.length === 0) return;
+    if (!dive || unseenFailed.length === 0) return;
     showPulse(unseenFailed.at(-1)!);
     setUnseenFailed([]);
-  }, [view, unseenFailed]);
+  }, [dive, unseenFailed]);
 
   // In the same place whether a project is open or not, so it is not made again when one opens under it.
   const newProject = creating && <NewProject onOpened={opened} onDone={() => setCreating(false)} />;
@@ -673,7 +683,7 @@ export function App() {
   return (
     <>
       <div
-        className={`app ${chatOpen ? "with-chat" : ""} ${sidebarOpen ? "" : "no-sidebar"} ${resizing ? "resizing" : ""}`}
+        className={`app ${dive ? "away" : ""} ${chatOpen ? "with-chat" : ""} ${sidebarOpen ? "" : "no-sidebar"} ${resizing ? "resizing" : ""}`}
         style={{ "--chat-width": `${chatShown}px`, "--files-width": `${filesShown}px` } as React.CSSProperties}
         inert={switching !== null}
       >
@@ -746,7 +756,7 @@ export function App() {
             onShowConcept={(concept) => void showConcept(concept)}
             onShowPulse={(id) => {
               if (!jobs.has(id) && !earlier.some((run) => run.pulses.some((pulse) => pulse.id === id))) return say("that pulse ran in an earlier session, and the ledger has nothing of it now.");
-              setView("work");
+              setDive(true);
               // The pulse asked for, not a failure the tab was marked for.
               setUnseenFailed([]);
               showPulse(id);
@@ -786,22 +796,22 @@ export function App() {
             )}
             <div className="segmented" role="tablist">
               {VIEWS.map((name) => (
-                <button
-                  key={name}
-                  role="tab"
-                  aria-selected={view === name}
-                  className={view === name ? "on" : ""}
-                  onClick={() => setView(name)}
-                  title={name === "work" && unseenFailed.length > 0 ? `${unseenFailed.length === 1 ? "a pulse" : `${unseenFailed.length} pulses`} failed - see why` : undefined}
-                >
-                  {name === "spec" ? <PlainName /> : name === "work" ? "regen" : name}
-                  {/* While any pulse runs - regenerating or conformance testing - and ! once one failed, until regen is shown. */}
-                  {name === "work" && running.length > 0 && <Spinner />}
-                  {name === "work" && unseenFailed.length > 0 && <span className="tab-failed" aria-label="a pulse failed">!</span>}
+                <button key={name} role="tab" aria-selected={view === name} className={view === name ? "on" : ""} onClick={() => setView(name)}>
+                  {name === "spec" ? <PlainName /> : name}
                 </button>
               ))}
             </div>
             <div className="toolbar-actions">
+              {/* The dive - and ! once a pulse failed, until it is shown. */}
+              <button
+                className="icon-button dive-open"
+                onClick={() => setDive(true)}
+                title={unseenFailed.length > 0 ? `${unseenFailed.length === 1 ? "a pulse" : `${unseenFailed.length} pulses`} failed - see why, in the dive (${keys("2")})` : `dive: every pulse, its plan, trace and cost (${keys("2")})`}
+                aria-label="dive"
+              >
+                <Icon name="bolt" />
+                {unseenFailed.length > 0 && <span className="tab-failed" aria-label="a pulse failed">!</span>}
+              </button>
               <button className="icon-button sidebar-toggle" onClick={toggleSidebar} title={`${sidebarOpen ? "hide" : "show"} the files (${keys("B")})`} aria-label={sidebarOpen ? "hide the files" : "show the files"} aria-pressed={sidebarOpen}>
                 <Icon name="sidebar" />
               </button>
@@ -809,7 +819,8 @@ export function App() {
           </header>
 
           <section className="content" tabIndex={-1}>
-            {view === "preview" ? (
+            {/* In the dive, no view: each comes back as it does from another view. */}
+            {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
               <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} panes={panes} onPane={openPane} testing={testing} />
             ) : view === "stdlib" ? (
@@ -820,45 +831,6 @@ export function App() {
                 onSelect={setTemplate}
                 onOpenSpec={(path) => {
                   setSelected(path);
-                  setView("spec");
-                }}
-              />
-            ) : view === "work" ? (
-              <WorkView
-                status={status}
-                jobs={allJobs}
-                earlier={earlier}
-                specs={project.specs}
-                opened={openPulses}
-                onToggle={(id) =>
-                  setOpenPulses((now) => {
-                    const next = new Set(now);
-                    if (!next.delete(id)) next.add(id);
-                    return next;
-                  })
-                }
-                focus={focusPulse}
-                onRevealed={() => setFocusPulse((now) => now && { ...now, reveal: false })}
-                onInvestigate={(failed) => {
-                  setChatOpen(true);
-                  window.turri.call("investigate", failed).catch((error) => say(engineSaid(error), "error"));
-                }}
-                readPlain={readPlain}
-                debug={project.settings.debug === true}
-                onShowInSpec={(rel, lines, point) => {
-                  // Where the pulse's lines are now - the ***plain may have changed since it ran - and the point clicked.
-                  const lit = { lines: lines.map((each) => each.line), texts: lines.map((each) => each.text), point, at: Date.now() };
-                  // The standard library's, in stdlib.
-                  if (rel.startsWith("stdlib/")) {
-                    const name = rel.replace(/\.plain$/, "");
-                    setTemplate(name);
-                    setReveal({ file: name, ...lit });
-                    return setView("stdlib");
-                  }
-                  // The project's: a module in the ***plain view, a template as its file.
-                  const file = project.specs.find((entry) => entry.rel === rel)?.file ?? `${project.dir}/${rel}`;
-                  setSelected(file);
-                  setReveal({ file, ...lit });
                   setView("spec");
                 }}
               />
@@ -990,6 +962,50 @@ export function App() {
           </div>
         )}
       </div>
+      {dive && (
+        <DiveScreen project={project.name} asking={chats.asking.size > 0} running={running.length > 0} onLeave={() => setDive(false)}>
+          <WorkView
+            status={status}
+            jobs={allJobs}
+            earlier={earlier}
+            specs={project.specs}
+            opened={openPulses}
+            onToggle={(id) =>
+              setOpenPulses((now) => {
+                const next = new Set(now);
+                if (!next.delete(id)) next.add(id);
+                return next;
+              })
+            }
+            focus={focusPulse}
+            onRevealed={() => setFocusPulse((now) => now && { ...now, reveal: false })}
+            onInvestigate={(failed) => {
+              setDive(false);
+              setChatOpen(true);
+              window.turri.call("investigate", failed).catch((error) => say(engineSaid(error), "error"));
+            }}
+            readPlain={readPlain}
+            debug={project.settings.debug === true}
+            onShowInSpec={(rel, lines, point) => {
+              // Where the pulse's lines are now - the ***plain may have changed since it ran - and the point clicked.
+              const lit = { lines: lines.map((each) => each.line), texts: lines.map((each) => each.text), point, at: Date.now() };
+              setDive(false);
+              // The standard library's, in stdlib.
+              if (rel.startsWith("stdlib/")) {
+                const name = rel.replace(/\.plain$/, "");
+                setTemplate(name);
+                setReveal({ file: name, ...lit });
+                return setView("stdlib");
+              }
+              // The project's: a module in the ***plain view, a template as its file.
+              const file = project.specs.find((entry) => entry.rel === rel)?.file ?? `${project.dir}/${rel}`;
+              setSelected(file);
+              setReveal({ file, ...lit });
+              setView("spec");
+            }}
+          />
+        </DiveScreen>
+      )}
       {switching !== null && (
         <div className="switching" role="status">
           <Spinner /> opening {switching.name}…

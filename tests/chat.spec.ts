@@ -18,7 +18,7 @@ test.describe("the chat", () => {
     // Where it is defined, from turri's graph: on a turri whose host entry gives it.
     test.skip(!(await offers(window)).links, "the turri running gives the window no graph of the ***plain");
     await tellChat(app, window, "chat:message", { role: "assistant", text: "The :Greeter: greets whoever runs it." });
-    await window.getByRole("tab", { name: "regen" }).click();
+    await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
     await window.locator(".prose .plain-concept", { hasText: ":Greeter:" }).click();
     await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
     await expect(window.locator(".editor-pane .pane-header")).toContainText("hello.plain");
@@ -95,7 +95,8 @@ test.describe("the chat", () => {
     await expect(window.locator(".suggestions")).not.toContainText("ctrl+h");
     await box.fill("/pulses");
     await box.press("Enter");
-    await expect(window.locator(".toolbar").getByRole("tab", { name: "regen", selected: true })).toBeVisible();
+    await expect(window.locator(".dive").getByRole("tab", { name: "regen", selected: true })).toBeVisible();
+    await window.locator(".dive .dive-back").click();
     await expect(window.locator(".chat-body .msg.assistant")).toHaveCount(0);
   });
 
