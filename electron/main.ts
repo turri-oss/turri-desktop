@@ -456,7 +456,6 @@ function createWorkspace(): Workspace {
     if (event === "status") {
       workspace.running = (data.jobs as Array<{ status: string }>).filter((job) => job.status === "running").length;
       showRunning();
-      if (!window.isDestroyed()) window.setProgressBar(workspace.running > 0 ? 2 : -1); // 2: indeterminate on macOS
     }
   }
 
