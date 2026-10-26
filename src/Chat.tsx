@@ -124,6 +124,17 @@ export type NoticeState = "open" | "accepted" | "steered" | "dismissed" | "super
 /** How the person answers a notice: one of its actions, by its index; their own words; or not at all. */
 export type NoticeAnswer = { action: number } | { steer: string } | { dismiss: true };
 
+/**
+ * Where, in the sentinel's chat, it said what it found of a pulse: what it wrote after its `conclude` of that pulse -
+ * or the call itself, while it has written nothing after it. None when the chat does not have that call.
+ */
+function concludedAt(items: ChatItem[], job: string): number | null {
+  const call = items.findIndex((item) => item.role === "assistant" && item.tools?.some((tool) => tool.name === "conclude" && (tool.args as { pulse?: unknown } | null)?.pulse === job));
+  if (call === -1) return null;
+  const said = items.findIndex((item, index) => index > call && item.role === "assistant" && item.text.trim() !== "");
+  return said === -1 || items.slice(call + 1, said).some((item) => item.role === "user") ? call : said;
+}
+
 /** The sentinel done with a pulse: whether what it checked holds, and what it checked and found. */
 export type Conclusion = { job: string; verdict: "holds" | "wrong"; summary: string; module?: string; pulse?: number };
 
@@ -244,6 +255,16 @@ export function Chat(props: {
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
   }, [props.items, props.queued, props.streaming, props.question?.id]);
 
+  // A conclusion's sentinel clicked: the sentinel's chat shown at what it said of that pulse, not at its end - once the
+  // chat is shown and has it. Asked for until another chat is shown.
+  const reveal = useRef<{ chat: string; job: string } | null>(null);
+  const [revealed, setRevealed] = useState<{ chat: string; at: number } | null>(null);
+  const anchor = useRef<HTMLDivElement>(null);
+  const showConclusion = (chat: string, job: string) => {
+    reveal.current = { chat, job };
+    props.onShowChat(chat);
+  };
+
   // ctrl+c, as in turri's terminal, wherever the focus is while the chat is open - but in the preview's terminal, whose
   // shell it is: a question asked declined - each one, however many in a row, the turn going on; with none, what the
   // chat shown is doing stopped; doing nothing, its draft cleared, and with none turri left - the window closes. On
@@ -280,9 +301,22 @@ export function Chat(props: {
     input.current?.focus();
   }, [props.chatId]);
 
+  useEffect(() => {
+    const wanted = reveal.current;
+    if (wanted === null || wanted.chat !== props.chatId) return setRevealed(null);
+    const at = concludedAt(props.items, wanted.job);
+    if (at === null) return;
+    reveal.current = null;
+    stick.current = false;
+    setRevealed({ chat: wanted.chat, at });
+  }, [props.chatId, props.items]);
+  useEffect(() => anchor.current?.firstElementChild?.scrollIntoView({ block: "start" }), [revealed]);
+
   // Results by the call they answer, shown under it.
   const results = new Map<string, Extract<ChatItem, { role: "toolResult" }>>();
   for (const item of props.items) if (item.role === "toolResult") results.set(item.id, item);
+  // The sentinel's chat, while its tab is open: a conclusion's name opens it.
+  const sentinel = props.chats.find((chat) => chat.role === "sentinel")?.id;
   // How each notice drawn ended, from the transcript: an ending names its notice's summary, and is the latest one's
   // before it of that summary still open - then what turri said while the window was there, over it.
   const endings = new Map<string, NoticeState>();
@@ -444,8 +478,13 @@ export function Chat(props: {
         {props.items.map((item, index) =>
           item.role === "toolResult" || item.role === "noticeOver" ? null : item.role === "notice" ? (
             <NoticeCard key={item.notice.id} notice={item.notice} open={props.notices.has(item.notice.id)} ended={endings.get(item.notice.id)} onAnswer={(answer) => props.onAnswerNotice(item.notice.id, answer)} />
+          ) : revealed?.chat === props.chatId && revealed.at === index ? (
+            // What the sentinel said of the pulse, scrolled to: in a box of no layout of its own, so it lies as the rest.
+            <div key={index} className="chat-anchor" ref={anchor}>
+              <Message item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} sentinel={sentinel === props.chatId ? undefined : sentinel} onShowConclusion={showConclusion} />
+            </div>
           ) : (
-            <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} />
+            <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} sentinel={sentinel === props.chatId ? undefined : sentinel} onShowConclusion={showConclusion} />
           ),
         )}
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
@@ -628,12 +667,18 @@ function Message({
   running,
   live,
   onShowPulse,
+  sentinel,
+  onShowConclusion,
 }: {
   item: ChatItem;
   results: Map<string, Extract<ChatItem, { role: "toolResult" }>>;
   running: Map<string, boolean>;
   live?: boolean;
   onShowPulse?: (id: string) => void;
+  /** The sentinel's chat, while its tab is open and it is not the chat shown: its name in a conclusion goes there. */
+  sentinel?: string;
+  /** The sentinel's chat shown at what it said of a pulse. */
+  onShowConclusion?: (chat: string, job: string) => void;
 }) {
   const [thinking, setThinking] = useState(false);
   if (item.role === "user")
@@ -668,18 +713,32 @@ function Message({
       </div>
     );
   }
-  // The sentinel done with a pulse: one line, as a pulse's end is - what it checked holds, or something is wrong, its
-  // notice saying what - and what it checked and found under it. A click opens the pulse in the regen view.
+  // The sentinel done with a pulse: one line, as a pulse's end is - its name a link to what it said of the pulse in its
+  // chat, the pulse a link to regen. Only something wrong is said, with what it found; when it holds, the tick is all.
   if (item.role === "concluded") {
     const { conclusion } = item;
     const holds = conclusion.verdict === "holds";
+    const pulse = [conclusion.module, conclusion.pulse !== undefined ? `pulse ${conclusion.pulse}` : null].filter(Boolean).join(" · ") || "the pulse";
     return (
       <div className={`msg concluded ${conclusion.verdict}`}>
-        <button className="job-note-head" onClick={() => onShowPulse?.(conclusion.job)} title="open the pulse in the regen view">
-          <Icon name={holds ? "check" : "x"} size={14} />
-          <strong>{[SENTINEL_NAME, conclusion.module, conclusion.pulse !== undefined ? `pulse ${conclusion.pulse}` : null, holds ? "checked, it holds" : "found something wrong"].filter(Boolean).join(" · ")}</strong>
-        </button>
-        {conclusion.summary && <div className="concluded-summary"><Prose text={conclusion.summary} /></div>}
+        <div className="concluded-head">
+          <Icon name={holds ? "check" : "x"} size={14} />{" "}
+          <button className="concluded-link sentinel" disabled={sentinel === undefined} onClick={() => sentinel !== undefined && onShowConclusion?.(sentinel, conclusion.job)} title={sentinel === undefined ? undefined : "read what the sentinel found, in its chat"}>
+            <Icon name="eye" size={13} />
+            {SENTINEL_NAME}
+          </button>
+          <span className="muted"> · </span>
+          <button className="concluded-link pulse" onClick={() => onShowPulse?.(conclusion.job)} title="open the pulse in the regen view">
+            {pulse}
+          </button>
+          {!holds && (
+            <>
+              <span className="muted"> · </span>
+              <span className="concluded-verdict muted">found something wrong</span>
+            </>
+          )}
+        </div>
+        {!holds && conclusion.summary && <div className="concluded-summary"><Prose text={conclusion.summary} /></div>}
       </div>
     );
   }

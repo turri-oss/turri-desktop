@@ -148,17 +148,57 @@ test.describe("the sentinel", () => {
     await expect(window.getByRole("region", { name: "notice: the list is not newest first" }).locator(".notice-ended")).toHaveText("answered in your words");
   });
 
-  test("shows the sentinel's conclusions as a line", async ({ launched: { app, window } }) => {
+  test("shows the sentinel's conclusions as a line - what it found only when something is wrong - linking its chat and the pulse", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    await app.evaluate(({ BrowserWindow }, chats) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:chats", chats), [
+      { id: chat, title: "new chat", status: "idle", shown: true },
+      { id: "s", title: "sentinel", status: "idle", shown: false, role: "sentinel" },
+    ]);
     await transcript(app, window, [
       { customType: "turri_sentinel_concluded", data: { job: "j-backend-3", verdict: "holds", summary: "it saves and lists messages", module: "backend", pulse: 3 } },
       { customType: "turri_sentinel_concluded", data: { job: "j-frontend-2", verdict: "wrong", summary: "the send button does nothing", module: "frontend", pulse: 2 } },
     ]);
     const lines = window.locator(".msg.concluded");
     await expect(lines.nth(0)).toHaveClass(/holds/);
-    await expect(lines.nth(0).locator("strong")).toHaveText("sentinel · backend · pulse 3 · checked, it holds");
-    await expect(lines.nth(0)).toContainText("it saves and lists messages");
-    await expect(lines.nth(1).locator("strong")).toHaveText("sentinel · frontend · pulse 2 · found something wrong");
+    await expect(lines.nth(0).locator(".concluded-head")).toHaveText("sentinel · backend · pulse 3");
+    await expect(lines.nth(0)).not.toContainText("it saves and lists messages");
+    await expect(lines.nth(1).locator(".concluded-head")).toHaveText("sentinel · frontend · pulse 2 · found something wrong");
+    await expect(lines.nth(1)).toContainText("the send button does nothing");
+    // Its name a link to the sentinel's chat, the pulse a link to regen.
+    await expect(lines.nth(0).getByRole("button", { name: "sentinel" })).toBeEnabled();
+    await lines.nth(0).getByRole("button", { name: "backend · pulse 3" }).click();
+    // A pulse the ledger does not have - this one is made up - is said so, rather than opened.
+    await expect(window.getByText("that pulse ran in an earlier session")).toBeVisible();
+  });
+
+  test("opens the sentinel's chat at what it said of the pulse, from a conclusion's sentinel - not at its end", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    const chats = (shown: string) => [
+      { id: chat, title: "new chat", status: "idle", shown: shown === chat },
+      { id: "s", title: "sentinel", status: "idle", shown: shown === "s", role: "sentinel" },
+    ];
+    const tell = (event: string, to: string, data: unknown) => app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send(`engine:${sent.event}`, { chat: sent.to, data: sent.data }), { event, to, data });
+    await app.evaluate(({ BrowserWindow }, told) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:chats", told), chats(chat));
+    // The sentinel's chat, as it goes: a pulse checked and concluded, what it found said after, then much more.
+    const filler = (n: number) => ({ role: "assistant", text: `checking pulse ${n}.\n\n${"what it ran and saw. ".repeat(40)}` });
+    const said = [
+      filler(1),
+      filler(2),
+      { role: "assistant", text: "", tools: [{ id: "c3", name: "conclude", args: { pulse: "j-backend-3", verdict: "holds", summary: "it saves" } }] },
+      { role: "toolResult", id: "c3", name: "conclude", text: "The chat the person is in is told.", isError: false },
+      { role: "assistant", text: "Pulse j-backend-3 holds. I ran the release and it saves and lists messages." },
+      ...[4, 5, 6, 7, 8, 9].map(filler),
+    ];
+    for (const item of said) await tell("chat:message", "s", item);
+    await transcript(app, window, [{ customType: "turri_sentinel_concluded", data: { job: "j-backend-3", verdict: "holds", summary: "it saves", module: "backend", pulse: 3 } }]);
+    await window.locator(".msg.concluded").getByRole("button", { name: "sentinel" }).click();
+    // The engine shows it, as turri tells it has.
+    await app.evaluate(({ BrowserWindow }, told) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:chats", told), chats("s"));
+    const summary = window.locator(".chat-anchor").getByText("Pulse j-backend-3 holds.");
+    await expect(summary).toBeInViewport();
+    await expect(window.getByText("checking pulse 9.")).not.toBeInViewport();
   });
 
   test("draws the sentinel's tab last, by its eye - closable, while the person's only chat is not", async ({ launched: { app, window } }) => {

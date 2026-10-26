@@ -36,6 +36,7 @@
   --tested: #5ce1e6;
   /* turri at work in the preview, trying the app: the edge round the pane, and its badge. */
   --testing: #4da3ff;
+  --sentinel: #8f8bf2; /* the kit's indigo, light enough to read on the abyss: the sentinel's, apart from conformance's neon */
   --plain-section: #ff7fa6;
   --plain-concept: #5ce1e6;
   --plain-literal: #e9d8c8;
@@ -90,6 +91,7 @@
   --built: #d63a6f;
   --tested: color-mix(in srgb, #5ce1e6 62%, #0a0f1a);
   --testing: #2f6fe4;
+  --sentinel: #5b57d9; /* the kit's indigo */
   --plain-section: #3e5a6b;
   --plain-concept: #732553;
   --plain-literal: #1e3442;
@@ -139,6 +141,7 @@
     --built: #d63a6f;
   --tested: color-mix(in srgb, #5ce1e6 62%, #0a0f1a);
   --testing: #2f6fe4;
+  --sentinel: #5b57d9; /* the kit's indigo */
   --plain-section: #3e5a6b;
     --plain-concept: #732553;
     --plain-literal: #1e3442;
@@ -1589,7 +1592,7 @@ code {
 .chat-tab-eye {
   display: inline-flex;
   flex: none;
-  color: var(--accent);
+  color: var(--sentinel);
 }
 /* Its ×, on every tab while the person has two chats, and always on the sentinel's: the tab shown's as bright as its
    title, the others' dimmer. */
@@ -1841,20 +1844,55 @@ code {
   color: var(--fg-2);
   font-size: 11.5px;
 }
-/* The sentinel done with a pulse: a line, as a pulse's end is - neon when what it checked holds, red when it does not. */
+/* What the sentinel said of a pulse, scrolled to from a conclusion: a box of no layout, the message lying as the rest. */
+.chat-anchor {
+  display: contents;
+}
+/* The sentinel done with a pulse: a line, as a pulse's end is - in the sentinel's indigo when what it checked holds,
+   red when it does not - its name a link to what it said of the pulse, the pulse a link to regen. */
 .msg.concluded {
-  border-left: 3px solid var(--tested);
+  --verdict: var(--sentinel);
+  border-left: 3px solid var(--verdict);
   padding: 4px 10px;
   font-size: 12.5px;
 }
 .msg.concluded.wrong {
-  border-left-color: var(--red);
+  --verdict: var(--red);
 }
-.msg.concluded .icon {
-  color: var(--tested);
+.concluded-head .icon {
+  vertical-align: -2px;
 }
-.msg.concluded.wrong .icon {
-  color: var(--red);
+.concluded-head > .icon {
+  color: var(--verdict);
+}
+.concluded-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.concluded-link.sentinel {
+  color: var(--sentinel);
+}
+.concluded-link.sentinel .icon {
+  margin-right: 4px;
+}
+.concluded-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.concluded-link:disabled {
+  cursor: default;
+}
+.concluded-head .muted {
+  font-size: 11.5px;
+}
+/* Each part whole: a narrow chat wraps between them, never inside one. */
+.concluded-link,
+.concluded-verdict {
+  white-space: nowrap;
 }
 .concluded-summary {
   margin-top: 2px;
