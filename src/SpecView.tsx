@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Job, Spec } from "./types.ts";
-import { elapsed, Icon, PlainMark, PlainName, Spinner, useTick, withPlain } from "./ui.tsx";
-import { type Point, pointNow, relocate, stageOf } from "./PulseSpec.tsx";
+import { Icon, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
+import { type Point, pointNow, relocate } from "./PulseSpec.tsx";
 import { followAt, PlainLinks, useModHeld, usePlainLinks, type Followed, type OpenLink } from "./PlainLinks.tsx";
 import { keys, withMod } from "./platform.ts";
 
@@ -245,22 +245,16 @@ export function SpecView(props: {
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
   /**
-   * A functional spec's mark, clicked. Built, it is regenerated again, or its conformance tests written. Not built - new,
-   * or changed since - it is regenerated, not again: with the others not built yet, as each is built on the ones before
-   * it and turri builds them in order. Its conformance tests wait for its code.
+   * A functional spec's mark, clicked: its menu, under it - regenerate that functional spec, and only it, or validate it,
+   * its conformance tests written, which wait for its code.
    */
-  const markerMenu = async (frid: string) => {
-    const built = spec.functionalSpecs.find((entry) => entry.frid === frid)?.built === true;
-    const left = spec.functionalSpecs.filter((entry) => !entry.built).map((entry) => entry.frid);
-    const chosen = await window.turri.popup([
-      built
-        ? { id: "again", label: `regenerate ${frid}` }
-        : { id: "build", label: left.length > 1 ? `regenerate functional specs ${left.join(", ")} - not built yet` : `regenerate ${frid}` },
-      built ? { id: "conform", label: `validate ${frid}` } : { id: "conform", label: `validate ${frid} - once it is built`, enabled: false },
-    ]);
-    if (chosen === "again") props.onRegenerate([frid]);
-    else if (chosen === "build") props.onRegenerate();
-    else if (chosen === "conform") props.onConform([frid]);
+  const [markMenu, setMarkMenu] = useState<{ frid: string; x: number; y: number } | null>(null);
+  // What the pointer is on in that menu: the functional spec it would act on lit in the text, in that one's colour.
+  const [pointed, setPointed] = useState<"regenerate" | "validate" | null>(null);
+  const markerMenu = (frid: string, mark: HTMLElement) => {
+    leave();
+    const box = mark.getBoundingClientRect();
+    setMarkMenu({ frid, x: box.left, y: box.bottom + 4 });
   };
 
   const total = spec.functionalSpecs.length;
@@ -393,8 +387,22 @@ export function SpecView(props: {
   const hovered = hover !== null ? { ...hover, state: stateOf(hover.frid, hover.line), entry: entryFor(hover.frid, hover.line) } : null;
 
   return (
-    <div className="spec-view">
-      {hovered && <SpecStatePop {...hovered} module={spec.module} running={running} isNew={dirty && hovered.entry === undefined} />}
+    // What runs now, in its kind's colour - regenerating pink, conformance testing cyan - wherever the view shows it.
+    <div className="spec-view" data-working={running?.kind === "conformance" ? "conformance" : "regenerate"}>
+      {markMenu && (
+        <MarkMenu
+          {...markMenu}
+          built={spec.functionalSpecs.find((entry) => entry.frid === markMenu.frid)?.built === true}
+          onRegenerate={() => props.onRegenerate([markMenu.frid])}
+          onConform={() => props.onConform([markMenu.frid])}
+          onPoint={setPointed}
+          onClose={() => {
+            setMarkMenu(null);
+            setPointed(null);
+          }}
+        />
+      )}
+      {hovered && <SpecStatePop {...hovered} running={running} isNew={dirty && hovered.entry === undefined} />}
       <div className="editor-pane">
         <div className="pane-header">
           <span className="pane-title" title={spec.file}>
@@ -489,8 +497,9 @@ export function SpecView(props: {
                 const hidden = isFolded ? (lastOf.get(index) ?? index) - index : 0;
                 // A collapsed spec is lit while the work renders any of its lines.
                 const lit = rendering.has(index) || revealed.has(index) || (isFolded && [...rendering, ...revealed].some((at) => hiddenBy.get(at) === index));
+                const aimed = pointed !== null && mark !== undefined && mark.frid === markMenu?.frid ? `pointed ${pointed}` : "";
                 return (
-                  <div key={index} data-line={index} className={[lit ? "rendering" : "", isFolded ? "folded" : ""].join(" ").trim() || undefined}>
+                  <div key={index} data-line={index} className={[lit ? "rendering" : "", isFolded ? "folded" : "", aimed].join(" ").trim() || undefined}>
                     {mark && state && (
                       <span className={`gutter ${state}`}>
                         {canFold && (
@@ -508,10 +517,10 @@ export function SpecView(props: {
                           <button
                             className="mark"
                             aria-label={`functional spec ${mark.frid}, ${STATE_LABEL[state]}`}
-                            onClick={() => void markerMenu(mark.frid)}
+                            onClick={(event) => markerMenu(mark.frid, event.currentTarget)}
                             onContextMenu={(event) => {
                               event.preventDefault();
-                              void markerMenu(mark.frid);
+                              markerMenu(mark.frid, event.currentTarget);
                             }}
                           >
                             {state === "now" ? <Spinner /> : state === "conformed" ? <Icon name="checks" size={12} /> : state === "built" ? <Icon name="check" size={12} /> : null}
@@ -576,41 +585,95 @@ export function SpecView(props: {
  * conformance tests written and run, and at what stage - or what has been done: regenerated, conformance tested, or
  * neither yet.
  */
-function SpecStatePop(props: { frid: string; x: number; y: number; state: State; module: string; running?: Job; isNew: boolean }) {
-  const { frid, state, running } = props;
-  const working = state === "now" && running !== undefined;
-  useTick(working);
-  const conformance = running?.kind === "conformance";
-  // The stage as the pulse says it, without the module it is said of: "server: running the unit tests".
-  const stage = (running && stageOf(running))?.replace(new RegExp(`^${props.module.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( functionality \\S+)?: `), "");
+/**
+ * What a functional spec's mark offers: regenerate it, or validate it once it is built - that functional spec alone.
+ * Each is lit as it is pointed at, or reached with the arrow keys, in its kind's colour - and the functional spec with it.
+ * Escape, a click elsewhere or the window left closes it.
+ */
+function MarkMenu(props: {
+  x: number;
+  y: number;
+  built: boolean;
+  onRegenerate: () => void;
+  onConform: () => void;
+  onPoint: (item: "regenerate" | "validate" | null) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const { onClose } = props;
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus();
+    const away = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onClose();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("mousedown", away, true);
+    document.addEventListener("keydown", escape, true);
+    window.addEventListener("blur", onClose);
+    return () => {
+      document.removeEventListener("mousedown", away, true);
+      document.removeEventListener("keydown", escape, true);
+      window.removeEventListener("blur", onClose);
+    };
+  }, []);
+  // Up and down go along what can be chosen, round from the ends.
+  const move = (event: React.KeyboardEvent) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)") ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+    next?.focus();
+    if (next) props.onPoint(next.classList.contains("validate") ? "validate" : "regenerate");
+  };
+  const aim = (item: "regenerate" | "validate") => ({
+    onMouseEnter: () => props.onPoint(item),
+    onMouseLeave: () => props.onPoint(null),
+  });
+  const choose = (then: () => void) => () => {
+    onClose();
+    then();
+  };
+  return (
+    <div ref={ref} className="mark-menu" role="menu" style={{ left: props.x, top: props.y }} onKeyDown={move}>
+      <button role="menuitem" className="regenerate" onClick={choose(props.onRegenerate)} {...aim("regenerate")}>
+        regenerate
+      </button>
+      <button role="menuitem" className="validate" disabled={!props.built} onClick={choose(props.onConform)} {...aim("validate")}>
+        validate{!props.built && <span className="muted"> - once it is built</span>}
+      </button>
+    </div>
+  );
+}
+
+function SpecStatePop(props: { frid: string; x: number; y: number; state: State; running?: Job; isNew: boolean }) {
+  const { state, running } = props;
+  // Built now: no more than what is being done - validating or regenerating - by the loader.
+  const working = state === "now";
   const [title, detail] = props.isNew
     ? ["new - not saved yet", "save the ***plain, then regenerate builds it."]
     : working
-      ? [conformance ? "conformance testing" : "regenerating", stage ?? (conformance ? "its conformance tests are being written and run." : "its code is being regenerated from the ***plain.")]
-      : state === "now"
-        ? ["regenerating", "a pulse is building it now."]
-        : state === "conformed"
-          ? ["regenerated and conformance tested", "its code is built from the ***plain as it is, and its conformance tests pass."]
-          : state === "built"
-            ? ["regenerated", "its code is built from the ***plain as it is. it has no passing conformance tests yet."]
-            : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];
+      ? [running?.kind === "conformance" ? "validating" : "regenerating", null]
+      : state === "conformed"
+        ? ["regenerated and validated", "its code is built from the ***plain as it is, and its conformance tests pass."]
+        : state === "built"
+          ? ["regenerated", "its code is built from the ***plain as it is. it has no passing conformance tests yet."]
+          : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];
   // Kept inside the window: below the line, or above it near the bottom.
   const left = Math.min(props.x + 12, window.innerWidth - 340);
   const below = props.y + 120 < window.innerHeight;
   return (
     <div className={`spec-pop ${state}`} style={{ left, ...(below ? { top: props.y + 6 } : { bottom: window.innerHeight - props.y + 30 }) }} role="tooltip">
       <div className="spec-pop-head">
-        <span className={`spec-pop-mark ${props.isNew ? "todo" : state}`}>{working || state === "now" ? <Spinner /> : state === "conformed" ? <Icon name="checks" size={12} /> : state === "built" ? <Icon name="check" size={12} /> : null}</span>
+        <span className={`spec-pop-mark ${props.isNew ? "todo" : state}`}>{working ? <Spinner /> : state === "conformed" ? <Icon name="checks" size={12} /> : state === "built" ? <Icon name="check" size={12} /> : null}</span>
         <strong>{title}</strong>
-        <span className="muted">functional spec {frid}</span>
       </div>
-      <div className="spec-pop-detail">{withPlain(detail)}</div>
-      {working && running && (
-        <div className="spec-pop-pulse muted">
-          {running.title ?? running.summary}
-          {running.pulse !== undefined ? ` · pulse ${running.pulse}` : ""} · {elapsed(running.building?.since ?? running.startedAt)}
-        </div>
-      )}
+      {detail !== null && <div className="spec-pop-detail">{withPlain(detail)}</div>}
     </div>
   );
 }

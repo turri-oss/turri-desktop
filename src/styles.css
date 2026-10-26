@@ -469,6 +469,11 @@ code {
 .state-dot.error {
   background: var(--red);
 }
+/* Built now: the building loader in the dot's place, whole. */
+.state-dot.running {
+  width: auto;
+  height: auto;
+}
 
 /* A setting that is on or off, in the settings sheets. */
 .setting-switch {
@@ -926,7 +931,7 @@ code {
   color: var(--accent);
 }
 .gutter.now::before {
-  background: var(--accent);
+  background: var(--working);
   width: 4px;
 }
 .gutter.todo::before {
@@ -955,9 +960,12 @@ code {
   border-color: var(--built);
   background: var(--built);
 }
+/* Built now, the mark is the building loader itself, in place of its box - whole, at 2px a pixel, so none of it is
+   cut off or blurred. */
 .gutter.now .mark {
-  border-color: var(--accent);
-  color: var(--accent);
+  height: 16px;
+  border: 0;
+  background: none;
 }
 /* A functional spec of more than one line collapses to its first: a chevron beside its mark, and what is hidden. */
 .fold {
@@ -1002,9 +1010,6 @@ code {
   border-color: var(--accent);
   color: var(--fg);
 }
-.mark .spinner {
-  transform: scale(0.75);
-}
 .plain-section {
   color: var(--plain-section);
   font-weight: 700;
@@ -1047,10 +1052,17 @@ code {
   transition: width 0.4s;
 }
 
+/* What runs now, in its kind's colour: a regenerate pulse pink, a conformance run cyan. */
+.spec-view {
+  --working: var(--built);
+}
+.spec-view[data-working="conformance"] {
+  --working: var(--tested);
+}
 /* The lines the running work renders now. */
 .editor-colours > div.rendering {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  box-shadow: -4px 0 0 color-mix(in srgb, var(--accent) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--working) 16%, transparent);
+  box-shadow: -4px 0 0 color-mix(in srgb, var(--working) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--working) 16%, transparent);
 }
 
 .disk-banner {
@@ -3329,7 +3341,9 @@ code {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  width: 320px;
+  /* As wide as what it says - "validating" alone is narrow - up to a width that reads. */
+  width: max-content;
+  max-width: 320px;
   height: auto;
   text-align: left;
   align-items: stretch;
@@ -3381,7 +3395,59 @@ code {
   color: var(--bg);
 }
 .spec-pop-mark.now {
-  border-color: var(--pink);
+  border-color: var(--working);
+}
+
+/* The functional spec a choice in its mark's menu would act on, lit in that choice's colour while it is pointed at. */
+.editor-colours > div.pointed.regenerate {
+  background: color-mix(in srgb, var(--built) 16%, transparent);
+  box-shadow: -4px 0 0 color-mix(in srgb, var(--built) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--built) 16%, transparent);
+}
+.editor-colours > div.pointed.validate {
+  background: color-mix(in srgb, var(--tested) 16%, transparent);
+  box-shadow: -4px 0 0 color-mix(in srgb, var(--tested) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--tested) 16%, transparent);
+}
+
+/* A functional spec's mark, clicked: regenerate it or validate it, each word lit in its kind's colour as it is pointed
+   at - regenerate pink, validate cyan. */
+.mark-menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid transparent;
+  box-shadow: var(--float);
+  font-size: 12px;
+  animation: spec-pop-in 0.12s ease-out;
+}
+.mark-menu button {
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  padding: 4px 8px;
+}
+.mark-menu button:focus {
+  outline: none;
+}
+.mark-menu button:not(:disabled):hover,
+.mark-menu button:not(:disabled):focus-visible {
+  background: var(--hover);
+}
+.mark-menu .regenerate:hover,
+.mark-menu .regenerate:focus-visible {
+  color: var(--built);
+}
+.mark-menu .validate:not(:disabled):hover,
+.mark-menu .validate:not(:disabled):focus-visible {
+  color: var(--tested);
+}
+.mark-menu button:disabled {
+  color: var(--fg-3);
 }
 .spec-pop-mark .spinner {
   transform: scale(0.7);
@@ -3390,12 +3456,6 @@ code {
   margin-top: 8px;
   color: var(--fg-2);
   line-height: 1.45;
-}
-.spec-pop-pulse {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-  font-size: 11px;
 }
 
 /* ---------- a pulse's kind: regenerate pink, conformance cyan - as the intent view marks built and tested ---------- */
