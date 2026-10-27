@@ -1,6 +1,6 @@
 {
   "name": "turri-app",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "description": "A proof of concept: turri as a native desktop app, for people who do not live in a terminal.",
   "type": "module",
@@ -42,7 +42,7 @@
     "vite": "^8.3.4"
   },
   "dependencies": {
-    "@turri-dev/cli": "0.1.25",
+    "@turri-dev/cli": "0.1.27",
     "@xterm/headless": "^6.0.0",
     "electron-updater": "^6.8.9",
     "node-pty": "1.1.0"

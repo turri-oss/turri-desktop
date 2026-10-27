@@ -3,7 +3,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="MIT licence"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="macOS and Linux">
-  <a href="https://www.npmjs.com/package/@turri-dev/cli"><img src="https://img.shields.io/badge/turri-0.1.25-ff5fa2" alt="runs turri 0.1.25"></a>
+  <a href="https://www.npmjs.com/package/@turri-dev/cli"><img src="https://img.shields.io/badge/turri-0.1.27-ff5fa2" alt="runs turri 0.1.27"></a>
   <a href="https://discord.com/invite/REJzFmVQfC"><img src="https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white" alt="Join the turri Discord"></a>
 </p>
 
