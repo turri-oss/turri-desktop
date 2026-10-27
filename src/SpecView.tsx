@@ -410,8 +410,8 @@ export function SpecView(props: {
           </span>
           <span className="pane-header-right">
             {spec.ok && total > 0 && (
-              <span className="muted">
-                {built} of {total} built ·
+              <span className="built-count" title="functional specs whose code is regenerated from the ***plain">
+                <Icon name="check" size={12} /> {built} of {total} regenerated <span className="muted">·</span>
               </span>
             )}
             {spec.ok && conformedCount > 0 && (
@@ -421,7 +421,7 @@ export function SpecView(props: {
             )}
             {foldable.length > 0 && (
               <>
-                <button className="link" onClick={() => foldAll(!allFolded)} title={allFolded ? "show every functional spec whole" : "show only the first line of each functional spec"}>
+                <button className="link fold-all" onClick={() => foldAll(!allFolded)} title={allFolded ? "show every functional spec whole" : "show only the first line of each functional spec"}>
                   {allFolded ? "expand all" : "collapse all"}
                 </button>
                 <span className="muted">·</span>
@@ -496,10 +496,13 @@ export function SpecView(props: {
                 const isFolded = canFold && folded.has(index);
                 const hidden = isFolded ? (lastOf.get(index) ?? index) - index : 0;
                 // A collapsed spec is lit while the work renders any of its lines.
-                const lit = rendering.has(index) || revealed.has(index) || (isFolded && [...rendering, ...revealed].some((at) => hiddenBy.get(at) === index));
+                // The work's lines in its colour; the lines a click opened on in the highlighter's - each on a folded
+                // functional spec's line when it hides them.
+                const lit = rendering.has(index) || (isFolded && [...rendering].some((at) => hiddenBy.get(at) === index));
+                const shown = revealed.has(index) || (isFolded && [...revealed].some((at) => hiddenBy.get(at) === index));
                 const aimed = pointed !== null && mark !== undefined && mark.frid === markMenu?.frid ? `pointed ${pointed}` : "";
                 return (
-                  <div key={index} data-line={index} className={[lit ? "rendering" : "", isFolded ? "folded" : "", aimed].join(" ").trim() || undefined}>
+                  <div key={index} data-line={index} className={[lit ? "rendering" : "", shown ? "revealed" : "", isFolded ? "folded" : "", aimed].join(" ").trim() || undefined}>
                     {mark && state && (
                       <span className={`gutter ${state}`}>
                         {canFold && (

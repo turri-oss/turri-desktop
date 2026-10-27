@@ -2,8 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, showRegen, test } from "./app.ts";
 
-// turri's browser and terminal tools bring the window to the one they use ("preview:reveal", "terminal:reveal"): sent
-// here as they would be.
+// turri's browser and terminal tools tell the window which they use ("preview:reveal", "terminal:reveal") - never bringing
+// it there: sent here as they would be.
 test.describe("the preview", () => {
   test("opens on neither, then on each as it is used, with a switch once both are", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
@@ -16,12 +16,40 @@ test.describe("the preview", () => {
     await expect(window.locator(".preview-terminal")).toHaveCount(1);
     await expect(window.locator(".preview-bar .segmented")).toHaveCount(0);
 
+    // The browser too: a switch between the two - the terminal staying in front, as the person had it.
     await reveal("preview:reveal");
-    await expect(window.locator(".preview-address")).toHaveCount(1);
-    await window.getByRole("tab", { name: "terminal" }).click();
     await expect(window.locator(".preview-terminal")).toHaveCount(1);
     await window.getByRole("tab", { name: "browser" }).click();
     await expect(window.locator(".preview-address")).toHaveCount(1);
+    await window.getByRole("tab", { name: "terminal" }).click();
+    await expect(window.locator(".preview-terminal")).toHaveCount(1);
+  });
+
+  test("never takes the person there while turri tests: the preview glows, and they come to watch if they like", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    const tab = window.locator(".toolbar").getByRole("tab", { name: "preview" });
+    await send("terminal:reveal", null);
+    await send("preview:testing", true);
+    // The ***plain stays in front; the preview's tab glows.
+    await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
+    await expect(tab).toHaveClass(/testing/);
+    await expect(tab).toHaveAttribute("title", "turri is testing - watch it");
+    // In the dive too: it stays, and offers to watch.
+    await showRegen(window);
+    await send("terminal:reveal", null);
+    await expect(window.locator(".dive")).toBeVisible();
+    await window.locator(".dive-watch").click();
+    // Come to watch: the preview, on what turri works in, edged - and the tab glows no more.
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    await expect(window.locator(".preview.testing .preview-terminal")).toHaveCount(1);
+    await expect(tab).not.toHaveClass(/testing/);
+    // turri in the browser meanwhile: the browser's switch glows, the terminal staying in front.
+    await send("preview:reveal", null);
+    await expect(window.getByRole("tab", { name: "browser" })).toHaveClass(/testing/);
+    await expect(window.locator(".preview-terminal")).toHaveCount(1);
+    await send("preview:testing", false);
+    await expect(window.getByRole("tab", { name: "browser" })).not.toHaveClass(/testing/);
   });
 });
 
@@ -125,6 +153,9 @@ test.describe("browser_click", () => {
     const request = tool(app);
     await request("browser", "navigate", { url: address });
     const heard = async () => ((await request<{ text: string }>("browser", "read", {})).text.split("\n").filter((line) => /^(click|down|dblclick|over)/.test(line)));
+    // Watched: the pane where the person sees it, at the size the preview gives it.
+    await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
+    await expect(window.locator(".preview-page")).toBeVisible();
 
     // The screenshot's pixels are the page's: a point in it is the same point of the page.
     const shot = await request<{ data: string }>("browser", "screenshot", {});
@@ -151,14 +182,41 @@ test.describe("terminal_screenshot", () => {
     await window.getByRole("tab", { name: "preview" }).click();
     await window.getByRole("button", { name: "open a terminal" }).click();
     await expect(window.locator(".preview-terminal .xterm-screen")).toBeVisible();
-    // The window away from the preview: the screenshot brings it back to the terminal first.
-    await showRegen(window);
     const shot = await request<{ data: string; mimeType: string; rows: number; cols: number }>("terminal", "screenshot", {});
     expect(shot.mimeType).toBe("image/jpeg");
-    await expect(window.locator(".preview-terminal")).toBeVisible();
     const width = await window.locator(".preview-terminal .xterm").evaluate((element) => Math.round(element.getBoundingClientRect().width));
     expect(jpegWidth(Buffer.from(shot.data, "base64"))).toBe(width);
     expect(shot.rows).toBeGreaterThan(2);
+    // The person looking elsewhere: it is not pictured, and the window stays where they are.
+    await window.locator(".toolbar").getByRole("tab", { name: "***plain" }).click();
+    await expect(request("terminal", "screenshot", {})).rejects.toThrow("The person is not looking at the terminal");
+    await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
+  });
+});
+
+test.describe("the browser tools, while the person looks elsewhere", () => {
+  let server: Server;
+  let address: string;
+  test.beforeAll(async () => {
+    server = createServer((_request, response) => response.end(`<!doctype html><title>away</title><button onclick="this.textContent='pressed'">press</button>`));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    address = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  });
+  test.afterAll(() => server.close());
+
+  test("open, read, click and picture the page out of sight - the window staying where it is", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const request = tool(app);
+    await request("browser", "navigate", { url: address });
+    expect((await request<{ did: string }>("browser", "click", { text: "press" })).did).toContain("press");
+    expect((await request<{ text: string }>("browser", "read", {})).text).toContain("pressed");
+    const shot = await request<{ data: string; mimeType: string }>("browser", "screenshot", {});
+    expect(shot.mimeType).toBe("image/jpeg");
+    expect(jpegWidth(Buffer.from(shot.data, "base64"))).toBeGreaterThan(100);
+    await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
+    // Come to it: the page as turri left it.
+    await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
+    await expect(window.locator(".preview-address input")).toHaveValue(/127\.0\.0\.1/);
   });
 });
 

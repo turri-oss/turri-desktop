@@ -23,7 +23,7 @@ test.describe("the chat", () => {
     await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
     await expect(window.locator(".editor-pane .pane-header")).toContainText("hello.plain");
     // Its definition, lit: line 6 of hello.plain.
-    await expect(window.locator(".editor-colours > div.rendering")).toContainText(":Greeter: is a command-line program");
+    await expect(window.locator(".editor-colours > div.revealed")).toContainText(":Greeter: is a command-line program");
   });
 
   test("offers the concepts the ***plain names as one is typed, and takes one", async ({ launched: { window } }) => {
@@ -45,9 +45,13 @@ test.describe("the chat", () => {
 
   test("completes a file the tree shows with tab - the one it fits, or a choice of those it fits", async ({ launched: { window, project } }) => {
     const box = window.getByPlaceholder("talk to turri - or / for a command");
-    await box.fill("/regenerate hel");
-    await box.press("Tab");
-    await expect(box).toHaveValue("/regenerate hello.plain ");
+    // What tab completes from is the files the tree shows, read as the project opens - a moment after the chat is there,
+    // longer on a slow machine: tried again until they are.
+    await expect(async () => {
+      await box.fill("/regenerate hel");
+      await box.press("Tab");
+      await expect(box).toHaveValue("/regenerate hello.plain ", { timeout: 1000 });
+    }).toPass();
     // Nothing it fits: tab leaves the draft as it is, and the focus in the box.
     await box.fill("/regenerate xyz");
     await box.press("Tab");
@@ -64,6 +68,23 @@ test.describe("the chat", () => {
     await box.press("Enter");
     await expect(box).toHaveValue("/regenerate helper.plain ");
     await expect(offered).toHaveCount(0);
+    // No word begun: every file offered, none taken - enter takes the one chosen.
+    await box.fill("/regenerate ");
+    await box.press("Tab");
+    await expect(box).toHaveValue("/regenerate ");
+    await expect(offered.getByRole("option").filter({ hasText: "hello.plain" })).toHaveCount(1);
+    await expect(offered.getByRole("option").filter({ hasText: "helper.plain" })).toHaveCount(1);
+    await box.press("Escape");
+    await expect(offered).toHaveCount(0);
+  });
+
+  test("offers the commands on tab in an empty box", async ({ launched: { window } }) => {
+    const box = window.getByPlaceholder("talk to turri - or / for a command");
+    await box.fill("");
+    await box.press("Tab");
+    await expect(box).toHaveValue("/");
+    await expect(box).toBeFocused();
+    await expect(window.locator(".composer .suggestions li").first()).toBeVisible();
   });
 
   test("runs a slash command that only prints", async ({ launched: { window } }) => {

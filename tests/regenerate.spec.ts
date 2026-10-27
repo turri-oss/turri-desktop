@@ -14,7 +14,7 @@ test.describe("regenerating what changed", () => {
       specs: summary.specs.map((spec) => ({ ...spec, built: true, drifted: false, functionalSpecs: spec.functionalSpecs.map((entry) => ({ ...entry, built: true })) })),
     };
     await app.evaluate(({ BrowserWindow }, built) => BrowserWindow.getAllWindows()[0]!.webContents.send("project:opened", built), built);
-    await expect(page.locator(".editor-pane .pane-header")).toContainText("1 of 1 built");
+    await expect(page.locator(".editor-pane .pane-header")).toContainText("1 of 1 regenerated");
     await expect(page.locator(".hint", { hasText: "regenerate what changed" })).toHaveCount(0);
 
     // The ***plain menu's Regenerate…: the toolbar has no button for it.

@@ -36,7 +36,25 @@ function addressOf(typed: string): string {
  * folder (electron/terminal.ts), for a CLI. turri drives both with its browser and terminal tools, and the window comes
  * to the one it uses - edged in blue while it does, and the bar saying so.
  */
-export function PreviewView({ dir, covered, pane, panes, onPane, testing }: { dir: string; covered: boolean; pane: Pane | null; panes: Pane[]; onPane: (pane: Pane) => void; testing: boolean }) {
+export function PreviewView({
+  dir,
+  covered,
+  pane,
+  panes,
+  onPane,
+  testing,
+  testingIn,
+}: {
+  dir: string;
+  covered: boolean;
+  pane: Pane | null;
+  panes: Pane[];
+  onPane: (pane: Pane) => void;
+  /** turri testing in the pane shown: edged in blue. */
+  testing: boolean;
+  /** Which of the two turri tests in, while it does: the other shown, its switch glows, inviting the person to it. */
+  testingIn: Pane | null;
+}) {
   const [state, setState] = useState<PreviewState>(BLANK);
   const [shell, setShell] = useState<TerminalState>({ running: false, program: "" });
   const [typed, setTyped] = useState("");
@@ -115,7 +133,14 @@ export function PreviewView({ dir, covered, pane, panes, onPane, testing }: { di
   const switcher = panes.length > 1 && (
     <div className="segmented" role="tablist">
       {panes.map((name) => (
-        <button key={name} role="tab" aria-selected={pane === name} className={pane === name ? "on" : ""} onClick={() => onPane(name)}>
+        <button
+          key={name}
+          role="tab"
+          aria-selected={pane === name}
+          className={`${pane === name ? "on" : ""} ${testingIn === name && pane !== name ? "testing" : ""}`}
+          onClick={() => onPane(name)}
+          title={testingIn === name && pane !== name ? `turri is testing in the ${name} - watch it` : undefined}
+        >
           {name}
         </button>
       ))}

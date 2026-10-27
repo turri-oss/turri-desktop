@@ -3,9 +3,9 @@ import "./types.ts";
 import type { Concept, Job, Pane, PastRun, Project, Spec, Status, StdlibModule, View } from "./types.ts";
 import { Welcome } from "./Welcome.tsx";
 import { SpecView } from "./SpecView.tsx";
-import { newestJobs, newestRuns, WorkView } from "./WorkView.tsx";
+import { newestJobs, newestRuns, sentinelByPulse, WorkView } from "./WorkView.tsx";
 import { PlanSheet, type Plan } from "./PlanSheet.tsx";
-import type { Point } from "./PulseSpec.tsx";
+import { type Point, type PulseLines, pulseLinesOf } from "./PulseSpec.tsx";
 import { DoctorSheet, problems, toSeeTo } from "./DoctorSheet.tsx";
 import { AuthSheet } from "./AuthSheet.tsx";
 import { AboutSheet, type AboutTab } from "./AboutSheet.tsx";
@@ -31,6 +31,7 @@ import { keys, withMod } from "./platform.ts";
 const VIEWS: View[] = ["spec", "preview"];
 
 const EMPTY_STATUS: Status = { modules: [], jobs: [], planned: [] };
+const NO_TOOLS = new Map<string, boolean>();
 
 /** The chat's width: dragged by its edge, kept between launches, never so wide the spec has no room. */
 const CHAT_WIDTH = 400;
@@ -90,6 +91,20 @@ export function App() {
   }, []);
   /** turri at work in the preview, with its browser or terminal tools: the pane edged in blue, and said in its bar. */
   const [testing, setTesting] = useState(false);
+  // Which of the two turri works in: the preview glows for it - the window never comes to it on its own - and the person,
+  // coming to watch, is shown that one.
+  const [testingIn, setTestingIn] = useState<Pane | null>(null);
+  const usedBy = useCallback((name: Pane) => {
+    setPanes((all) => (all.includes(name) ? all : [...all, name]));
+    setPane((now) => now ?? name);
+    setTestingIn(name);
+  }, []);
+  /** Come to watch turri test: the preview, on what it works in. */
+  const watch = useCallback(() => {
+    setDive(false);
+    setView("preview");
+    if (testingIn !== null) setPane(testingIn);
+  }, [testingIn]);
   /** The standard library's template open in the stdlib view: kept as the person goes to another view and back. */
   const [template, setTemplate] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>(EMPTY_STATUS);
@@ -317,11 +332,11 @@ export function App() {
       ),
       // The config changed - /turri-config, say: its settings in the sidebar, and the model the chat runs on now.
       window.turri.on("engine:config", () => void refreshProject()),
-      // turri works in the preview with its browser tools: the window shows it, so the person sees what it does - back
-      // from the dive too.
-      window.turri.on("preview:reveal", () => (setDive(false), setView("preview"), openPane("browser"))),
-      window.turri.on("terminal:reveal", () => (setDive(false), setView("preview"), openPane("terminal"))),
-      window.turri.on("preview:testing", (now: boolean) => setTesting(now)),
+      // turri works in the preview with its browser or terminal tools: the preview glows, inviting the person to watch -
+      // the window stays where they are, in the dive too.
+      window.turri.on("preview:reveal", () => usedBy("browser")),
+      window.turri.on("terminal:reveal", () => usedBy("terminal")),
+      window.turri.on("preview:testing", (now: boolean) => (setTesting(now), now || setTestingIn(null))),
       // /login typed in the chat: pi's terminal would sign in there, the window does it in its sheet.
       window.turri.on("engine:auth:open", ({ provider }: { provider: string | null }) => setSignIn({ provider })),
       // /pulses typed in the chat: turri's side panel in a terminal, the regen view here.
@@ -606,8 +621,16 @@ export function App() {
   );
 
   const allJobs = useMemo(() => newestJobs(jobs.values()), [jobs]);
+  // What the sentinel did of each pulse, for regen: its conversation, cut by pulse, and what it concluded of each.
+  const sentinelChat = chats.sentinel;
+  const sentinelWork = useMemo(
+    () => sentinelByPulse(sentinelChat?.items ?? [], sentinelChat?.streaming ?? null, sentinelChat?.busy === true, chats.concluded),
+    [sentinelChat?.items, sentinelChat?.streaming, sentinelChat?.busy, chats.concluded],
+  );
   const runningFor = (module: string) => allJobs.find((job) => job.module === module && job.status === "running");
   const running = allJobs.filter((job) => job.status === "running");
+  // turri testing where the person is not looking: the preview's tab glows, inviting them to watch.
+  const invited = testing && !(view === "preview" && (testingIn === null || pane === testingIn));
 
   // A pulse newly failed, regen not shown: the dive button says so.
   useEffect(() => {
@@ -675,6 +698,26 @@ export function App() {
         {aboutSheet}
       </>
     );
+
+  /**
+   * A pulse's lines opened where they are: the ***plain view - the standard library's in stdlib - on them, lit, found
+   * where they are now when the ***plain has changed since the pulse ran, the caret at the point clicked.
+   */
+  const showInSpec = (rel: string, lines: PulseLines, point?: Point) => {
+    const lit = { lines: lines.map((each) => each.line), texts: lines.map((each) => each.text), point, at: Date.now() };
+    setDive(false);
+    if (rel.startsWith("stdlib/")) {
+      const name = rel.replace(/\.plain$/, "");
+      setTemplate(name);
+      setReveal({ file: name, ...lit });
+      return setView("stdlib");
+    }
+    // The project's: a module in the ***plain view, a template as its file.
+    const file = project.specs.find((entry) => entry.rel === rel)?.file ?? `${project.dir}/${rel}`;
+    setSelected(file);
+    setReveal({ file, ...lit });
+    setView("spec");
+  };
 
   // As wide as dragged, held to the window: the files first, then the chat beside them - the ***plain keeps its room.
   const filesShown = clampFiles(filesWidth, chatOpen ? CHAT_MIN : 0);
@@ -755,10 +798,25 @@ export function App() {
             stats={shownChat.stats}
             onShowConcept={(concept) => void showConcept(concept)}
             onShowPulse={(id) => {
-              if (!jobs.has(id) && !earlier.some((run) => run.pulses.some((pulse) => pulse.id === id))) return say("that pulse ran in an earlier session, and the ledger has nothing of it now.");
+              const past = earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id);
+              const job = jobs.get(id) ?? (past !== undefined ? { diff: past.diff ?? undefined, diffWhere: past.diffWhere ?? undefined, status: past.status } : undefined);
+              if (job === undefined) return say("that pulse ran in an earlier session, and the ledger has nothing of it now.");
+              // One that landed: what it built, in the ***plain - as a click on its lines in regen opens it. One that
+              // went wrong, or built no ***plain of its own (a conformance run): its card in regen, to see why and what.
+              const built = job.status === "succeeded" ? pulseLinesOf(job) : null;
+              if (built !== null && built.lines.length > 0) return showInSpec(built.file, built.lines);
               setDive(true);
               // The pulse asked for, not a failure the tab was marked for.
               setUnseenFailed([]);
+              showPulse(id);
+            }}
+            pulseOf={(id) => jobs.get(id) ?? earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id)}
+            onShowSentinel={(id) => {
+              if (!jobs.has(id)) return say("that pulse ran in an earlier session: what the sentinel did of it is not kept.");
+              setDive(true);
+              setUnseenFailed([]);
+              // Its card opened on what the sentinel did.
+              setOpenPulses((now) => new Set(now).add(`${id}/sentinel`));
               showPulse(id);
             }}
             onAnswer={(value) => {
@@ -776,6 +834,8 @@ export function App() {
                     chats.noticeGone(chat, id);
                     say("that notice is over already - nothing was done.");
                   }
+                  // Ignore, on one turri says may not be: it stays open, to answer another way.
+                  if (did === "refused") say("this notice cannot be ignored - choose what to do, or dismiss it.");
                   return did;
                 },
                 (error) => {
@@ -796,7 +856,14 @@ export function App() {
             )}
             <div className="segmented" role="tablist">
               {VIEWS.map((name) => (
-                <button key={name} role="tab" aria-selected={view === name} className={view === name ? "on" : ""} onClick={() => setView(name)}>
+                <button
+                  key={name}
+                  role="tab"
+                  aria-selected={view === name}
+                  className={`${view === name ? "on" : ""} ${name === "preview" && invited ? "testing" : ""}`}
+                  onClick={() => (name === "preview" && invited ? watch() : setView(name))}
+                  title={name === "preview" && invited ? "turri is testing - watch it" : undefined}
+                >
                   {name === "spec" ? <PlainName /> : name}
                 </button>
               ))}
@@ -822,7 +889,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} panes={panes} onPane={openPane} testing={testing} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} panes={panes} onPane={openPane} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}
@@ -963,7 +1030,7 @@ export function App() {
         )}
       </div>
       {dive && (
-        <DiveScreen project={project.name} asking={chats.asking.size > 0} running={running.length > 0} onLeave={() => setDive(false)}>
+        <DiveScreen project={project.name} asking={chats.asking.size > 0} running={running.length > 0} testing={testing} onWatch={watch} onLeave={() => setDive(false)}>
           <WorkView
             status={status}
             jobs={allJobs}
@@ -979,6 +1046,8 @@ export function App() {
             }
             focus={focusPulse}
             onRevealed={() => setFocusPulse((now) => now && { ...now, reveal: false })}
+            sentinel={sentinelWork}
+            sentinelRunning={chats.sentinel?.tools ?? NO_TOOLS}
             onInvestigate={(failed) => {
               setDive(false);
               setChatOpen(true);
@@ -986,23 +1055,7 @@ export function App() {
             }}
             readPlain={readPlain}
             debug={project.settings.debug === true}
-            onShowInSpec={(rel, lines, point) => {
-              // Where the pulse's lines are now - the ***plain may have changed since it ran - and the point clicked.
-              const lit = { lines: lines.map((each) => each.line), texts: lines.map((each) => each.text), point, at: Date.now() };
-              setDive(false);
-              // The standard library's, in stdlib.
-              if (rel.startsWith("stdlib/")) {
-                const name = rel.replace(/\.plain$/, "");
-                setTemplate(name);
-                setReveal({ file: name, ...lit });
-                return setView("stdlib");
-              }
-              // The project's: a module in the ***plain view, a template as its file.
-              const file = project.specs.find((entry) => entry.rel === rel)?.file ?? `${project.dir}/${rel}`;
-              setSelected(file);
-              setReveal({ file, ...lit });
-              setView("spec");
-            }}
+            onShowInSpec={showInSpec}
           />
         </DiveScreen>
       )}

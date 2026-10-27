@@ -215,10 +215,33 @@ test.describe("the regen view", () => {
     await expect(window.locator(".toolbar").getByRole("tab", { name: "preview", selected: true })).toBeVisible();
   });
 
-  test("opens a pulse clicked in the chat, in regen", async ({ launched: { app, window } }) => {
+  test("opens what a pulse clicked in the chat built in the ***plain, lit - as a click on its lines in regen does", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), pulse());
     await tellChat(app, window, "chat:message", { role: "job", id: "p1", summary: "hello: the greeting by name", status: "succeeded", duration: "1m" });
+    await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
+    // Said as plainly as it gets: its module, and that it finished - no time, cost or status word.
+    await expect(window.locator(".job-note-head")).toHaveText("hello · regeneration finished");
+    await window.locator(".job-note-head").click();
+    await expect(window.locator(".dive")).toHaveCount(0);
+    await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
+    await expect(window.locator(".editor-pane .pane-header")).toContainText("hello.plain");
+    await expect(window.locator(".editor-colours > div.revealed")).toContainText('prints "hello, world"');
+  });
+
+  test("says a conformance run's end as validation", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), id: "c1", kind: "conformance" });
+    await tellChat(app, window, "chat:message", { role: "job", id: "c1", summary: "hello: conformance tests", status: "succeeded", duration: "2m", spent: "$0.04" });
+    await expect(window.locator(".job-note-head")).toHaveText("hello · validation finished");
+    await expect(window.locator(".msg.job-note")).toHaveClass(/conformance/);
+  });
+
+  test("opens a pulse clicked in the chat that went wrong in regen, to see why", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: "the tests failed" });
+    await tellChat(app, window, "chat:message", { role: "job", id: "p1", summary: "hello: the greeting by name", status: "failed", duration: "1m" });
+    await expect(window.locator(".job-note-head")).toHaveText("hello · regeneration failed");
     await window.locator(".job-note-head").click();
     await expect(window.locator(".dive").getByRole("tab", { name: "regen", selected: true })).toBeVisible();
     const card = window.locator(".job", { hasText: "the greeting by name" });
@@ -324,6 +347,19 @@ test.describe("the regen view", () => {
     await expect(open).toHaveCount(0);
   });
 
+  test("lights a functional spec a pulse carries unchanged as what it builds, beside one it adds", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    // turri's diff of a pulse that writes fs 1's tests again and adds fs 2's: fs 1 carried as it is, as context.
+    const diff = `diff --git a/hello.plain b/hello.plain\n--- a/hello.plain\n+++ b/hello.plain\n@@ @@\n ***functional specs***\n - :Greeter: prints "hello, world" and exits with 0.\n+- :Greeter: waves.\n`;
+    const diffWhere = { 4: { file: "hello.plain", line: 13 }, 5: { file: "hello.plain", line: 15 }, 6: { file: "hello.plain", line: 17 } };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), kind: "conformance", diff, diffWhere });
+    await showRegen(window);
+    const rows = (await unfold(await opened(window.locator(".job", { hasText: "the greeting by name" })), "hello.plain")).locator(".pulse-spec-lines > div");
+    await expect(rows.filter({ hasText: "hello, world" })).toHaveClass(/\badd\b.*\bagain\b/);
+    await expect(rows.filter({ hasText: "waves." })).toHaveClass("add");
+    await expect(rows.filter({ hasText: "***functional specs***" })).toHaveClass("context");
+  });
+
   test("keeps a long ***plain change within a ceiling, to scroll", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     const added = Array.from({ length: 80 }, (_, at) => `+- :Greeter: greets visitor ${at + 1}.`);
@@ -415,10 +451,12 @@ test.describe("the regen view", () => {
     // Both lit in the ***plain view, where they are now - not where they were.
     await card.locator(".opens-in-plain").click();
     const line = (index: number) => window.locator(`.editor-colours [data-line="${index}"]`);
-    await expect(line(16)).toHaveClass(/rendering/);
-    await expect(line(19)).toHaveClass(/rendering/);
-    await expect(line(12)).not.toHaveClass(/rendering/);
-    await expect(line(14)).not.toHaveClass(/rendering/);
+    // In the highlighter's tan - where the click took the person - not the pink of what is being built.
+    await expect(line(16)).toHaveClass(/revealed/);
+    await expect(line(19)).toHaveClass(/revealed/);
+    await expect(line(16)).not.toHaveClass(/rendering/);
+    await expect(line(12)).not.toHaveClass(/revealed/);
+    await expect(line(14)).not.toHaveClass(/revealed/);
 
     // Lit once: back to regen and to the ***plain view again, nothing is.
     await showRegen(window);
@@ -427,7 +465,7 @@ test.describe("the regen view", () => {
     await expect(line(16)).toBeVisible();
     // Looked at once, a moment in: lines lit again would stay so for seconds, and a retrying expect would wait them out.
     await window.waitForTimeout(600);
-    expect(await window.locator(".editor-colours .rendering").count()).toBe(0);
+    expect(await window.locator(".editor-colours .revealed").count()).toBe(0);
   });
 
   test("shows each file a pulse's ***plain comes from on its own line - its module's, and what it takes from the standard library", async ({ launched: { app, window } }) => {

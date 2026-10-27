@@ -4,7 +4,9 @@ import { shell, WebContentsView, type BrowserWindow, type Rectangle } from "elec
  * The preview: the app turri builds, open in a browser pane of the window - a WebContentsView laid over the rectangle
  * the Preview view leaves for it. It is a page of its own: no preload, nothing of window.turri, a session of its own.
  * turri sees and tries it too, through the browser tools the engine gives its chat (engine/browser.mjs): each one a
- * request the engine sends here, done in the pane the person is looking at.
+ * request the engine sends here, done in the pane - where the person sees it, when they look at it; else in the window
+ * at its size but invisible, where it still lays out, takes clicks and is pictured, out of their sight. The window is
+ * never brought to it: the preview glows, and the person comes to watch if they like.
  */
 
 export interface PreviewState {
@@ -34,15 +36,21 @@ const TEXT_KEPT = 20000;
 /** A screenshot wider than this, in the page's CSS pixels, is scaled down before turri sees it: it costs less, and reads the same. */
 const SCREENSHOT_WIDTH = 1280;
 
+/** How long the pane stays in the window, invisible, after turri's last action in it, while the person does not look at it, in ms. */
+const STAGED_LINGERS = 30_000;
+
 /** Each pane's own browser session, kept in memory: a project opened starts with no cookies, storage or cache of another's - in any window. */
 let sessions = 0;
 
 export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindow | undefined; send: (channel: string, data: unknown) => void }) {
   let view: WebContentsView | undefined;
   let shown = false;
+  /** In the window but invisible, for turri to work in out of the person's sight - until a while after it is done. */
+  let staged: NodeJS.Timeout | undefined;
+  /** Where the pane was last laid, in the window's pixels: out of sight it keeps that size. */
+  let bounds: Rectangle | undefined;
   let error: string | null = null;
   let logs: string[] = [];
-  let whenShown: Array<() => void> = [];
 
   const state = (): PreviewState => {
     const page = view?.webContents;
@@ -111,17 +119,45 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
     const window = windowOf();
     if (window === undefined) return;
     if (rect === null) {
-      if (view !== undefined && shown) window.contentView.removeChildView(view);
+      // Out of sight: invisible while turri works in it, else taken away.
+      if (view !== undefined && shown) {
+        if (staged !== undefined) view.setVisible(false);
+        else window.contentView.removeChildView(view);
+      }
       shown = false;
       return;
     }
     view ??= make();
     // The window's zoom scales its CSS pixels; the pane is placed in the window's own.
     const zoom = window.webContents.getZoomFactor();
-    view.setBounds({ x: Math.round(rect.x * zoom), y: Math.round(rect.y * zoom), width: Math.round(rect.width * zoom), height: Math.round(rect.height * zoom) });
+    bounds = { x: Math.round(rect.x * zoom), y: Math.round(rect.y * zoom), width: Math.round(rect.width * zoom), height: Math.round(rect.height * zoom) };
+    view.setBounds(bounds);
     if (!shown) window.contentView.addChildView(view);
+    view.setVisible(true);
     shown = true;
-    for (const done of whenShown.splice(0)) done();
+  }
+
+  /**
+   * The pane ready for turri, without the window coming to it: shown, it is where the person sees it; else it is in the
+   * window at the size it had, invisible - laid out, taking clicks and pictured as if shown. The window is told turri
+   * works in it, to say so: the preview glows.
+   */
+  async function stage() {
+    send("preview:reveal", null);
+    const window = windowOf();
+    if (window === undefined || view === undefined) return;
+    clearTimeout(staged);
+    staged = setTimeout(() => {
+      staged = undefined;
+      if (!shown && view !== undefined && !window.isDestroyed()) window.contentView.removeChildView(view);
+    }, STAGED_LINGERS);
+    if (shown) return;
+    const [width, height] = window.getContentSize();
+    view.setBounds(bounds ?? { x: 0, y: 0, width: width!, height: height! });
+    view.setVisible(false);
+    window.contentView.addChildView(view);
+    // A frame for the page to draw at its size.
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
   async function open(url: string) {
@@ -152,7 +188,9 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
   function dispose() {
     const window = windowOf();
     // A window closing has been destroyed by now, and the pane's page may have gone with it.
-    if (view !== undefined && shown && window !== undefined && !window.isDestroyed()) window.contentView.removeChildView(view);
+    if (view !== undefined && (shown || staged !== undefined) && window !== undefined && !window.isDestroyed()) window.contentView.removeChildView(view);
+    clearTimeout(staged);
+    staged = undefined;
     if (view !== undefined && !view.webContents.isDestroyed()) view.webContents.close();
     view = undefined;
     shown = false;
@@ -168,18 +206,6 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
   }
 
   // ---------- what turri asks of it ----------
-
-  /** The window shows the preview - turri works in the pane the person is looking at - and the pane is placed. */
-  async function reveal() {
-    send("preview:reveal", null);
-    if (shown) return;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("The preview is not showing - something covers it in the window. Ask the person to close it, then try again.")), 3000);
-      whenShown.push(() => (clearTimeout(timer), resolve()));
-    });
-    // A frame for the pane to draw in its place.
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
 
   function loaded(): WebContentsView {
     const url = view?.webContents.getURL();
@@ -239,13 +265,13 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
     navigate: async ({ url }: { url: string }) => {
       if (!isLocal(url)) throw new Error(`The preview opens only this machine's own servers - localhost and the like - not ${url}.`);
       await open(url);
-      // An address that does not answer is shown as that, not as the pane: there is nothing to reveal.
-      if (error === null) await reveal();
+      // An address that does not answer is shown as that, not as the pane: there is nothing to work in.
+      if (error === null) await stage();
       return where();
     },
     screenshot: async () => {
       const page = loaded().webContents;
-      await reveal();
+      await stage();
       let image = await page.capturePage();
       // In the page's own CSS pixels - not the display's, twice as many on a Retina one - so a point of it is a point
       // of the page for browser_click; a page wider than a screenshot is kept, scaled down, and its points with it.
@@ -255,7 +281,7 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
     },
     read: async () => {
       const page = loaded().webContents;
-      await reveal();
+      await stage();
       return { ...where(), ...(await page.executeJavaScript(script(readPage, TEXT_KEPT))) };
     },
     console: async () => ({ ...where(), lines: [...logs] }),
@@ -265,7 +291,7 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
       if ((x === undefined) !== (y === undefined)) throw new Error("Say both x and y: a point of the page, from the top left of what browser_screenshot shows.");
       if (!["left", "middle", "right"].includes(button)) throw new Error(`No such button: ${button}. It is left, middle or right.`);
       const page = loaded().webContents;
-      await reveal();
+      await stage();
       const clicking = { button, double: double === true, modifiers };
       let did: string;
       if (x !== undefined && y !== undefined) {
@@ -293,7 +319,7 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
     },
     type: async ({ ref, selector, text, submit }: { ref?: number; selector?: string; text: string; submit?: boolean }) => {
       const page = loaded().webContents;
-      await reveal();
+      await stage();
       const said = await inPage(page, script(typeInto, target(ref, selector), text, submit === true));
       await settle(page);
       return { ...where(), did: said.did ?? "" };

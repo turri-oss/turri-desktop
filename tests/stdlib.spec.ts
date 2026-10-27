@@ -168,12 +168,12 @@ test.describe("the stdlib view", () => {
     // Defined in the same ***plain: its definition lit, where it is.
     await expect(window.locator(".editor-colours .plain-concept", { hasText: ":Greeting:" })).toHaveCount(2);
     await click(":Greeting:", 1);
-    await expect(window.locator(".editor-colours .rendering")).toContainText("is what :Store: keeps");
+    await expect(window.locator(".editor-colours .revealed")).toContainText("is what :Store: keeps");
 
     // Defined in the template it imports: that opened, the definition lit.
     await click(":Store:", 0);
     await expect(area).toHaveValue(/Where things are kept/);
-    await expect(window.locator(".editor-colours .rendering")).toContainText("is where the greetings are kept");
+    await expect(window.locator(".editor-colours .revealed")).toContainText("is where the greetings are kept");
 
     // And back: where it is defined, where it is used - and there.
     await click(":Store:", 0);
@@ -182,7 +182,7 @@ test.describe("the stdlib view", () => {
     await uses.getByRole("button", { name: /backend\.plain:9/ }).click();
     await expect(uses).toHaveCount(0);
     await expect(window.locator(".editor-pane .pane-header")).toContainText("backend.plain");
-    await expect(window.locator(".editor-colours .rendering")).toContainText("is what :Store: keeps");
+    await expect(window.locator(".editor-colours .revealed")).toContainText("is what :Store: keeps");
 
     // One defined in this ***plain, used further down it; escape puts the list away.
     await click(":Greeting:", 0);

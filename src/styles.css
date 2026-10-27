@@ -52,6 +52,9 @@
   --tested: #5ce1e6;
   /* turri at work in the preview, trying the app: the edge round the pane, and its badge. */
   --testing: #4da3ff;
+  /* Where the person was taken - lines a click opened on, lit a moment: siesta tan, a highlighter's, apart from the work's
+     pink and cyan. */
+  --lit: #e9d8c8;
   --sentinel: #8f8bf2; /* the kit's indigo, light enough to read on the abyss: the sentinel's, apart from conformance's neon */
   --plain-section: #ff7fa6;
   --plain-concept: #5ce1e6;
@@ -117,6 +120,7 @@
   --built: #d63a6f;
   --tested: color-mix(in srgb, #5ce1e6 62%, #0a0f1a);
   --testing: #2f6fe4;
+  --lit: #c08a1e;
   --sentinel: #5b57d9; /* the kit's indigo */
   --plain-section: #3e5a6b;
   --plain-concept: #732553;
@@ -176,6 +180,7 @@
     --built: #d63a6f;
   --tested: color-mix(in srgb, #5ce1e6 62%, #0a0f1a);
   --testing: #2f6fe4;
+  --lit: #c08a1e;
   --sentinel: #5b57d9; /* the kit's indigo */
   --plain-section: #3e5a6b;
     --plain-concept: #732553;
@@ -980,6 +985,21 @@ code {
   color: var(--bg);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tested) 25%, transparent);
 }
+/* How much of the ***plain is regenerated, in the pink a built functional spec's mark is - and conformance tested, in
+   its cyan. */
+.built-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--built);
+}
+/* Expand all, collapse all: how the ***plain is shown, not what state it is in - quiet, apart from the counts' colours. */
+.link.fold-all {
+  color: var(--fg-2);
+}
+.link.fold-all:hover {
+  color: var(--fg);
+}
 .conformed-count {
   display: inline-flex;
   align-items: center;
@@ -1119,6 +1139,13 @@ code {
 .editor-colours > div.rendering {
   background: color-mix(in srgb, var(--working) 16%, transparent);
   box-shadow: -4px 0 0 color-mix(in srgb, var(--working) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--working) 16%, transparent);
+}
+/* The lines a click opened on - from regen, a concept, a link - lit for the person's eye, in the highlighter's tan: not
+   the work's colour, which says what is being built. Over a line the work renders too, this one shows. */
+.editor-colours > div.revealed,
+.pulse-spec-lines > div.revealed {
+  background: color-mix(in srgb, var(--lit) 22%, transparent);
+  box-shadow: -4px 0 0 var(--lit), 4px 0 0 color-mix(in srgb, var(--lit) 22%, transparent);
 }
 
 .disk-banner {
@@ -1328,6 +1355,49 @@ code {
 .job-report .part-body {
   color: var(--fg-2);
   font-size: 12px;
+}
+/* The sentinel on a pulse, at its head's right: its eye in its indigo, red once it found something wrong, dim once it
+   left off; a spinner while it checks. */
+.job-sentinel-mark {
+  display: grid;
+  place-items: center;
+  margin-left: 4px;
+  color: var(--sentinel);
+}
+.job-sentinel-mark.wrong {
+  color: var(--red);
+}
+.job-sentinel-mark.unconcluded {
+  color: var(--fg-3);
+}
+.job-sentinel .part-summary {
+  color: var(--sentinel);
+}
+.job-sentinel.wrong .part-summary {
+  color: var(--red);
+}
+.job-sentinel.unconcluded .part-summary {
+  color: var(--fg-3);
+}
+/* What it concluded, edged in its verdict's colour, over what it did - a long conversation scrolling in its own box. */
+.sentinel-conclusion {
+  border-left: 3px solid var(--sentinel);
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.job-sentinel.wrong .sentinel-conclusion {
+  border-left-color: var(--red);
+}
+.transcript-read {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-2);
+  max-height: min(480px, 60vh);
+  overflow-y: auto;
+  font-size: 12.5px;
 }
 /* A failed pulse's investigate: a chat of its own, to find out why. */
 .job-investigate {
@@ -1669,28 +1739,7 @@ code {
   border-radius: 0;
   background: var(--accent);
 }
-/* The sentinel's tab: last, apart from the person's chats, by its eye - held at the strip's right edge however far the
-   person's tabs scroll, on the chat's own colour so they pass under it, and never narrowed: they narrow and scroll
-   instead. The strip's padding is room for a tab's feet: the right one goes. */
-.chat-tab.sentinel {
-  position: sticky;
-  right: -10px;
-  z-index: 2;
-  flex: none;
-  min-width: 0;
-  margin-left: 8px;
-  background: var(--sidebar);
-}
-.chat-tab.sentinel:not(.on) {
-  box-shadow: -8px 0 8px -6px var(--sidebar);
-}
-.chat-tab-eye {
-  display: inline-flex;
-  flex: none;
-  color: var(--sentinel);
-}
-/* Its ×, on every tab while the person has two chats, and always on the sentinel's: the tab shown's as bright as its
-   title, the others' dimmer. */
+/* Its ×, on every tab while the person has two chats: the tab shown's as bright as its title, the others' dimmer. */
 .chat-tab-close {
   display: inline-flex;
   align-items: center;
@@ -1856,13 +1905,14 @@ code {
 .job-note-head .muted {
   font-size: 11.5px;
 }
-/* The sentinel's notice: a card in the transcript, edged by how grave it is - red an error, tan a warning, neon for
-   what is only said - its actions as buttons while it is open, and how it ended once it is not. */
+/* The sentinel's notice: a card in the transcript, the sentinel's - edged in its indigo, as its conclusions are, its
+   name heading it - with how grave it is in its mark: red an error, tan a warning, indigo what is only said. Its actions
+   are buttons while it is open; once it is not, how it ended. */
 .msg.notice-card {
   --severity: var(--red);
   background: var(--card);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--severity);
+  border-left: 3px solid var(--sentinel);
   border-radius: var(--radius);
   padding: 8px 8px;
   font-size: 12.5px;
@@ -1872,7 +1922,7 @@ code {
   --severity: var(--amber);
 }
 .msg.notice-card.info {
-  --severity: var(--accent);
+  --severity: var(--sentinel);
 }
 .msg.notice-card.over {
   box-shadow: none;
@@ -1888,6 +1938,16 @@ code {
 .notice-mark {
   display: inline-flex;
   color: var(--severity);
+}
+.notice-about {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--sentinel);
+  font-weight: 600;
+}
+.notice-card.over .notice-about {
+  color: var(--fg-3);
 }
 .notice-card.over .notice-mark {
   color: var(--fg-3);
@@ -1911,8 +1971,13 @@ code {
   gap: 8px;
   margin-top: 8px;
 }
+/* Not acting on it - for good, or this once - at the right, apart from what it offers. */
+.notice-ignore,
 .notice-dismiss {
   margin-left: auto;
+}
+.notice-ignore + .notice-dismiss {
+  margin-left: 0;
 }
 .notice-steer {
   margin-top: 8px;
@@ -1939,12 +2004,8 @@ code {
   color: var(--fg-2);
   font-size: 11.5px;
 }
-/* What the sentinel said of a pulse, scrolled to from a conclusion: a box of no layout, the message lying as the rest. */
-.chat-anchor {
-  display: contents;
-}
 /* The sentinel done with a pulse: a line, as a pulse's end is - in the sentinel's indigo when what it checked holds,
-   red when it does not - its name a link to what it said of the pulse, the pulse a link to regen. */
+   red when it does not - its name a link to what it did of the pulse, the pulse a link to it, both in regen. */
 .msg.concluded {
   --verdict: var(--sentinel);
   border-left: 3px solid var(--verdict);
@@ -2842,6 +2903,32 @@ code {
   }
   50% {
     box-shadow: inset 0 0 14px color-mix(in srgb, var(--testing) 70%, transparent), 0 0 18px color-mix(in srgb, var(--testing) 80%, transparent);
+  }
+}
+/* turri testing where the person is not looking - the preview's tab, the other pane's switch, the dive's way there:
+   glowing in the testing blue, easing in and out, an invitation to watch. The window never goes there on its own. */
+.segmented button.testing,
+.dive-watch {
+  color: var(--testing);
+  animation: invite-testing 1.8s ease-in-out infinite;
+}
+.dive-watch {
+  border-color: var(--testing);
+}
+@keyframes invite-testing {
+  0%,
+  100% {
+    box-shadow: 0 0 4px color-mix(in srgb, var(--testing) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 12px color-mix(in srgb, var(--testing) 70%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .segmented button.testing,
+  .dive-watch {
+    animation: none;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--testing) 55%, transparent);
   }
 }
 .preview-testing {

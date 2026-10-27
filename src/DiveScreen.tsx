@@ -12,6 +12,8 @@ export function DiveScreen({
   project,
   asking,
   running,
+  testing,
+  onWatch,
   onLeave,
   children,
 }: {
@@ -20,6 +22,9 @@ export function DiveScreen({
   asking: boolean;
   /** Pulses running: regen's tab turns a spinner. */
   running: boolean;
+  /** turri testing in the preview: an invitation to watch it, glowing - the dive is never left for it on its own. */
+  testing: boolean;
+  onWatch: () => void;
   onLeave: () => void;
   children: React.ReactNode;
 }) {
@@ -30,6 +35,11 @@ export function DiveScreen({
           <Icon name="back" size={14} /> {project}
           {asking && " · turri asks"}
         </button>
+        {testing && (
+          <button className="button dive-watch" onClick={onWatch} title="leave the dive for the preview, where turri is testing">
+            <Icon name="eye" size={14} /> turri is testing - watch
+          </button>
+        )}
         {/* Its sections at the right, and its mark - the toolbar's bolt - last. */}
         <div className="segmented" role="tablist">
           <button role="tab" aria-selected className="on">

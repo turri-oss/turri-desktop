@@ -842,14 +842,15 @@ function pickSettings(next: Record<string, unknown>): Partial<ReturnType<typeof 
   };
 }
 
-/** A notice's answer, as the window may give it: one of its actions by index, the person's words, or dismissed. */
-function noticeAnswer(answer: unknown): { action: number } | { steer: string } | { dismiss: true } {
+/** A notice's answer, as the window may give it: one of its actions by index, the person's words, dismissed, or ignored. */
+function noticeAnswer(answer: unknown): { action: number } | { steer: string } | { dismiss: true } | { ignore: true } {
   const given = (typeof answer === "object" && answer !== null ? answer : {}) as Record<string, unknown>;
   const keys = Object.keys(given);
   if (keys.length === 1 && Number.isInteger(given.action) && (given.action as number) >= 0) return { action: given.action as number };
   if (keys.length === 1 && typeof given.steer === "string" && given.steer.trim() !== "") return { steer: given.steer };
   if (keys.length === 1 && given.dismiss === true) return { dismiss: true };
-  throw new Error("A notice is answered with one of its actions, the person's words, or dismissed.");
+  if (keys.length === 1 && given.ignore === true) return { ignore: true };
+  throw new Error("A notice is answered with one of its actions, the person's words, dismissed, or ignored.");
 }
 
 /** What the window asks of its engine, checked where a method takes more than the engine can check itself. */

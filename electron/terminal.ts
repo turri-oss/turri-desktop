@@ -85,7 +85,9 @@ export function createTerminal({ send, capture, spawn = ptySpawn, shell: given }
       return "";
     }
   };
-  const atPrompt = () => foreground() === basename(shell);
+  // The shell itself in the foreground: at its prompt. node-pty names it as the system does - `zsh`, its path
+  // (`/bin/zsh`), or, a login shell, `-zsh` - so it is the name that is compared.
+  const atPrompt = () => basename(foreground()).replace(/^-/, "") === basename(shell);
 
   /** The shell, started in the project's folder: a login shell, so a packaged app has the person's PATH too. */
   function start(): IPty {
@@ -228,7 +230,10 @@ export function createTerminal({ send, capture, spawn = ptySpawn, shell: given }
     return { text: await text(from), running: pty !== undefined, program, atPrompt: pty !== undefined && atPrompt() };
   }
 
-  /** The window shows the terminal - turri works in the one the person is looking at. */
+  /**
+   * The window told turri works in the terminal, to say so - the preview glows - never brought to it: what turri does
+   * there runs whether the person looks or not, and they come to watch if they like.
+   */
   const reveal = () => send("terminal:reveal", null);
 
   /** The screen as parsed so far: what was written is parsed in its own time, and until it has been the screen is behind. */
@@ -402,16 +407,13 @@ export function createTerminal({ send, capture, spawn = ptySpawn, shell: given }
       if (pty === undefined && replay === "") throw new Error("Nothing has run in the terminal yet: run something with terminal_run.");
       if (capture === undefined) throw new Error("The terminal cannot be seen here.");
       reveal();
-      // What the shell said, parsed, and a moment for the window to come to the terminal and draw it.
+      // What the shell said, parsed, and a moment for the window to draw it - where the person has it in view: it is
+      // the window's own pixels, and the window is not brought to it.
       const now = await parsed();
       await pause(250);
-      const until = Date.now() + 3000;
-      let shot = await capture();
-      while (shot === null && Date.now() < until) {
-        await pause(150);
-        shot = await capture();
-      }
-      if (shot === null) throw new Error("The terminal is not showing - something covers it in the window. Ask the person to close it, then try again.");
+      const shot = await capture();
+      if (shot === null)
+        throw new Error("The person is not looking at the terminal, so it cannot be pictured now - the window is not brought to it for you. Read what it shows with terminal_read (cells: true) instead.");
       return { ...shot, rows: now.rows, cols: now.cols, running: pty !== undefined, program: foreground(), atPrompt: pty !== undefined && atPrompt() };
     },
     read: async ({ cells }: { cells?: boolean }) => {

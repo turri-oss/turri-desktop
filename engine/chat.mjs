@@ -43,10 +43,26 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const browsing = browserTools(browser);
   const trying = terminalTools(terminal);
   const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch];
-  const follow = (id, session) => {
-    const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep });
+  const follow = (id, session, earlier) => {
+    const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep, earlier });
     chats.set(id, chat);
     return chat;
+  };
+  /**
+   * A chat's session replaced, its id kept - the sentinel's, fresh for each pulse it checks: the new one followed in place
+   * of the old, after what the old one said - its earlier pulses - which the window keeps showing in regen. The old one
+   * is let go by then: what it said is read while it still can be, else left out.
+   */
+  const renewed = (id, fresh) => {
+    const before = chats.get(id);
+    let earlier = [];
+    try {
+      earlier = before?.history() ?? [];
+    } catch {
+      /* let go with nothing left to read */
+    }
+    before?.stop();
+    follow(id, fresh, earlier);
   };
 
   if (!MANY_CHATS) return oneChat({ cwd, host, told, extensions, ask, says, follow, onChats });
@@ -71,6 +87,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
           onNotice: (notice) => emit("chat:notice", { chat: notice.chat, data: notice }),
           onNoticeOver: (notice) => emit("chat:noticeOver", { chat: notice.chat, data: notice }),
           onConcluded: (conclusion) => emit("chat:concluded", { chat: conclusion.chat, data: conclusion }),
+          // The sentinel starting a pulse in a fresh conversation: its new session followed (a turri before it keeps one).
+          onChatSession: renewed,
         }
       : {}),
   });
@@ -200,7 +218,7 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
  * One chat, as the window follows it: what its session does, sent as events, and what the window asks of it. `emit`
  * says an event of this chat's; `sendWhole` one of the window's own.
  */
-function followChat({ id, session, harnessModel, emit, sendWhole, onStep }) {
+function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlier = [] }) {
   // The chat runs on harness-model, as `turri` starts pi with it - and is put on it after a sign-in, when it could not
   // be before.
   let onHarness = false;
@@ -230,7 +248,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep }) {
     const texts = [...steering, ...followUp];
     if (texts.length > 0) emit("chat:restore", { text: texts.join("\n\n") });
   };
-  session.subscribe((event) => {
+  const unsubscribe = session.subscribe((event) => {
     switch (event.type) {
       case "agent_start":
         emit("chat:busy", { busy: true });
@@ -277,7 +295,10 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep }) {
   return {
     id,
     session,
-    history: () => transcript(session),
+    /** What it said - after what its sessions before said, the sentinel's earlier pulses: each a session of its own. */
+    history: () => [...earlier, ...transcript(session)],
+    /** Followed no more: its session replaced by a new one, under the same id. */
+    stop: () => unsubscribe(),
     /** What was said while it answered and it has not heard yet: it hears each after its turn. */
     queued: () => [...session.getSteeringMessages(), ...session.getFollowUpMessages()],
     /**

@@ -42,6 +42,16 @@ function terminal() {
 /** A Textual app's screen: mouse reporting on, any motion, SGR. */
 const TUI = `${ESC}[?1000h${ESC}[?1003h${ESC}[?1015h${ESC}[?1006h  ✎ 🗑 Add New Task\r\n  item one\r\n  item two\r\n  item one`;
 
+test.describe("the shell at its prompt", () => {
+  test("is the shell in the foreground however the system names it - its name, its path, or a login shell's", async () => {
+    for (const named of ["fakesh", "/bin/fakesh", "-fakesh"]) {
+      const { runs, request } = terminal();
+      runs(named);
+      await expect(request("click", { text: "x" })).rejects.toThrow("the shell is at its prompt");
+    }
+  });
+});
+
 test.describe("a click in the preview's terminal", () => {
   test("is refused at the prompt, and by a program that has not turned on mouse reporting", async () => {
     const { runs, request } = terminal();

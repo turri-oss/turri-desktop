@@ -3,9 +3,18 @@
 // out, with nothing of turri's loaded: the tests map a transcript's entries with it, as the engine does.
 import { retriedWithoutImages } from "./browser.mjs";
 
+/**
+ * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
+ * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it.
+ */
+function customItem(message) {
+  if (message.customType === "turri_sentinel_pulse") return { role: "sentinelPulse", job: message.details?.jobId ?? null };
+  return message.display === false ? null : { role: "note", customType: message.customType, text: textOf(message.content) };
+}
+
 /** An entry turri's extension writes into the chat, as the window shows it - its terminal renderers' counterparts. */
 export function entryItem(entry) {
-  if (entry?.type === "custom_message") return entry.display === false ? null : { role: "note", customType: entry.customType, text: textOf(entry.content) };
+  if (entry?.type === "custom_message") return customItem(entry);
   if (entry?.type !== "custom") return null;
   const data = entry.data ?? {};
   switch (entry.customType) {
@@ -78,7 +87,7 @@ export function normalise(message) {
       };
     }
     case "custom":
-      return message.display === false ? null : { role: "note", customType: message.customType, text: textOf(message.content) };
+      return customItem(message);
     default:
       return null;
   }

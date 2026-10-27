@@ -216,7 +216,7 @@ test.describe("the window's text", () => {
       [page.locator(".project-name span"), "hello"],
       [page.locator(".chat-model"), "claude-sonnet-5-5"],
       [page.locator(".editor-pane .pane-header").getByText("hello.plain", { exact: true }), "hello.plain"],
-      [page.locator(".editor-pane .pane-header").getByText("0 of 1 built"), "0 of 1 built"],
+      [page.locator(".editor-pane .pane-header").getByText("0 of 1 regenerated"), "0 of 1 regenerated"],
     ] as const) {
       await where.click({ clickCount: 3 });
       expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toContain(text);

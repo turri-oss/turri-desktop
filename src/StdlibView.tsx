@@ -216,7 +216,7 @@ function Template({ text, known, onGo, reveal }: { text: string; known: Map<stri
       {lines.map((line, index) => {
         const coloured = tokens?.[index] !== undefined && tokens[index]!.map((token) => token.text).join("") === line;
         return (
-          <div key={index} className={revealed.has(index) ? "add" : undefined}>
+          <div key={index} className={revealed.has(index) ? "revealed" : undefined}>
             <span className="pulse-spec-number">{index + 1}</span>
             <span className="pulse-spec-text">
               {line === ""

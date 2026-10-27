@@ -23,11 +23,18 @@ export type ReadPlain = (file: string) => Promise<string | null>;
 
 type Token = { text: string; role: string | null };
 /** A line of a pulse's ***plain: its text as the diff has it, and - placed - its line and its text as its file has it. */
-type Line = { kind: "context" | "add" | "del" | "gap"; text: string; line?: number; written?: string };
+type Line = { kind: "context" | "add" | "del" | "gap"; text: string; line?: number; written?: string; again?: boolean };
 type File = { file: string; lines: Line[] };
 
 /** A section's header in ***plain: `***functional specs***`. */
 const SECTION = /^\*\*\*.*\*\*\*$/;
+
+/**
+ * An item the pulse carries with its text unchanged - a functional spec regenerated again, or one whose linked file
+ * changed: turri's diff has no other context than the sections' headers, so each such line is what the pulse builds,
+ * as much as an added one, whatever else the file adds.
+ */
+const carried = (line: Line) => line.kind === "context" && !SECTION.test(line.text.trim()) && line.text.trim() !== "";
 
 /**
  * A pulse's spec change, file by file. turri's diff is of the ***plain the pulse renders - its module's own and what it
@@ -88,6 +95,22 @@ function filesOf(diff: string, where: Job["diffWhere"]): File[] {
     const kept = lines.filter((line, at) => !(line.kind === "context" && SECTION.test(line.text.trim()) && (lines[at + 1] === undefined || lines[at + 1]!.kind === "gap" || SECTION.test(lines[at + 1]!.text.trim()))));
     return { file, lines: kept.filter((line, at) => line.kind !== "gap" || (at > 0 && at < kept.length - 1 && kept[at - 1]!.kind !== "gap")) };
   });
+}
+
+/**
+ * What a pulse renders, to open in the ***plain view as a click on its lines in regen does: its module's file - the one
+ * with most of what it adds - and those lines, each found by its text as the file has it. None for a pulse with no
+ * ***plain change - a conformance run, say.
+ */
+export function pulseLinesOf(job: Pick<Job, "diff" | "diffWhere">): { file: string; lines: PulseLines } | null {
+  if (!job.diff?.trim()) return null;
+  const found = filesOf(job.diff, job.diffWhere).map((file) => {
+    // What it carries unchanged is what it builds too.
+    const built = file.lines.filter((line) => line.line !== undefined && (line.kind === "add" || carried(line)));
+    return { file: file.file, lines: built.map((line) => ({ line: line.line!, text: line.written ?? line.text })) };
+  });
+  const most = found.reduce<(typeof found)[number] | null>((best, file) => (file.lines.length > (best?.lines.length ?? 0) ? file : best), null);
+  return most;
 }
 
 /**
@@ -192,10 +215,9 @@ export function PulseSpec({ job, specs, onShowInSpec, readPlain, part }: { job: 
         </Fold>
       )}
       {files.map((shown) => {
-        // A spec change that changes nothing in the file - a functional spec regenerated again - carries the functional
-        // spec as it is, unchanged: that is what the pulse builds, again.
-        const again = !shown.lines.some((line) => line.kind === "add" || line.kind === "del");
-        const file = again ? { ...shown, lines: shown.lines.map((line) => (line.kind === "context" && !/^\*\*\*.*\*\*\*$/.test(line.text.trim()) && line.text.trim() !== "" ? { ...line, kind: "add" as const } : line)) } : shown;
+        // What it carries unchanged - a functional spec regenerated again - is what it builds, again: lit as an added
+        // line is, beside what it adds.
+        const file = { ...shown, lines: shown.lines.map((line) => (carried(line) ? { ...line, kind: "add" as const, again: true } : line)) };
         // Each found in the ***plain by its text as the file has it, where turri says it.
         const lines = file.lines.flatMap((line) => (line.kind === "add" && line.line !== undefined ? [{ line: line.line, text: line.written ?? line.text }] : []));
         return (
@@ -330,7 +352,7 @@ function Coloured({ lines }: { lines: Line[] }) {
             ⋯
           </div>
         ) : (
-          <div key={index} className={line.kind} data-at={index}>
+          <div key={index} className={line.again ? `${line.kind} again` : line.kind} data-at={index} title={line.again ? "built again - its text unchanged" : undefined}>
             <span className="pulse-spec-number">{line.line ?? ""}</span>
             <span className="pulse-spec-text">
               {line.text === ""

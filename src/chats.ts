@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatItem, ChatStats, Notice, NoticeState, Question, SkillProgress } from "./Chat.tsx";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChatItem, ChatStats, Conclusion, Notice, NoticeState, Question, SkillProgress } from "./Chat.tsx";
 
 /** A chat of turri's session, as the engine lists it: in the order they were opened. */
 export type ChatInfo = {
@@ -9,11 +9,11 @@ export type ChatInfo = {
   /** A turn running, or something said since it was last shown. */
   status: "idle" | "working" | "question" | "unread";
   shown: boolean;
-  /** `sentinel` for turri's sentinel - its tab apart from the person's, last; none for a chat of the person's. */
+  /** `sentinel` for turri's sentinel - no tab of its own: what it does of each pulse is in regen; none for the person's. */
   role?: string;
 };
 
-/** The person's chats in their order, then the sentinel's: its tab last, whenever turri opened it. */
+/** The person's chats in their order, then the sentinel's, whenever turri opened it. */
 const inOrder = (chats: ChatInfo[]) => [...chats.filter((chat) => chat.role === undefined), ...chats.filter((chat) => chat.role !== undefined)];
 
 /** What the window keeps of each chat: what it said, what it is doing, and what it asks. */
@@ -129,10 +129,21 @@ export function useChats({ onAsk, onError }: { onAsk: () => void; onError: (text
     return () => off.forEach((stop) => stop());
   }, [update, load, onAsk, onError]);
 
-  const shownId = (list.find((chat) => chat.shown) ?? list[0])?.id ?? null;
+  const concluded = useMemo(
+    () => new Map([...states.values()].flatMap((state) => state.items.flatMap((item): Array<[string, Conclusion]> => (item.role === "concluded" ? [[item.conclusion.job, item.conclusion]] : [])))),
+    [states],
+  );
+  // The person's chats, as tabs: the sentinel is never one - it is followed, and what it did of a pulse is in regen.
+  const theirs = list.filter((chat) => chat.role === undefined);
+  const sentinelId = list.find((chat) => chat.role === "sentinel")?.id;
+  const shownId = (theirs.find((chat) => chat.shown) ?? theirs[0])?.id ?? null;
   return {
-    list,
+    list: theirs,
     shownId,
+    /** The sentinel's chat as the window keeps it - what it did and is doing - once turri has opened it. */
+    sentinel: sentinelId !== undefined ? (states.get(sentinelId) ?? EMPTY) : null,
+    /** Each pulse the sentinel is done with, by its id: as the person's chats were told of it. */
+    concluded,
     /** The chat shown's state - empty until it is read. */
     shown: (shownId !== null ? states.get(shownId) : undefined) ?? EMPTY,
     /** The chats with a question waiting: marked so in the tabs. */

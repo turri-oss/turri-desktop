@@ -194,7 +194,7 @@ export function FileView(props: { root: string; file: string; onDirty: (dirty: b
             {text.split("\n").map((line, index) => {
               const tokens = plain || code ? lines[index] : undefined;
               const coloured = tokens !== undefined && tokens.map((token) => token.text).join("") === line;
-              return <div key={index} className={revealed.has(index) ? "rendering" : undefined}>{line === "" ? "​" : coloured ? tokens.map((token, at) => (token.role ? <span key={at} className={`plain-${token.role}`}>{token.text}</span> : token.text)) : line}</div>;
+              return <div key={index} className={revealed.has(index) ? "revealed" : undefined}>{line === "" ? "​" : coloured ? tokens.map((token, at) => (token.role ? <span key={at} className={`plain-${token.role}`}>{token.text}</span> : token.text)) : line}</div>;
             })}
           </pre>
           <textarea

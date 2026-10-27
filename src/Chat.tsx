@@ -29,12 +29,15 @@ function fitting(concepts: Concept[], typed: string): Concept[] {
     .slice(0, 8);
 }
 
-/** The tree's files a word is the start of - of its path, or of its name in its folder - those its path starts first. */
+/**
+ * The tree's files a word is the start of - of its path, or of its name in its folder - those its path starts first.
+ * No word yet: every one, to see what is there.
+ */
 function filesFitting(files: string[], word: string): string[] {
   const lower = word.toLowerCase();
   const byPath = (file: string) => file.toLowerCase().startsWith(lower);
   const byName = (file: string) => file.slice(file.lastIndexOf("/") + 1).toLowerCase().startsWith(lower);
-  if (lower === "") return [];
+  if (lower === "") return [...files].sort((a, b) => a.localeCompare(b));
   return files.filter((file) => file !== word && (byPath(file) || byName(file))).sort((a, b) => Number(byPath(b)) - Number(byPath(a)) || a.localeCompare(b));
 }
 
@@ -104,7 +107,9 @@ export type ChatItem =
   | { role: "job"; id: string; summary: string; status: string; duration?: string; spent?: string; text: string }
   | { role: "notice"; notice: Notice }
   | { role: "noticeOver"; state: NoticeState; summary: string }
-  | { role: "concluded"; conclusion: Conclusion };
+  | { role: "concluded"; conclusion: Conclusion }
+  /** Where the sentinel's work on a pulse starts, in its chat: turri's brief of it, which the person does not read. */
+  | { role: "sentinelPulse"; job: string | null };
 
 /** What the sentinel puts to the person, as turri gives it: a card in the chat it names, its actions its buttons. */
 export type Notice = {
@@ -117,23 +122,17 @@ export type Notice = {
   module?: string;
   pulse?: number;
   job?: string;
+  /** What the person may leave as it is for good - a gap in the ***plain the build settled - so it is not raised again. */
+  ignorable?: boolean;
   state: NoticeState;
   at: string;
 };
-export type NoticeState = "open" | "accepted" | "steered" | "dismissed" | "superseded";
-/** How the person answers a notice: one of its actions, by its index; their own words; or not at all. */
-export type NoticeAnswer = { action: number } | { steer: string } | { dismiss: true };
-
+export type NoticeState = "open" | "accepted" | "steered" | "dismissed" | "ignored" | "superseded";
 /**
- * Where, in the sentinel's chat, it said what it found of a pulse: what it wrote after its `conclude` of that pulse -
- * or the call itself, while it has written nothing after it. None when the chat does not have that call.
+ * How the person answers a notice: one of its actions, by its index; their own words; not at all, this once; or - one
+ * turri says may be - not at all, for good: the sentinel does not raise it again.
  */
-function concludedAt(items: ChatItem[], job: string): number | null {
-  const call = items.findIndex((item) => item.role === "assistant" && item.tools?.some((tool) => tool.name === "conclude" && (tool.args as { pulse?: unknown } | null)?.pulse === job));
-  if (call === -1) return null;
-  const said = items.findIndex((item, index) => index > call && item.role === "assistant" && item.text.trim() !== "");
-  return said === -1 || items.slice(call + 1, said).some((item) => item.role === "user") ? call : said;
-}
+export type NoticeAnswer = { action: number } | { steer: string } | { dismiss: true } | { ignore: true };
 
 /** The sentinel done with a pulse: whether what it checked holds, and what it checked and found. */
 export type Conclusion = { job: string; verdict: "holds" | "wrong"; summary: string; module?: string; pulse?: number };
@@ -211,6 +210,10 @@ export function Chat(props: {
   stats: ChatStats | null;
   /** A pulse the chat says ended, opened in the work view. */
   onShowPulse: (id: string) => void;
+  /** What the sentinel did of a pulse, from its conclusion: the pulse opened in regen, on what the sentinel did. */
+  onShowSentinel: (job: string) => void;
+  /** A pulse's module and kind, by its id - this session's or the ledger's: what its line in the chat says. */
+  pulseOf: (id: string) => PulseNamed | undefined;
   /** A concept said in the chat, clicked: opened where the ***plain defines it. */
   onShowConcept: (concept: string) => void;
   /** Whether any of the project's ***plain has changed since it was built: only then is regenerating what changed offered. */
@@ -255,16 +258,6 @@ export function Chat(props: {
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
   }, [props.items, props.queued, props.streaming, props.question?.id]);
 
-  // A conclusion's sentinel clicked: the sentinel's chat shown at what it said of that pulse, not at its end - once the
-  // chat is shown and has it. Asked for until another chat is shown.
-  const reveal = useRef<{ chat: string; job: string } | null>(null);
-  const [revealed, setRevealed] = useState<{ chat: string; at: number } | null>(null);
-  const anchor = useRef<HTMLDivElement>(null);
-  const showConclusion = (chat: string, job: string) => {
-    reveal.current = { chat, job };
-    props.onShowChat(chat);
-  };
-
   // ctrl+c, as in turri's terminal, wherever the focus is while the chat is open - but in the preview's terminal, whose
   // shell it is, and in the dive, which has no chat: a question asked declined - each one, however many in a row, the
   // turn going on; with none, what the chat shown is doing stopped; doing nothing, its draft cleared, and with none
@@ -302,22 +295,9 @@ export function Chat(props: {
     input.current?.focus();
   }, [props.chatId]);
 
-  useEffect(() => {
-    const wanted = reveal.current;
-    if (wanted === null || wanted.chat !== props.chatId) return setRevealed(null);
-    const at = concludedAt(props.items, wanted.job);
-    if (at === null) return;
-    reveal.current = null;
-    stick.current = false;
-    setRevealed({ chat: wanted.chat, at });
-  }, [props.chatId, props.items]);
-  useEffect(() => anchor.current?.firstElementChild?.scrollIntoView({ block: "start" }), [revealed]);
-
   // Results by the call they answer, shown under it.
   const results = new Map<string, Extract<ChatItem, { role: "toolResult" }>>();
   for (const item of props.items) if (item.role === "toolResult") results.set(item.id, item);
-  // The sentinel's chat, while its tab is open: a conclusion's name opens it.
-  const sentinel = props.chats.find((chat) => chat.role === "sentinel")?.id;
   // How each notice drawn ended, from the transcript: an ending names its notice's summary, and is the latest one's
   // before it of that summary still open - then what turri said while the window was there, over it.
   const endings = new Map<string, NoticeState>();
@@ -395,18 +375,26 @@ export function Chat(props: {
       input.current?.setSelectionRange(at, at);
     });
   };
-  /** Tab: the word before the caret completed to the one file it starts, or the files it could be offered. */
+  /**
+   * Tab: the word before the caret completed to the one file it starts, or the files it could be offered - and, no word
+   * begun, every file offered, none taken: a look at what is there.
+   */
   const completeFile = () => {
     const before = draft.slice(0, caret);
     const from = before.search(/\S*$/);
-    const found = filesFitting(props.files, before.slice(from));
-    if (found.length === 1) takeFile(from, caret, found[0]!);
-    else if (found.length > 1) {
-      setFileOffer({ draft, from, to: caret, files: found.slice(0, 8) });
+    const word = before.slice(from);
+    const found = filesFitting(props.files, word);
+    if (found.length === 1 && word !== "") takeFile(from, caret, found[0]!);
+    else if (found.length > 0) {
+      setFileOffer({ draft, from, to: caret, files: word === "" ? found : found.slice(0, 8) });
       setFileActive(0);
     }
     return found.length > 0;
   };
+  // The file chosen with the arrows kept in view, as the whole tree offered scrolls.
+  useEffect(() => {
+    input.current?.closest(".composer")?.querySelector(".suggestions.files li.on")?.scrollIntoView({ block: "nearest" });
+  }, [fileActive, fileOffer]);
   const filesOffered = fileOffer !== null && fileOffer.draft === draft && offered.length === 0 ? fileOffer.files : [];
   const statusLine = Object.values(props.statuses).filter(Boolean).join(" · ");
 
@@ -479,13 +467,8 @@ export function Chat(props: {
         {props.items.map((item, index) =>
           item.role === "toolResult" || item.role === "noticeOver" ? null : item.role === "notice" ? (
             <NoticeCard key={item.notice.id} notice={item.notice} open={props.notices.has(item.notice.id)} ended={endings.get(item.notice.id)} onAnswer={(answer) => props.onAnswerNotice(item.notice.id, answer)} />
-          ) : revealed?.chat === props.chatId && revealed.at === index ? (
-            // What the sentinel said of the pulse, scrolled to: in a box of no layout of its own, so it lies as the rest.
-            <div key={index} className="chat-anchor" ref={anchor}>
-              <Message item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} sentinel={sentinel === props.chatId ? undefined : sentinel} onShowConclusion={showConclusion} />
-            </div>
           ) : (
-            <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} sentinel={sentinel === props.chatId ? undefined : sentinel} onShowConclusion={showConclusion} />
+            <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} onShowSentinel={props.onShowSentinel} pulseOf={props.pulseOf} />
           ),
         )}
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
@@ -627,6 +610,11 @@ export function Chat(props: {
             if (event.key === "Tab" && suggestions.length > 0) {
               event.preventDefault();
               setDraft(`${suggestions[0]!.name} `);
+            } else if (event.key === "Tab" && !event.shiftKey && draft === "") {
+              // Nothing typed: the commands, as / offers them - what there is to do.
+              event.preventDefault();
+              setDraft("/");
+              setCaret(1);
             } else if (event.key === "Tab" && !event.shiftKey) {
               // Tab is the box's: it completes what it can and otherwise does nothing - the focus stays here.
               event.preventDefault();
@@ -668,18 +656,17 @@ function Message({
   running,
   live,
   onShowPulse,
-  sentinel,
-  onShowConclusion,
+  onShowSentinel,
+  pulseOf,
 }: {
   item: ChatItem;
   results: Map<string, Extract<ChatItem, { role: "toolResult" }>>;
   running: Map<string, boolean>;
   live?: boolean;
   onShowPulse?: (id: string) => void;
-  /** The sentinel's chat, while its tab is open and it is not the chat shown: its name in a conclusion goes there. */
-  sentinel?: string;
-  /** The sentinel's chat shown at what it said of a pulse. */
-  onShowConclusion?: (chat: string, job: string) => void;
+  /** What the sentinel did of a pulse, shown in regen: a conclusion's name opens it. */
+  onShowSentinel?: (job: string) => void;
+  pulseOf?: (id: string) => PulseNamed | undefined;
 }) {
   const [thinking, setThinking] = useState(false);
   if (item.role === "user")
@@ -697,39 +684,38 @@ function Message({
     );
   if (item.role === "command") return <div className="msg user command">{item.text}</div>;
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
-  // work view colours it. A click opens it there, its report and its spec a click away: the chat stays a conversation.
+  // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
+  // ***plain, its card in regen: the chat stays a conversation.
   if (item.role === "job") {
-    const kind = /\bconformance\b/.test(item.summary) ? "conformance" : "regenerate";
+    const named = pulseOf?.(item.id);
+    const kind = (named?.kind ?? (/\bconformance\b/.test(item.summary) ? "conformance" : "regenerate")) === "conformance" ? "conformance" : "regenerate";
     return (
       <div className={`msg job-note ${kind} ${item.status}`}>
-        <button className="job-note-head" onClick={() => onShowPulse?.(item.id)} title="open it in the regen view">
+        <button className="job-note-head" onClick={() => onShowPulse?.(item.id)} title={item.status === "succeeded" ? "open what it built in the ***plain, lit" : "open it in regen, in the dive, to see what happened"}>
           {item.status === "succeeded" ? <Icon name={kind === "conformance" ? "checks" : "check"} size={14} /> : item.status === "stopped" ? <Icon name="stop" size={14} /> : <Icon name="warn" size={14} />}
-          <strong>{item.summary}</strong>
-          <span className="muted">
-            {item.status} · {item.duration}
-            {item.spent ? ` · ${item.spent}` : ""}
-          </span>
+          <span>{pulseLine(named?.module, kind, item.status)}</span>
           <Icon name="chevron" size={12} />
         </button>
       </div>
     );
   }
-  // The sentinel done with a pulse: one line, as a pulse's end is - its name a link to what it said of the pulse in its
-  // chat, the pulse a link to regen. Only something wrong is said, with what it found; when it holds, the tick is all.
+  // The sentinel done with a pulse: one line, as a pulse's end is - its name a link to what it did of the pulse, and the
+  // pulse a link to the pulse, both in regen. Only something wrong is said, with what it found; when it holds, the tick is all.
   if (item.role === "concluded") {
     const { conclusion } = item;
     const holds = conclusion.verdict === "holds";
-    const pulse = [conclusion.module, conclusion.pulse !== undefined ? `pulse ${conclusion.pulse}` : null].filter(Boolean).join(" · ") || "the pulse";
+    // Its module alone: the pulse's number is regen's to say.
+    const pulse = conclusion.module || "the pulse";
     return (
       <div className={`msg concluded ${conclusion.verdict}`}>
         <div className="concluded-head">
           <Icon name={holds ? "check" : "x"} size={14} />{" "}
-          <button className="concluded-link sentinel" disabled={sentinel === undefined} onClick={() => sentinel !== undefined && onShowConclusion?.(sentinel, conclusion.job)} title={sentinel === undefined ? undefined : "read what the sentinel found, in its chat"}>
+          <button className="concluded-link sentinel" disabled={onShowSentinel === undefined} onClick={() => onShowSentinel?.(conclusion.job)} title="see what the sentinel did, in the dive">
             <Icon name="eye" size={13} />
             {SENTINEL_NAME}
           </button>
           <span className="muted"> · </span>
-          <button className="concluded-link pulse" onClick={() => onShowPulse?.(conclusion.job)} title="open the pulse in the regen view">
+          <button className="concluded-link pulse" onClick={() => onShowPulse?.(conclusion.job)} title="open what the pulse built in the ***plain, lit">
             {pulse}
           </button>
           {!holds && (
@@ -767,13 +753,40 @@ function Message({
   );
 }
 
+/**
+ * A conversation drawn to read only - what the sentinel did of a pulse, in regen: its replies and its tools' calls and
+ * results, as the chat draws them, with nothing to answer or follow.
+ */
+export function Transcript({ items, running }: { items: ChatItem[]; running: Map<string, boolean> }) {
+  const results = new Map<string, Extract<ChatItem, { role: "toolResult" }>>();
+  for (const item of items) if (item.role === "toolResult") results.set(item.id, item);
+  return (
+    <div className="transcript-read">
+      {items.map((item, index) => (item.role === "toolResult" ? null : <Message key={index} item={item} results={results} running={running} />))}
+    </div>
+  );
+}
+
 const SENTINEL_NAME = "sentinel";
+
+/** A pulse, as its line in the chat names it: its module, and what it is - regenerating, or a conformance run. */
+export type PulseNamed = { module?: string | null; kind: string };
+
+/** How a pulse ended, in a word: what the person needs, nothing of its time or cost. */
+const ENDED_AS: Record<string, string> = { succeeded: "finished", failed: "failed", stopped: "stopped", incomplete: "did not finish" };
+
+/** A pulse's line in the chat, as plain as it gets: `server · regeneration finished`, `server · validation failed`. */
+export function pulseLine(module: string | null | undefined, kind: "regenerate" | "conformance", status: string): string {
+  const what = `${kind === "conformance" ? "validation" : "regeneration"} ${ENDED_AS[status] ?? status}`;
+  return module ? `${module} · ${what}` : what;
+}
 
 /** How a notice ended, as its card says it. */
 const ENDED: Record<Exclude<NoticeState, "open">, string> = {
   accepted: "accepted",
   steered: "answered in your words",
   dismissed: "dismissed",
+  ignored: "ignored - left as the build has it, not raised again",
   superseded: "superseded by a newer notice",
 };
 
@@ -790,13 +803,18 @@ function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: b
   const live = open && ended === undefined;
   const answer = (given: NoticeAnswer) => {
     setSent(true);
-    void onAnswer(given).catch(() => setSent(false));
+    // Refused - ignore, on one that may not be - it is still open: its buttons back.
+    void onAnswer(given).then(
+      (did) => did === "refused" && setSent(false),
+      () => setSent(false),
+    );
   };
   const steer = () => {
     if (words.trim() === "") return;
     answer({ steer: words.trim() });
   };
-  const about = [SENTINEL_NAME, notice.module, notice.pulse !== undefined ? `pulse ${notice.pulse}` : null].filter(Boolean).join(" · ");
+  // The sentinel and the module it is about: the pulse's number is regen's to say.
+  const about = [SENTINEL_NAME, notice.module].filter(Boolean).join(" · ");
   const ending = ended !== undefined && ended !== "open" ? ENDED[ended] : live ? null : "no longer open";
   return (
     <section className={`msg notice-card ${notice.severity} ${live ? "open" : "over"}`} aria-label={`notice: ${notice.summary}`}>
@@ -804,7 +822,10 @@ function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: b
         <span className={`notice-mark ${notice.severity}`} aria-label={notice.severity}>
           <Icon name={notice.severity === "info" ? "dot" : "warn"} size={14} />
         </span>
-        <span className="notice-about">{about}</span>
+        <span className="notice-about">
+          <Icon name="eye" size={13} />
+          {about}
+        </span>
       </div>
       <div className="notice-summary">
         <Prose text={notice.summary} />
@@ -856,7 +877,13 @@ function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: b
             <button className="button small" disabled={sent} onClick={() => setSteering(true)}>
               say what to do instead…
             </button>
-            <button className="button small notice-dismiss" disabled={sent} onClick={() => answer({ dismiss: true })}>
+            {/* Left as it is for good: on what turri says may be - a gap in the ***plain the build settled. */}
+            {notice.ignorable === true && (
+              <button className="button small notice-ignore" disabled={sent} title="leave it as the build has it - the sentinel will not raise it again" onClick={() => answer({ ignore: true })}>
+                ignore
+              </button>
+            )}
+            <button className="button small notice-dismiss" disabled={sent} title="nothing done, this time" onClick={() => answer({ dismiss: true })}>
               dismiss
             </button>
           </div>
@@ -1221,42 +1248,30 @@ function ChatTabs({ chats, chatId, asking, onShowChat, onCloseChat, onNewChat }:
   useEffect(() => {
     void strip.current?.querySelector(".chat-tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [chatId, chats.length]);
-  // The person's last chat stays: the sentinel's closes whenever - the next pulse that finishes opens it again.
-  const theirs = chats.filter((chat) => chat.role === undefined).length;
+  // The person's last chat stays.
+  const theirs = chats.length;
   return (
     <>
       <div className="chat-tabs" role="tablist" aria-label="chats" ref={strip}>
         {chats.map((chat) => {
           const shown = chat.id === chatId;
-          const sentinel = chat.role !== undefined;
           const mark = asking.has(chat.id) ? "question" : chat.status === "working" ? "working" : chat.status === "unread" && !shown ? "unread" : null;
           return (
             <div
               key={chat.id}
-              className={`chat-tab ${shown ? "on" : ""} ${sentinel ? "sentinel" : ""}`}
-              title={sentinel ? "the sentinel - turri's own chat: it checks every pulse that finishes, tests what is released, and tells you what needs you" : chat.title}
+              className={`chat-tab ${shown ? "on" : ""}`}
+              title={chat.title}
             >
               <button role="tab" aria-selected={shown} className="chat-tab-name" onClick={() => onShowChat(chat.id)}>
-                {sentinel && (
-                  <span className="chat-tab-eye" aria-hidden>
-                    <Icon name="eye" size={13} />
-                  </span>
-                )}
                 {mark === "working" ? <Spinner /> : mark === "question" ? <span className="chat-tab-mark asks">?</span> : mark === "unread" ? <span className="chat-tab-mark unread" aria-label="something new" /> : null}
-                <span className="chat-tab-title">{sentinel ? SENTINEL_NAME : chat.title}</span>
+                <span className="chat-tab-title">{chat.title}</span>
               </button>
-              {(sentinel || theirs > 1) && (
+              {theirs > 1 && (
                 <button
                   className="chat-tab-close"
                   onClick={() => onCloseChat(chat.id)}
-                  title={
-                    sentinel
-                      ? `close the sentinel${shown ? ` (${keys("W")})` : ""} - the next pulse that finishes opens it again`
-                      : shown
-                        ? `close this chat (${keys("W")}) - its conversation is gone, its pulses run on`
-                        : "close this chat - its conversation is gone, its pulses run on"
-                  }
-                  aria-label={`close ${sentinel ? SENTINEL_NAME : chat.title}`}
+                  title={shown ? `close this chat (${keys("W")}) - its conversation is gone, its pulses run on` : "close this chat - its conversation is gone, its pulses run on"}
+                  aria-label={`close ${chat.title}`}
                 >
                   <Icon name="x" size={11} />
                 </button>
