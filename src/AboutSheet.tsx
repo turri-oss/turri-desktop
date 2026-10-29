@@ -57,7 +57,11 @@ function Privacy() {
         <li>what you say in the chat, and the conversation so far - with the images you attach to it, and the files you attach when turri reads them;</li>
         <li>your <PlainName />, and the files of the project turri and its agents read - code, tests, templates, config;</li>
         <li>what commands and test runs print, and what the preview's terminal shows when turri reads it;</li>
-        <li>the preview's pages when turri tries them - their text, controls and console, and screenshots of them.</li>
+        <li>the preview's pages when turri tries them - their text, controls and console, and screenshots of them;</li>
+        <li>
+          in the background, each functional spec you add or change that has no scenarios - with its module, and your project's <code>AGENTS.md</code> - for turri's test advisor to judge
+          whether it needs testing scenarios. <code>test-advisor</code> off in the project settings stops it doing so by itself.
+        </li>
       </ul>
       <p>check this machine's "ask the models too" sends each model a word, to see that it answers.</p>
       <h3>to the web</h3>
@@ -75,7 +79,7 @@ function Privacy() {
         <li>
           what you sign in with - tokens and API keys - in pi's <code>auth.json</code> (<code>~/.pi/agent/</code>), where the turri command line keeps it too;
         </li>
-        <li>the conversations, in pi's sessions there; each pulse's ledger and logs, in the project's <code>.turri</code> folder;</li>
+        <li>the conversations, in pi's sessions there; each pulse's ledger and logs, and what the test advisor made of each functional spec, in the project's <code>.turri</code> folder;</li>
         <li>the preview's cookies and storage, in memory - gone when the project closes;</li>
         <li>the app's own settings and recent projects, in its folder of the system's application support.</li>
       </ul>

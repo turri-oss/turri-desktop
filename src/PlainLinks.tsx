@@ -37,11 +37,11 @@ export function usePlainLinks(file: string, plain = true): Links | null {
  * What a ⌘-click follows in a ***plain: a module its front matter names, a concept - to where it is defined - or a
  * linked resource - to its file, the `resource`th link on the line. `line` is from 1, as turri's graph counts.
  */
-export type Followed = { module: Link } | { concept: string; line: number } | { resource: number; line: number };
+export type Followed = { module: Link } | { concept: string; line: number } | { resource: number; line: number } | { funcRef: string; line: number };
 
 /**
- * What is ⌘-clicked at `column` of a line coloured by turri's grammar: the concept or linked resource the caret is in or
- * at the end of, or else the module the line names - one the ***plain imports or requires, or one of the standard library.
+ * What is ⌘-clicked at `column` of a line coloured by turri's grammar: the concept, linked resource or func-id the caret
+ * is in or at the end of, or else the module the line names - one the ***plain imports or requires, or one of the standard library.
  */
 export function followAt(links: Links | null, tokens: Array<{ text: string; role: string | null }> | undefined, column: number, line: number): Followed | null {
   if (tokens === undefined) return null;
@@ -50,6 +50,8 @@ export function followAt(links: Links | null, tokens: Array<{ text: string; role
     const end = start + token.text.length;
     if (start <= column && column <= end) {
       if (token.role === "concept") return { concept: token.text, line };
+      // A test plain file's func_id: the functional spec its scenarios are of.
+      if (token.role === "func-ref") return { funcRef: token.text.trim(), line };
       if (token.role === "link") return { resource: tokens.slice(0, index).filter((each) => each.role === "link").length, line };
     }
     start = end;

@@ -134,6 +134,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     canDecline: typeof session.decline === "function",
     decline: (id) => session.decline(id),
     notices: () => (SENTINEL ? session.notices() : []),
+    // The test advisor asked about functional specs, as a host asks it: at once, the verdicts coming to the chat shown.
+    evaluateTests: typeof session.evaluateTests === "function" ? (funcIds, options) => session.evaluateTests(funcIds, options) : undefined,
     answerNotice: (id, answer) => session.answer(id, answer),
     dispose: () => session.dispose(),
   };

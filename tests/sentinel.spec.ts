@@ -109,15 +109,18 @@ test.describe("the sentinel", () => {
     expect(SENTINEL_SURFACE).toContain("preview");
   });
 
-  test("draws a notice as a card in the chat, its actions as buttons that answer it", async ({ launched: { app, window } }) => {
+  test("puts a notice among the notifications - not in the chat - its actions as buttons that answer it", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     const chat = await shownChat(window);
     const answers = await answersTaken(app);
     await transcript(app, window, [{ customType: "turri_notice", data: notice(chat) }]);
     await tellChat(app, window, "chat:notice", notice(chat));
 
-    const card = window.getByRole("region", { name: "notice: the guestbook does not save a message" });
+    // The panel opens on it, as it waits on an answer - and the chat draws nothing of it.
+    const card = window.getByRole("tabpanel", { name: "notifications" }).getByRole("region", { name: "notice: the guestbook does not save a message" });
     await expect(card.locator(".notice-about")).toHaveText("sentinel · backend");
+    await expect(window.locator(".chat-body .notice-card")).toHaveCount(0);
+    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread, 1 to answer");
     await expect(card.locator(".notice-mark")).toHaveAttribute("aria-label", "error");
     await expect(card.locator(".notice-evidence li")).toHaveText(["POST /messages answered 500", "sqlite3.OperationalError: no such table: messages"]);
     // It blocks nothing: the message box is there beside it.
@@ -130,6 +133,10 @@ test.describe("the sentinel", () => {
     await tellChat(app, window, "chat:noticeOver", notice(chat, { state: "accepted" }));
     await expect(card.locator(".notice-ended")).toHaveText("accepted");
     await expect(card.getByRole("button")).toHaveCount(0);
+    // Ended, it stays until it is put away.
+    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread");
+    await window.getByRole("button", { name: "put away" }).click();
+    await expect(card).toHaveCount(0);
   });
 
   test("answers a notice in the person's words, or dismisses it", async ({ launched: { app, window } }) => {
@@ -141,7 +148,7 @@ test.describe("the sentinel", () => {
       { customType: "turri_notice", data: notice(chat, { id: "n2", module: "frontend", summary: "the send button does nothing" }) },
     ]);
     await tellChat(app, window, "chat:notice", notice(chat));
-    await tellChat(app, window, "chat:notice", notice(chat, { id: "n2" }));
+    await tellChat(app, window, "chat:notice", notice(chat, { id: "n2", module: "frontend", summary: "the send button does nothing" }));
 
     const first = window.getByRole("region", { name: "notice: the guestbook does not save a message" });
     await first.getByRole("button", { name: "say what to do instead…" }).click();
@@ -184,23 +191,20 @@ test.describe("the sentinel", () => {
     await tellChat(app, window, "chat:notice", gap);
     const card = window.getByRole("region", { name: "notice: the guestbook does not save a message" });
     await card.getByRole("button", { name: "ignore" }).click();
-    await expect(window.getByText("this notice cannot be ignored")).toBeVisible();
+    await expect(window.locator(".status-said")).toContainText("this notice cannot be ignored");
     await expect(card.getByRole("button", { name: "dismiss" })).toBeEnabled();
   });
 
-  test("says how a notice of the transcript ended, with nothing to press", async ({ launched: { app, window } }) => {
+  test("leaves out the notices of the transcript that ended before - in the chat and the panel alike", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     const chat = await shownChat(window);
     await transcript(app, window, [
       { customType: "turri_notice", data: notice(chat) },
       { customType: "turri_notice_over", data: { state: "superseded", summary: "the guestbook does not save a message" } },
-      { customType: "turri_notice", data: notice(chat, { id: "n2", severity: "warning", summary: "the list is not newest first" }) },
-      { customType: "turri_notice_over", data: { state: "steered", summary: "the list is not newest first" } },
     ]);
-    const first = window.getByRole("region", { name: "notice: the guestbook does not save a message" });
-    await expect(first.locator(".notice-ended")).toHaveText("superseded by a newer notice");
-    await expect(first.getByRole("button")).toHaveCount(0);
-    await expect(window.getByRole("region", { name: "notice: the list is not newest first" }).locator(".notice-ended")).toHaveText("answered in your words");
+    await expect(window.locator(".chat-body .notice-card")).toHaveCount(0);
+    await expect(window.getByRole("region", { name: /^notice:/ })).toHaveCount(0);
+    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread");
   });
 
   test("shows the sentinel's conclusions as a line - what it found only when something is wrong - linking what it did and the pulse", async ({ launched: { app, window } }) => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ChooseFolder } from "./ProjectSettings.tsx";
 import type { Project } from "./types.ts";
 import type { AuthProvider } from "../electron/preload.ts";
 import { AuthSheet } from "./AuthSheet.tsx";
@@ -25,6 +26,8 @@ interface Vendors {
   vendors: Array<{ id: string; label: string; harness: string; coding: string }>;
   bedrockDefault: { maker: string; region: string };
   bedrock: BedrockMaker[];
+  /** Whether turri sets AWS_REGION itself for a geography that needs one - false on a turri that asks the person to. */
+  setsRegion?: boolean;
 }
 
 /**
@@ -40,6 +43,8 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
   // Bedrock's two models, as picked - turri's, or the catalogue's first, until the person picks others.
   const [pair, setPair] = useState<{ harness: string; coding: string } | null>(null);
   const [starting, setStarting] = useState(false);
+  // What its codebase starts from: a folder chosen - an existing codebase, files to use - or nothing.
+  const [startFrom, setStartFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Made, its config written, but not opened: why, and what turri said of its config.
   const [unready, setUnready] = useState<{ failed: string; setup: string } | null>(null);
@@ -86,7 +91,7 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
         return;
       }
       onDone();
-      onOpened(project);
+      onOpened({ ...project, ...(startFrom !== null ? { startFrom } : {}) });
     } catch (failure) {
       started.current = false;
       setError(plain(failure as Error));
@@ -126,7 +131,7 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
     <div className="sheet-backdrop">
       <div className={`sheet new-project ${unready ? "doctor" : ""}`}>
         {dir !== null && unready !== null ? (
-          <Unready dir={dir} name={name} {...unready} onOpened={onOpened} onDone={onDone} />
+          <Unready dir={dir} name={name} {...unready} onOpened={(project) => onOpened({ ...project, ...(startFrom !== null ? { startFrom } : {}) })} onDone={onDone} />
         ) : dir === null ? (
           <>
             <h2>the project was not made</h2>
@@ -211,11 +216,16 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
                 {place?.inRegion ? (
                   <p className="muted small bedrock-note">these run in the AWS region turri calls Bedrock in: us-east-1, unless AWS_REGION in your shell names another.</p>
                 ) : (
-                  place?.awsRegion && (
+                  place?.awsRegion &&
+                  (vendors?.setsRegion === true ? (
+                    <p className="muted small bedrock-note">
+                      turri calls these models in {place.awsRegion}, as they answer only in {place.region} - an AWS_REGION you set yourself wins over it, and so does your AWS profile's region when it is in {place.region}.
+                    </p>
+                  ) : (
                     <p className="muted small bedrock-note">
                       these models answer only when called in {place.region}: set AWS_REGION={place.awsRegion} in your shell - or in your AWS profile, if you signed in with one.
                     </p>
-                  )
+                  ))
                 )}
               </div>
             )}
@@ -231,6 +241,20 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
                 ))}
               </div>
             )}
+            {/* What its codebase starts from: nothing, or a folder - written as base-folder: once it opens, through /turri-config. */}
+            <div className="new-project-start">
+              <div className="bedrock-row">
+                <span className="muted">start from</span>
+                {startFrom === null ? <span>nothing - the code starts empty</span> : <code>{startFrom}</code>}
+                <ChooseFolder root={dir!} onChosen={setStartFrom} label={startFrom === null ? "a folder…" : "another…"} />
+                {startFrom !== null && (
+                  <button className="link small" onClick={() => setStartFrom(null)}>
+                    nothing
+                  </button>
+                )}
+              </div>
+              <p className="muted small">an existing codebase to build on, or files the code is to use - images, fonts. copied into the code before its first pulse; the folder itself is never written to.</p>
+            </div>
             {error && <p className="error-text">{error}</p>}
             <div className="sheet-actions">
               <button className="button" onClick={cancel} disabled={starting}>

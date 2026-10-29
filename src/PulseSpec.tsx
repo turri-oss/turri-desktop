@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Job, Spec } from "./types.ts";
+import type { Job, JobCases, Spec, TestPlainFile } from "./types.ts";
 import { Fold, type Folded, Icon, PlainMark } from "./ui.tsx";
 
 /** A pulse's lines when it ran, each by its number in the file and its text. */
@@ -18,6 +18,12 @@ export interface Point {
  * names it: its path in the project, or `stdlib/...`.
  */
 export type ShowInSpec = (file: string, lines: PulseLines, point?: Point) => void;
+/**
+ * The project's test plain files, for a pulse's ***plain to tell them from its modules': its test folders, by their
+ * paths in the project - a file deleted since is still in one - and the files there now, each with what it is of.
+ */
+export type PlainTests = { dirs: string[]; files: TestPlainFile[] };
+const inTests = (tests: PlainTests | undefined, rel: string) => tests?.dirs.some((dir) => rel.startsWith(`${dir}/`)) === true;
 /** The text of a file a pulse's ***plain comes from, as `ShowInSpec` names it, as it is now - null if it is not there. */
 export type ReadPlain = (file: string) => Promise<string | null>;
 
@@ -30,9 +36,9 @@ type File = { file: string; lines: Line[] };
 const SECTION = /^\*\*\*.*\*\*\*$/;
 
 /**
- * An item the pulse carries with its text unchanged - a functional spec regenerated again, or one whose linked file
- * changed: turri's diff has no other context than the sections' headers, so each such line is what the pulse builds,
- * as much as an added one, whatever else the file adds.
+ * An item a module's diff carries with its text unchanged - a functional spec regenerated again, or one whose linked
+ * file changed: turri's diff of a module has no other context than the sections' headers. Whether it is what the pulse
+ * builds is its cases' to say. A test plain file's diff is git's, its context only context.
  */
 const carried = (line: Line) => line.kind === "context" && !SECTION.test(line.text.trim()) && line.text.trim() !== "";
 
@@ -44,8 +50,9 @@ const carried = (line: Line) => line.kind === "context" && !SECTION.test(line.te
  * section's header, with the line it heads.
  */
 function filesOf(diff: string, where: Job["diffWhere"]): File[] {
-  // The diff's lines, each with the file it is in - or, a section's header turri did not place, none yet.
-  const rows: Array<Line & { file?: string }> = [];
+  // The diff's lines, each with the file it is in - or, a section's header turri did not place, none yet - and the
+  // section turri says it is in, when it says. A file's first hunk starts it: in no section, as turri's diffFiles has it.
+  const rows: Array<Line & { file?: string; starts?: true; section?: string }> = [];
   let named = "";
   let header = false;
   diff
@@ -60,14 +67,18 @@ function filesOf(diff: string, where: Job["diffWhere"]): File[] {
       // A file's header, up to its first hunk: not the spec's. A spec line taken out that starts with --- is a hunk's.
       if (header && !raw.startsWith("@@")) return;
       if (raw.startsWith("@@")) {
+        rows.push({ kind: "gap", text: "", ...(header ? { starts: true as const } : {}) });
         header = false;
-        rows.push({ kind: "gap", text: "" });
         return;
       }
       const kind = raw.startsWith("+") ? "add" : raw.startsWith("-") ? "del" : "context";
       const placed = where?.[index];
       const text = raw.slice(1);
-      rows.push({ kind, text, ...(placed !== undefined ? { line: placed.line, file: placed.file, ...(placed.written !== undefined ? { written: placed.written } : {}) } : kind === "context" && SECTION.test(text.trim()) ? {} : { file: named }) });
+      rows.push({
+        kind,
+        text,
+        ...(placed !== undefined ? { line: placed.line, file: placed.file, ...(placed.written !== undefined ? { written: placed.written } : {}), ...(placed.section !== undefined ? { section: placed.section } : {}) } : kind === "context" && SECTION.test(text.trim()) ? {} : { file: named }),
+      });
     });
   // What is not placed goes with what follows it - a header with the line it heads - or else what is before it.
   for (let at = rows.length - 1, next: string | undefined; at >= 0; at--) rows[at]!.file === undefined ? (rows[at]!.file = next) : (next = rows[at]!.file);
@@ -76,7 +87,11 @@ function filesOf(diff: string, where: Job["diffWhere"]): File[] {
   const files = new Map<string, File & { last: number; section?: string }>();
   let section: string | undefined;
   rows.forEach((row, at) => {
-    if (row.kind === "context" && SECTION.test(row.text.trim())) section = row.text.trim();
+    // A new file starts in no section: a test plain file never has the module's. turri's section, where it gives one;
+    // else the last section header seen in this file.
+    if (row.starts) section = undefined;
+    if (row.section !== undefined) section = row.section;
+    else if (row.kind === "context" && SECTION.test(row.text.trim())) section = row.text.trim();
     if (row.kind === "gap") return;
     const name = row.file!;
     let file = files.get(name);
@@ -102,11 +117,11 @@ function filesOf(diff: string, where: Job["diffWhere"]): File[] {
  * with most of what it adds - and those lines, each found by its text as the file has it. None for a pulse with no
  * ***plain change - a conformance run, say.
  */
-export function pulseLinesOf(job: Pick<Job, "diff" | "diffWhere">): { file: string; lines: PulseLines } | null {
+export function pulseLinesOf(job: Pick<Job, "diff" | "diffWhere">, tests?: PlainTests): { file: string; lines: PulseLines } | null {
   if (!job.diff?.trim()) return null;
   const found = filesOf(job.diff, job.diffWhere).map((file) => {
-    // What it carries unchanged is what it builds too.
-    const built = file.lines.filter((line) => line.line !== undefined && (line.kind === "add" || carried(line)));
+    // What a module's diff carries unchanged is what it builds too.
+    const built = file.lines.filter((line) => line.line !== undefined && (line.kind === "add" || (!inTests(tests, file.file) && carried(line))));
     return { file: file.file, lines: built.map((line) => ({ line: line.line!, text: line.written ?? line.text })) };
   });
   const most = found.reduce<(typeof found)[number] | null>((best, file) => (file.lines.length > (best?.lines.length ?? 0) ? file : best), null);
@@ -151,10 +166,10 @@ export function pointNow(all: string[], lines: number[], texts: string[], point:
   return Math.min(Math.max(point.line + now - point.anchor.line, 1), all.length);
 }
 
-/** The functional spec a conformance run builds, as its label says it: `frontend functionality 2 of 5`. */
-function buildingOf(job: Pick<Job, "building">): { frid: string; text: string } | null {
-  const named = /functionality (\S+) of/.exec(job.building?.label ?? "");
-  return named && job.building?.text ? { frid: named[1]!, text: job.building.text } : null;
+/** The functional spec a conformance run of one functional spec builds, named as turri names it: `frontend:send-message`. */
+function buildingOf(job: Pick<Job, "building">): { name: string; text: string } | null {
+  const spec = job.building?.spec;
+  return spec !== undefined && job.building?.text ? { name: `${spec.module}:${spec.funcId}`, text: job.building.text } : null;
 }
 
 /** Whether a pulse regenerates the spec as it is - a functional spec regenerated again: its spec change changes nothing. */
@@ -194,7 +209,7 @@ export function stageOf(job: Job): string | undefined {
  * lights them while it runs - or, for a conformance run, the functional spec it builds. A click on a file's lines opens
  * them in the ***plain view, lit there.
  */
-export function PulseSpec({ job, specs, onShowInSpec, readPlain, part }: { job: Pick<Job, "diff" | "diffWhere" | "building"> & { kind?: string; status?: string }; specs: Spec[]; onShowInSpec: ShowInSpec; readPlain: ReadPlain; part?: (name: string) => Folded }) {
+export function PulseSpec({ job, specs, tests, onShowInSpec, readPlain, part }: { job: Pick<Job, "diff" | "diffWhere" | "building"> & { kind?: string; status?: string; cases?: JobCases | null }; specs: Spec[]; tests: PlainTests; onShowInSpec: ShowInSpec; readPlain: ReadPlain; part?: (name: string) => Folded }) {
   const files = job.diff?.trim() ? filesOf(job.diff, job.diffWhere) : [];
   const building = buildingOf(job);
   const verb = didTo(job.kind, job.status);
@@ -204,22 +219,24 @@ export function PulseSpec({ job, specs, onShowInSpec, readPlain, part }: { job: 
     <div className="pulse-spec">
       {building && (
         <Fold
-          folded={part?.(`functional spec ${building.frid}`)}
+          folded={part?.(`functional spec ${building.name}`)}
           title={
             <>
-              {verb} <Icon name="test" size={13} /> functional spec {building.frid}
+              {verb} <Icon name="test" size={13} /> functional spec {building.name}
             </>
           }
         >
           <Coloured lines={building.text.split("\n").map((text) => ({ kind: "add" as const, text }))} />
         </Fold>
       )}
-      {files.map((shown) => {
-        // What it carries unchanged - a functional spec regenerated again - is what it builds, again: lit as an added
-        // line is, beside what it adds.
-        const file = { ...shown, lines: shown.lines.map((line) => (carried(line) ? { ...line, kind: "add" as const, again: true } : line)) };
-        // Each found in the ***plain by its text as the file has it, where turri says it.
-        const lines = file.lines.flatMap((line) => (line.kind === "add" && line.line !== undefined ? [{ line: line.line, text: line.written ?? line.text }] : []));
+      {files.map((file) => {
+        // A test plain file's scenarios: git's diff of it, and the functional spec they are of.
+        const scenarios = inTests(tests, file.file);
+        const bound = tests.files.find((entry) => entry.rel === file.file);
+        const spec = specs.find((entry) => entry.rel === file.file);
+        // Each found in the ***plain by its text as the file has it, where turri says it - what a module's diff carries
+        // unchanged among them.
+        const lines = file.lines.flatMap((line) => ((line.kind === "add" || (!scenarios && carried(line))) && line.line !== undefined ? [{ line: line.line, text: line.written ?? line.text }] : []));
         return (
           <Fold
             key={file.file}
@@ -227,11 +244,16 @@ export function PulseSpec({ job, specs, onShowInSpec, readPlain, part }: { job: 
             title={
               <>
                 {verb} <PlainMark size={14} /> {file.file}
+                {bound?.funcId !== undefined && (
+                  <span className="pulse-spec-of">
+                    <Icon name="test" size={12} /> the scenarios of {bound.module}:{bound.funcId}
+                  </span>
+                )}
               </>
             }
           >
-            <OpensInPlain read={() => readPlain(file.file)} stamp={specs.find((entry) => entry.rel === file.file)} lines={lines} onShow={(shown, row) => onShowInSpec(file.file, shown, row && pointAt(file.lines, row.at, row.blank))}>
-              <Coloured lines={file.lines} />
+            <OpensInPlain read={() => readPlain(file.file)} stamp={spec ?? bound} lines={lines} onShow={(shown, row) => onShowInSpec(file.file, shown, row && pointAt(file.lines, row.at, row.blank))}>
+              <Coloured lines={file.lines} built={scenarios || spec === undefined ? undefined : builtOf(job.cases, spec.module)} />
             </OpensInPlain>
           </Fold>
         );
@@ -318,8 +340,23 @@ function pointAt(lines: Line[], at: number, blank: boolean): Point | undefined {
   return { line: line ?? anchor.line!, anchor: { line: anchor.line!, text: anchor.written ?? anchor.text } };
 }
 
-/** Lines of ***plain, coloured as the spec is: each with its line in the file, if it has one, and what the pulse does with it. */
-function Coloured({ lines }: { lines: Line[] }) {
+/**
+ * What a pulse builds of a module's functional specs, by func-id, as its cases say: every one it covers - added,
+ * changed, regenerated again - and of those, the ones regenerated again. None for a pulse whose cases are not known.
+ */
+function builtOf(cases: JobCases | null | undefined, module: string): { covered: Set<string>; again: Set<string> } | undefined {
+  if (cases == null) return undefined;
+  const of = (refs: JobCases[keyof JobCases]) => refs.filter((ref) => ref.module === module).map((ref) => ref.funcId);
+  return { covered: new Set([...of(cases.add), ...of(cases.patch), ...of(cases.again)]), again: new Set(of(cases.again)) };
+}
+
+/**
+ * Lines of ***plain, coloured as the spec is: each with its line in the file, if it has one, and what the pulse does
+ * with it. A module's lines carried unchanged are lit as what it builds when their functional spec - the # <func-id>
+ * heading above them, as turri's grammar colours it - is one the pulse covers (`built`), marked when it is regenerated
+ * again.
+ */
+function Coloured({ lines, built }: { lines: Line[]; built?: { covered: Set<string>; again: Set<string> } }) {
   const [tokens, setTokens] = useState<Token[][] | null>(null);
   const text = lines.map((line) => line.text).join("\n");
   useEffect(() => {
@@ -327,6 +364,20 @@ function Coloured({ lines }: { lines: Line[] }) {
     void window.turri.call<Token[][]>("highlightSpec", { text }).then((next) => alive && setTokens(next));
     return () => void (alive = false);
   }, [text]);
+  // The functional spec each line is of, by the heading above it - once the colours say which lines are headings.
+  const specOf: Array<string | null> = [];
+  let heading: string | null = null;
+  lines.forEach((line, index) => {
+    const roles = tokens?.[index]?.map((token) => token.role) ?? [];
+    if (roles.includes("section")) heading = null;
+    else if (roles.includes("id")) heading = line.text.replace(/^#+/, "").trim();
+    specOf.push(heading);
+  });
+  const shownAs = (line: Line, index: number): Line => {
+    const funcId = specOf[index];
+    if (built === undefined || !carried(line) || funcId === null || funcId === undefined || !built.covered.has(funcId)) return line;
+    return { ...line, kind: "add", again: built.again.has(funcId) };
+  };
   // The lines the diff leaves out between two it has: the blank line between two items - turri's diff is of the ***plain's
   // items, not its text - a blank row, and more a gap.
   const skipped = (index: number) => {
@@ -352,7 +403,7 @@ function Coloured({ lines }: { lines: Line[] }) {
             ⋯
           </div>
         ) : (
-          <div key={index} className={line.again ? `${line.kind} again` : line.kind} data-at={index} title={line.again ? "built again - its text unchanged" : undefined}>
+          <div key={index} className={shownAs(line, index).again ? "add again" : shownAs(line, index).kind} data-at={index} title={shownAs(line, index).again ? "built again - its text unchanged" : undefined}>
             <span className="pulse-spec-number">{line.line ?? ""}</span>
             <span className="pulse-spec-text">
               {line.text === ""

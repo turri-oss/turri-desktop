@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell,
 import { fork, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPreview } from "./preview.ts";
 import { readSettings, writeSettings, type Settings } from "./settings.ts";
 import { loadShellEnvironment } from "./shell-env.ts";
@@ -648,15 +648,18 @@ async function chooseProject(from: Workspace | undefined) {
 }
 
 /**
- * A new project's folder: named and placed in the save sheet, and made. A folder of that name with anything in it
- * already is not taken over. Nothing is opened yet - the window asks which models it runs on first (startProject).
+ * A new project's folder: named and placed in the save sheet, and made. The sheet starts where the last new project was
+ * made - while that folder is still there - else in Documents. A folder of that name with anything in it already is not
+ * taken over. Nothing is opened yet - the window asks which models it runs on first (startProject).
  */
 async function newProjectFolder(from: Workspace) {
+  const last = settings.newProjectsIn;
+  const where = last !== null && existsSync(last) && statSync(last).isDirectory() ? last : app.getPath("documents");
   const result = await dialog.showSaveDialog(from.window, {
     title: "Start a new turri project",
     buttonLabel: "Create",
     nameFieldLabel: "Project name:",
-    defaultPath: join(app.getPath("documents"), "my-project"),
+    defaultPath: join(where, "my-project"),
     properties: ["createDirectory"],
   });
   if (result.canceled || result.filePath === undefined) return null;
@@ -666,6 +669,9 @@ async function newProjectFolder(from: Workspace) {
   }
   mkdirSync(dir, { recursive: true });
   from.made = dir;
+  // The next new project starts beside this one.
+  settings = { ...settings, newProjectsIn: dirname(dir) };
+  writeSettings(settings);
   return dir;
 }
 
@@ -876,6 +882,21 @@ ipcMain.handle("chat:attach", async (event) => {
     const image = mimeType !== undefined && statSync(path).size <= ATTACHED_IMAGE_SIZE ? { mimeType, data: readFileSync(path).toString("base64") } : undefined;
     return { name: basename(path), path, ...(image ? { image } : {}) };
   });
+});
+// A folder chosen in the system's sheet - a base folder, the test folder - said by its path from `root`, as
+// config.turri.yaml names one: in the project or beside it (../legacy-app). Never the project's own folder, one holding
+// it, or turri's plain_modules - a codebase would start from itself.
+ipcMain.handle("folder:pick", async (event, root: unknown) => {
+  const workspace = workspaceOf(event.sender);
+  if (typeof root !== "string" || !isAbsolute(root) || !existsSync(root) || !statSync(root).isDirectory()) throw new Error("No such folder to choose from.");
+  const result = await dialog.showOpenDialog(workspace.window, { title: "Choose a folder", properties: ["openDirectory", "createDirectory"], buttonLabel: "Choose", defaultPath: root });
+  const chosen = result.filePaths[0];
+  if (result.canceled || chosen === undefined) return null;
+  const parts = relative(root, chosen).split(sep);
+  if (parts.join("") === "") return { refused: "that is the project's own folder - choose a folder in it, or beside it." };
+  if (parts.every((part) => part === "..")) return { refused: "that folder holds the project - choose a folder in it, or beside it." };
+  if (parts[0] === "plain_modules") return { refused: "that is turri's own - its codebases, built from the ***plain." };
+  return { path: parts.join("/") };
 });
 ipcMain.handle("project:choose", async (event) => {
   const from = workspaceOf(event.sender);

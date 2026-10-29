@@ -4,8 +4,8 @@ import type { Page } from "@playwright/test";
 import { expect, offers, test } from "./app.ts";
 import { keys } from "./keys.ts";
 
-/** A functional spec's mark in the gutter, by its number. */
-const mark = (window: Page, frid: number) => window.locator(`.editor-colours .mark[aria-label^="functional spec ${frid},"]`);
+/** A functional spec's mark in the gutter, by its func-id. */
+const mark = (window: Page, funcId: string) => window.locator(`.editor-colours .mark[aria-label^="functional spec ${funcId},"]`);
 
 /** The caret at the end of the spec, for typing there: no key does it on every system - ⌘End is not macOS's. */
 const atTheEnd = (window: Page) =>
@@ -25,7 +25,46 @@ test.describe("the spec editor", () => {
     await expect(row.locator(".tree-state")).toHaveAttribute("title", "not built");
     await expect(window.locator(".editor-colours .plain-concept").first()).toBeVisible();
     // In the coloured layer, which is hidden from the accessibility tree: the textarea over it reads the spec.
-    await expect(mark(window, 1)).toHaveAttribute("aria-label", "functional spec 1, to build");
+    await expect(mark(window, "print-hello")).toHaveAttribute("aria-label", "functional spec print-hello, to build");
+    // Its # <func-id> heading in turri's colour for it - coloured only, as the text under the caret is, so a rename
+    // typed there has the caret on its letters.
+    const heading = window.locator(".editor-colours .plain-id", { hasText: "# print-hello" });
+    await expect(heading).toBeVisible();
+    const weights = await heading.evaluate((element) => [getComputedStyle(element).fontWeight, getComputedStyle(document.querySelector(".editor textarea")!).fontWeight]);
+    expect(weights[0]).toBe(weights[1]);
+  });
+
+  test("knows a functional spec by its func-id while it is edited, and one with a new func-id as new", async ({ launched: { window } }) => {
+    const area = window.locator(".editor textarea");
+    await expect(area).toHaveValue(/Greeter/);
+    await expect(mark(window, "print-hello")).toBeVisible();
+    // Its body edited: still print-hello - what it is built from is the ***plain as saved.
+    await atTheEnd(window);
+    await window.keyboard.type(" Then it waits.");
+    await expect(mark(window, "print-hello")).toHaveAttribute("aria-label", "functional spec print-hello, to build");
+    // Another below it, under its own heading: a mark of its own, its body under it.
+    await window.keyboard.type("\n\n# say-goodbye\n:Greeter: says goodbye\nwhen interrupted.");
+    await expect(mark(window, "say-goodbye")).toBeVisible();
+    await expect(window.locator(".editor-colours > div", { hasText: "when interrupted." }).locator(".gutter")).toBeVisible();
+    await expect(window.locator(".editor-colours .mark")).toHaveCount(2);
+  });
+
+  test("collapses a functional spec to its heading and its body's first line, and keeps a line typed below it in sight", async ({ launched: { window, spec } }) => {
+    const area = window.locator(".editor textarea");
+    await expect(area).toHaveValue(/Greeter/);
+    writeFileSync(spec, readFileSync(spec, "utf8").replace("exits with 0.", "exits with 0.\n- It prints nothing else.\n- It needs no arguments."));
+    await expect(area).toHaveValue(/no arguments/);
+    await window.getByRole("button", { name: "collapse all" }).click();
+    // What it is about stays: its func-id and its first line - the rest under it, counted.
+    await expect(area).not.toHaveValue(/nothing else|no arguments/);
+    await expect(area).toHaveValue(/# print-hello\n:Greeter: prints "hello, world" and exits with 0\./);
+    await expect(window.locator(".editor-colours .fold-more")).toHaveText("+2 lines");
+    // A line typed below it is of its body, as turri reads free text - and stays in sight as it is typed.
+    await atTheEnd(window);
+    await window.keyboard.type("It waves.");
+    await expect(area).toHaveValue(/It waves\.$/);
+    await expect(window.locator(".editor-colours > div", { hasText: "It waves." })).toBeVisible();
+    await expect(area).not.toHaveValue(/no arguments/);
   });
 
   test("takes the pane's whole width, as far in from the right as from the left, wrapping what is longer", async ({ launched: { window } }) => {
@@ -126,19 +165,19 @@ test.describe("the spec editor", () => {
     await expect(window.locator(".pane-header-right")).toContainText("saved");
 
     await atTheEnd(window);
-    await window.keyboard.type("\n- :Greeter: says goodbye when interrupted.");
+    await window.keyboard.type("\n\n# say-goodbye\n:Greeter: says goodbye when interrupted.");
     await expect(window.getByRole("button", { name: /^save/ })).toBeVisible();
-    await expect(mark(window, 2)).toBeVisible();
+    await expect(mark(window, "say-goodbye")).toBeVisible();
 
     await window.keyboard.press(`${keys.mod}+s`);
     await expect(window.locator(".pane-header-right")).toContainText("saved");
-    expect(readFileSync(spec, "utf8")).toContain("- :Greeter: says goodbye when interrupted.");
+    expect(readFileSync(spec, "utf8")).toContain("# say-goodbye\n:Greeter: says goodbye when interrupted.");
   });
 
   test("shows a change made on disk", async ({ launched: { window, spec } }) => {
     const area = window.locator(".editor textarea");
     await expect(area).toHaveValue(/Greeter/);
-    writeFileSync(spec, readFileSync(spec, "utf8") + "\n- :Greeter: waves.\n");
+    writeFileSync(spec, readFileSync(spec, "utf8") + "\n# wave\n:Greeter: waves.\n");
     await expect(area).toHaveValue(/:Greeter: waves\./);
   });
 });

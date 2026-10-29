@@ -29,7 +29,6 @@ function fromSummary(settings: Record<string, Value>): Setting[] {
   const few: Array<Omit<Setting, "value" | "over" | "effect" | "options">> = [
     { key: "harness-model", about: "the model you talk to: it writes the ***plain and plans the work", kind: "model", unset: "pi's own choice" },
     { key: "coding-model", about: "the model that writes the code", kind: "model", unset: "harness-model" },
-    { key: "conformance-tests", about: "which functional specs get conformance tests", kind: "choice", unset: "all, where a module has test reqs" },
     { key: "review", about: "whether the code and its tests are reviewed once they pass", kind: "boolean", unset: "true" },
     { key: "parallel-jobs", about: "how many pulses run at once, on modules that share nothing", kind: "number", unset: "half this machine's cores, one to four" },
     { key: "debug", about: "whether turri keeps what it writes for debugging it - agents' logs and sessions, pulse logs, outputs", kind: "boolean", unset: "false" },
@@ -118,8 +117,41 @@ function TextSetting({ setting, onChange }: { setting: Setting; onChange: (value
   );
 }
 
+/** The settings that name a folder, by path from the project's: chosen in the system's sheet, as well as typed. */
+const FOLDERS = new Set(["base-folder", "test-dir"]);
+
+/**
+ * A folder chosen in the system's sheet, its path from `root` given to `onChosen` - or why it cannot be one: the
+ * project's own folder, one that holds it, turri's plain_modules. Shared with the new project's sheet.
+ */
+export function ChooseFolder({ root, onChosen, label = "choose…" }: { root: string; onChosen: (path: string) => void; label?: string }) {
+  const [refused, setRefused] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        className="button small"
+        onClick={() =>
+          void window.turri.pickFolder(root).then((picked) => {
+            if (picked === null) return;
+            if ("refused" in picked) return setRefused(picked.refused);
+            setRefused(null);
+            onChosen(picked.path);
+          })
+        }
+      >
+        {label}
+      </button>
+      {refused !== null && (
+        <span className="choose-refused small" role="alert">
+          {withPlain(refused)}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** One setting: its control by its kind, what it does and when a change takes effect, and what wins over it. */
-function SettingRow({ setting, onChange }: { setting: Setting; onChange: (value: string) => void }) {
+function SettingRow({ setting, onChange, dir }: { setting: Setting; onChange: (value: string) => void; dir: string }) {
   const [choices, setChoices] = useState<string[] | null>(setting.kind === "choice" && setting.options.length > 0 ? setting.options : null);
   useEffect(() => {
     if (setting.kind === "choice" && choices === null) void choicesFor(`${setting.key} `).then(setChoices);
@@ -131,6 +163,11 @@ function SettingRow({ setting, onChange }: { setting: Setting; onChange: (value:
       <ModelSetting setting={setting} onChange={onChange} />
     ) : setting.kind === "choice" ? (
       <Choose value={setting.value ?? ""} options={choices} onChange={(next) => onChange(next === "" ? "unset" : next)} label={setting.key} blank={`unset - ${setting.unset}`} />
+    ) : FOLDERS.has(setting.key) ? (
+      <>
+        <TextSetting setting={setting} onChange={onChange} />
+        <ChooseFolder root={dir} onChosen={onChange} />
+      </>
     ) : (
       <TextSetting setting={setting} onChange={onChange} />
     );
@@ -166,7 +203,7 @@ function SettingRow({ setting, onChange }: { setting: Setting; onChange: (value:
  * Each change is sent as the person would type it, /turri-config review false: turri checks it, writes it into the file
  * with its comments kept, and says in the chat when it takes effect. The sheet reads the file again once it changes.
  */
-export function ProjectSettingsSheet({ settings, onClose, onOpenFile }: { settings: Record<string, Value>; onClose: () => void; onOpenFile: () => void }) {
+export function ProjectSettingsSheet({ dir, settings, onClose, onOpenFile }: { dir: string; settings: Record<string, Value>; onClose: () => void; onOpenFile: () => void }) {
   const [all, setAll] = useState<Setting[] | null>(null);
   // Read again as the summary is - once the file changes.
   useEffect(() => {
@@ -193,7 +230,7 @@ export function ProjectSettingsSheet({ settings, onClose, onOpenFile }: { settin
     .filter((setting) => words.every((word) => `${setting.key} ${setting.about}`.toLowerCase().includes(word)));
   const main = shown.filter((setting) => !setting.key.startsWith("models."));
   const byRole = shown.filter((setting) => setting.key.startsWith("models."));
-  const row = (setting: Setting) => <SettingRow key={setting.key} setting={setting} onChange={(value) => change(setting.key, value)} />;
+  const row = (setting: Setting) => <SettingRow key={setting.key} setting={setting} dir={dir} onChange={(value) => change(setting.key, value)} />;
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>

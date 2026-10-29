@@ -220,6 +220,56 @@ test.describe("the browser tools, while the person looks elsewhere", () => {
   });
 });
 
+// browser_press as a keyboard presses keys - each down, held, up - on a page that listens to the keyboard itself, as a
+// game does: what it heard is written into it, and read back with browser_read.
+test.describe("browser_press", () => {
+  let server: Server;
+  let address: string;
+  const PAGE = `<!doctype html><title>keys</title>
+    <canvas id="game" width="200" height="100"></canvas>
+    <pre id="heard"></pre>
+    <script>
+      const hear = (what) => (document.getElementById("heard").textContent += what + "\\n");
+      const downAt = {};
+      addEventListener("keydown", (event) => {
+        if (event.repeat) return;
+        downAt[event.code] = performance.now();
+        hear("down " + event.key + " " + event.code + (event.ctrlKey ? " ctrl" : "") + (event.shiftKey ? " shift" : ""));
+      });
+      addEventListener("keyup", (event) => hear("up " + event.code + " " + (performance.now() - downAt[event.code] >= 300 ? "long" : "short")));
+      addEventListener("keypress", (event) => hear("typed " + event.key));
+    </script>`;
+  test.beforeAll(async () => {
+    server = createServer((_request, response) => response.end(PAGE));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    address = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  });
+  test.afterAll(() => server.close());
+
+  test("presses keys as a keyboard does - arrows, letters, held, together, with modifiers - for a game to play", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const request = tool(app);
+    await request("browser", "navigate", { url: address });
+    const heard = async () => (await request<{ text: string }>("browser", "read", {})).text.split("\n").filter((line) => /^(down|up|typed) /.test(line));
+
+    expect((await request<{ did: string }>("browser", "press", { keys: ["left", "w", "space"] })).did).toBe("Pressed left, w, space.");
+    expect(await heard()).toEqual(["down ArrowLeft ArrowLeft", "up ArrowLeft short", "down w KeyW", "typed w", "up KeyW short", "down   Space", "typed  ", "up Space short"]);
+
+    // Held as long as a move lasts; two at once, for a diagonal.
+    expect((await request<{ did: string }>("browser", "press", { keys: ["right"], hold: 400 })).did).toBe("Pressed right, held 400 ms.");
+    expect((await request<{ did: string }>("browser", "press", { keys: ["up", "right"], together: true })).did).toBe("Pressed up and right together.");
+    expect((await heard()).slice(8)).toEqual(["down ArrowRight ArrowRight", "up ArrowRight long", "down ArrowUp ArrowUp", "down ArrowRight ArrowRight", "up ArrowRight short", "up ArrowUp short"]);
+
+    // Modifiers held, typing nothing with ctrl; repeated.
+    expect((await request<{ did: string }>("browser", "press", { keys: ["ctrl+z", "shift+a"], repeat: 2, delay: 10 })).did).toBe("Pressed ctrl+z, shift+a, 2 times.");
+    expect((await heard()).slice(14, 19)).toEqual(["down z KeyZ ctrl", "up KeyZ short", "down A KeyA shift", "typed A", "up KeyA short"]);
+
+    await expect(request("browser", "press", { keys: ["hyper+q"] })).rejects.toThrow('No such key: "hyper+q".');
+    await expect(request("browser", "press", { keys: ["jump"] })).rejects.toThrow('No such key: "jump".');
+    await expect(request("browser", "press", { keys: ["left"], hold: 10000, repeat: 10 })).rejects.toThrow("a minute at most");
+  });
+});
+
 /** A JPEG's width, from its frame header. */
 function jpegWidth(jpeg: Buffer): number {
   for (let at = 2; at < jpeg.length; ) {

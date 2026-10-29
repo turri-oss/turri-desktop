@@ -101,7 +101,7 @@ async function attachedFrom(file: File): Promise<Attached | null> {
 export type ChatItem =
   | { role: "user"; text: string; images?: string[] }
   | { role: "assistant"; text: string; thinking?: string; tools?: Array<{ id: string; name: string; args: unknown }>; error?: string }
-  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string }
+  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background }
   | { role: "note"; customType?: string; text: string; level?: string }
   | { role: "command"; text: string }
   | { role: "job"; id: string; summary: string; status: string; duration?: string; spent?: string; text: string }
@@ -109,9 +109,19 @@ export type ChatItem =
   | { role: "noticeOver"; state: NoticeState; summary: string }
   | { role: "concluded"; conclusion: Conclusion }
   /** Where the sentinel's work on a pulse starts, in its chat: turri's brief of it, which the person does not read. */
-  | { role: "sentinelPulse"; job: string | null };
+  | { role: "sentinelPulse"; job: string | null }
+  /** The test advisor's yes, which starts the turn that writes their testing scenarios: the functional specs, `module:func-id`. */
+  | { role: "advisorVerdict"; specs: string[] }
+  /** Background runs that did not do their work, which start the turn that says so: each its skill, and what it was to write. */
+  | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> };
 
-/** What the sentinel puts to the person, as turri gives it: a card in the chat it names, its actions its buttons. */
+/** A skill cultivate started in the background: the testing script it writes and the module it is for - or, running already, nothing new. */
+type Background = { kind?: "unit" | "conformance"; plainFile?: string; already?: true };
+
+/** A testing script by its kind, in turri's words. */
+const SCRIPT = { unit: "unit testing script", conformance: "conformance testing script" } as const;
+
+/** What the sentinel puts to the person, as turri gives it - or turri, asking before the sentinel first opens: a card in the status panel's notifications, its actions its buttons. */
 export type Notice = {
   id: string;
   chat: string;
@@ -218,12 +228,6 @@ export function Chat(props: {
   onShowConcept: (concept: string) => void;
   /** Whether any of the project's ***plain has changed since it was built: only then is regenerating what changed offered. */
   changed: boolean;
-  /** The sentinel's notices open in the chat shown: their cards' buttons are live only while they are. */
-  notices: Set<string>;
-  /** How each of its notices ended, as turri said while the window was there. */
-  noticesOver: Map<string, NoticeState>;
-  /** A notice answered from its card: turri's `done`, `dismissed`, `over` or `missing`. */
-  onAnswerNotice: (id: string, answer: NoticeAnswer) => Promise<string>;
 }) {
   // What is typed in each chat and not sent yet: kept as another chat is shown, and there again when it is back.
   const [draft, setDraftNow] = useState("");
@@ -276,8 +280,26 @@ export function Chat(props: {
       if (now.question !== undefined) return now.onDecline(now.question.id);
       void now.onInterrupt(typed.trim() !== "").then((did) => did === "cleared" && clear(""), () => {});
     };
+    // Escape, as in pi's terminal: what the chat shown is doing stopped - only that, never its draft cleared or turri
+    // left. Heard first, so what Escape puts away - a sheet, a menu, a list offered, a question - is still there to see,
+    // and is left to it; so are a field's own, the preview's terminal, the dive and the status panel.
+    const escaped = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      const at = event.target instanceof Element ? event.target : null;
+      if (at?.closest(".xterm, .dive, .status-panel, input, select")) return;
+      if (document.querySelector(".sheet-backdrop, [role=dialog], [role=menu], [role=listbox]")) return;
+      const { props: now } = latest.current;
+      if (now.question !== undefined || !now.busy) return;
+      event.preventDefault();
+      // As with a draft: a chat that turns out to be doing nothing is left as it is.
+      void now.onInterrupt(true).catch(() => {});
+    };
     window.addEventListener("keydown", pressed, true);
-    return () => window.removeEventListener("keydown", pressed, true);
+    window.addEventListener("keydown", escaped, true);
+    return () => {
+      window.removeEventListener("keydown", pressed, true);
+      window.removeEventListener("keydown", escaped, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -298,17 +320,6 @@ export function Chat(props: {
   // Results by the call they answer, shown under it.
   const results = new Map<string, Extract<ChatItem, { role: "toolResult" }>>();
   for (const item of props.items) if (item.role === "toolResult") results.set(item.id, item);
-  // How each notice drawn ended, from the transcript: an ending names its notice's summary, and is the latest one's
-  // before it of that summary still open - then what turri said while the window was there, over it.
-  const endings = new Map<string, NoticeState>();
-  const unended: Notice[] = [];
-  for (const item of props.items) {
-    if (item.role === "notice") unended.push(item.notice);
-    if (item.role !== "noticeOver") continue;
-    const at = unended.findLastIndex((notice) => notice.summary === item.summary);
-    if (at !== -1) endings.set(unended.splice(at, 1)[0]!.id, item.state);
-  }
-  for (const [id, state] of props.noticesOver) endings.set(id, state);
 
   /** Files attached, once read: to the chat they were attached in, whichever is shown by then. */
   const attach = async (coming: Promise<Array<Attached | null>>) => {
@@ -464,10 +475,9 @@ export function Chat(props: {
             )}
           </div>
         )}
+        {/* turri's notices are the status panel's, not the conversation's: answered there, whichever chat they are of. */}
         {props.items.map((item, index) =>
-          item.role === "toolResult" || item.role === "noticeOver" ? null : item.role === "notice" ? (
-            <NoticeCard key={item.notice.id} notice={item.notice} open={props.notices.has(item.notice.id)} ended={endings.get(item.notice.id)} onAnswer={(answer) => props.onAnswerNotice(item.notice.id, answer)} />
-          ) : (
+          item.role === "toolResult" || item.role === "notice" || item.role === "noticeOver" ? null : (
             <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} onShowSentinel={props.onShowSentinel} pulseOf={props.pulseOf} />
           ),
         )}
@@ -634,7 +644,7 @@ export function Chat(props: {
               <Icon name="clip" size={15} />
             </button>
             {props.busy ? (
-              <button className="button small" onClick={props.onAbort}>
+              <button className="button small" onClick={props.onAbort} title="stop what turri is doing - esc, or ctrl+c">
                 <Icon name="stop" size={13} /> stop
               </button>
             ) : (
@@ -686,19 +696,6 @@ function Message({
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
   // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
   // ***plain, its card in regen: the chat stays a conversation.
-  if (item.role === "job") {
-    const named = pulseOf?.(item.id);
-    const kind = (named?.kind ?? (/\bconformance\b/.test(item.summary) ? "conformance" : "regenerate")) === "conformance" ? "conformance" : "regenerate";
-    return (
-      <div className={`msg job-note ${kind} ${item.status}`}>
-        <button className="job-note-head" onClick={() => onShowPulse?.(item.id)} title={item.status === "succeeded" ? "open what it built in the ***plain, lit" : "open it in regen, in the dive, to see what happened"}>
-          {item.status === "succeeded" ? <Icon name={kind === "conformance" ? "checks" : "check"} size={14} /> : item.status === "stopped" ? <Icon name="stop" size={14} /> : <Icon name="warn" size={14} />}
-          <span>{pulseLine(named?.module, kind, item.status)}</span>
-          <Icon name="chevron" size={12} />
-        </button>
-      </div>
-    );
-  }
   // The sentinel done with a pulse: one line, as a pulse's end is - its name a link to what it did of the pulse, and the
   // pulse a link to the pulse, both in regen. Only something wrong is said, with what it found; when it holds, the tick is all.
   if (item.role === "concluded") {
@@ -729,12 +726,36 @@ function Message({
       </div>
     );
   }
-  if (item.role === "note")
+  // Where a turn of the chat's own comes from when nobody typed: the test advisor's yes, which the person does not read -
+  // the chat says it, and writes the scenarios.
+  if (item.role === "advisorVerdict")
+    return (
+      <div className="msg advisor-verdict">
+        <Icon name="test" size={13} /> testing scenarios evaluated
+        {item.specs.length > 0 && <span className="muted"> · {item.specs.join(", ")}</span>}
+      </div>
+    );
+  // Where a turn comes from when a background run did not do its work: the chat says what went wrong.
+  if (item.role === "skillRun")
+    return (
+      <div className="msg advisor-verdict skill-run">
+        <Icon name="test" size={13} />{" "}
+        {item.runs.map((run, index) => (
+          <span key={index}>
+            {index > 0 && <span className="muted"> · </span>}
+            {run.kind !== undefined ? `${SCRIPT[run.kind]} not written` : `${run.skill} did not finish`}
+            {run.plainFile !== undefined && <span className="muted"> · {run.plainFile}</span>}
+          </span>
+        ))}
+      </div>
+    );
+  if (item.role === "note") {
     return (
       <div className={`msg note ${item.level ?? ""} ${item.customType === "turri_command_echo" ? "echo" : ""}`}>
         <Prose text={item.text} />
       </div>
     );
+  }
   if (item.role !== "assistant") return null;
   return (
     <div className={`msg assistant ${live ? "live" : ""}`}>
@@ -791,11 +812,12 @@ const ENDED: Record<Exclude<NoticeState, "open">, string> = {
 };
 
 /**
- * What the sentinel puts to the person: a card in the transcript - how grave, what it is about, what is wrong and what
- * shows it - with what can be done as buttons, the person's own words, or nothing. It docks nowhere and blocks nothing:
- * the person can go on talking. Its buttons are live while it is open; then it says how it ended.
+ * What the sentinel puts to the person: a card among the status panel's notifications - how grave, what it is about,
+ * what is wrong and what shows it - with what can be done as buttons, the person's own words, or nothing. It docks
+ * nowhere and blocks nothing: the person can go on talking. Its buttons are live while it is open; then it says how it
+ * ended.
  */
-function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: boolean; ended: NoticeState | undefined; onAnswer: (answer: NoticeAnswer) => Promise<string> }) {
+export function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: boolean; ended: NoticeState | undefined; onAnswer: (answer: NoticeAnswer) => Promise<string> }) {
   const [steering, setSteering] = useState(false);
   const [words, setWords] = useState("");
   // Answered here, and turri not yet saying it is over: its buttons rest.
@@ -896,7 +918,7 @@ function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: b
 }
 
 /** What a tool call says it does, in words: the turri tools by what they mean, the rest by name. */
-function describeTool(name: string, args: any): string {
+function describeTool(name: string, args: any, background?: Background): string {
   const file = args?.path ?? args?.file ?? args?.plain_file ?? args?.plainFile;
   switch (name) {
     case "read":
@@ -931,6 +953,15 @@ function describeTool(name: string, args: any): string {
       return `scrolled ${args?.direction ?? ""} in the terminal`;
     case "browser_type":
       return `typed "${args?.text ?? ""}" in the preview`;
+    case "evaluate_tests":
+      return `evaluating testing scenarios for ${Array.isArray(args?.funcIds) ? args.funcIds.join(", ") : "functional specs"}, in the background`;
+    case "cultivate": {
+      // A skill started in the background says what it writes, once its result says so; the others, the skill.
+      const what = background?.kind !== undefined ? `the ${SCRIPT[background.kind]}${background.plainFile !== undefined ? ` for ${background.plainFile}` : ""}` : undefined;
+      if (background?.already) return what !== undefined ? `${what} already being written, in the background` : `${args?.skill ?? "a skill"} already running, in the background`;
+      if (background !== undefined) return what !== undefined ? `writing ${what}, in the background` : `${args?.skill ?? "a skill"}, in the background`;
+      return `${args?.skill ?? "a skill"}${file ? ` · ${file}` : ""}`;
+    }
     default:
       return `${name.replace(/_/g, " ")}${file ? ` · ${file}` : ""}`;
   }
@@ -942,7 +973,7 @@ function ToolCall({ tool, result, running }: { tool: { id: string; name: string;
     <div className={`tool-call ${result?.isError ? "error" : ""}`}>
       <button onClick={() => setOpen(!open)}>
         {running ? <Spinner /> : result?.isError ? <Icon name="warn" size={13} /> : <Icon name="check" size={13} />}
-        <span>{describeTool(tool.name, tool.args)}</span>
+        <span>{describeTool(tool.name, tool.args, result?.background)}</span>
       </button>
       {open && (
         <div className="tool-detail">

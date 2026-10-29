@@ -5,10 +5,19 @@ import { retriedWithoutImages } from "./browser.mjs";
 
 /**
  * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
- * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it.
+ * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it - and the
+ * test advisor's yes, which starts the turn that writes the scenarios: a mark of where it came from, `module:func-id`s - and
+ * a background run that did not do its work, which starts the turn that says so: a mark of each run, its skill, the
+ * testing script it was to write and the module it was for (on a turri before `runs`, its skill alone).
  */
 function customItem(message) {
   if (message.customType === "turri_sentinel_pulse") return { role: "sentinelPulse", job: message.details?.jobId ?? null };
+  if (message.customType === "turri_advisor_verdict") return { role: "advisorVerdict", specs: Array.isArray(message.details?.specs) ? message.details.specs : [] };
+  if (message.customType === "turri_skill_run") {
+    const details = message.details ?? {};
+    const runs = Array.isArray(details.runs) ? details.runs : Array.isArray(details.skills) ? details.skills.map((skill) => ({ skill })) : [];
+    return { role: "skillRun", runs };
+  }
   return message.display === false ? null : { role: "note", customType: message.customType, text: textOf(message.content) };
 }
 
@@ -33,6 +42,10 @@ export function entryItem(entry) {
       return { role: "note", customType: entry.customType, text: `**By the way:** ${data.question}\n\n${data.answer}` };
     case "turri_exchange":
       return { role: "note", customType: entry.customType, text: `**${data.question}**\n\n${data.answer}` };
+    // The test advisor's no, and a background run that wrote its testing script: one line of turri's, starting no turn.
+    case "turri_advisor":
+    case "turri_skill_run":
+      return { role: "note", customType: entry.customType, text: data.text };
     // The sentinel's: a notice put in this chat - the whole of it - and how one ended, which its card says; and the
     // sentinel done with a pulse.
     case "turri_notice":
@@ -77,6 +90,13 @@ export function normalise(message) {
     case "toolResult": {
       // What turri saw, when it was an image - the preview, as browser_screenshot or terminal_screenshot took it.
       const image = Array.isArray(message.content) ? message.content.find((part) => part.type === "image") : undefined;
+      // A skill cultivate started in the background: the testing script it writes and the module it is for, or that it
+      // was running already.
+      const details = message.details ?? {};
+      const background =
+        details.background === true
+          ? { ...(typeof details.kind === "string" ? { kind: details.kind } : {}), ...(typeof details.plainFile === "string" ? { plainFile: details.plainFile } : {}), ...(details.started === false ? { already: true } : {}) }
+          : undefined;
       return {
         role: "toolResult",
         id: message.toolCallId,
@@ -84,6 +104,7 @@ export function normalise(message) {
         text: textOf(message.content).slice(0, 4000),
         isError: message.isError === true,
         ...(image !== undefined ? { image: `data:${image.mimeType};base64,${image.data}` } : {}),
+        ...(background !== undefined ? { background } : {}),
       };
     }
     case "custom":

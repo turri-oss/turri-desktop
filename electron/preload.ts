@@ -103,6 +103,11 @@ const api = {
   switchProject: (id: number) => ipcRenderer.invoke("projects:switch", id),
   /** Files to attach to a message, chosen in the open sheet: an image's bytes with it. */
   attach: () => ipcRenderer.invoke("chat:attach") as Promise<Attached[]>,
+  /**
+   * A folder chosen in the system's sheet, by its path from `root` - the project's folder, or a new one's: a base folder,
+   * the test folder. Refused, why; cancelled, null.
+   */
+  pickFolder: (root: string) => ipcRenderer.invoke("folder:pick", root) as Promise<{ path: string } | { refused: string } | null>,
   /** Where a file dropped or pasted into the window is on disk - "" for one that is not a file there, as a pasted image. */
   pathOf: (file: File) => webUtils.getPathForFile(file),
   reveal: (path: string) => ipcRenderer.invoke("shell:reveal", path),

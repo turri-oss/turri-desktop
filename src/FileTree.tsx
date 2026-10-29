@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Spec } from "./types.ts";
+import type { Spec, TestPlainFile } from "./types.ts";
 import { Icon, PlainMark, Spinner } from "./ui.tsx";
 import { REVEAL } from "./platform.ts";
 
@@ -28,7 +28,7 @@ function parentOf(path: string) {
  * they link - nothing else of the project, the engine lists only these - each folder listed when it is opened, and again
  * when what is in it changes. Which folders are open is kept between launches, project by project.
  */
-export function FileTree(props: { root: string; specs: Spec[]; selected: string | null; isRunning: (module: string) => boolean; onSelect: (path: string) => void }) {
+export function FileTree(props: { root: string; specs: Spec[]; testPlainFiles: TestPlainFile[]; selected: string | null; isRunning: (module: string) => boolean; onSelect: (path: string) => void }) {
   const { root } = props;
   const [listed, setListed] = useState<Map<string, FileEntry[]>>(new Map());
   const [open, setOpen] = useState<Set<string>>(() => savedOpen(root));
@@ -107,6 +107,7 @@ export function FileTree(props: { root: string; specs: Spec[]; selected: string 
     if (entries.length === 0) return <div className="tree-empty" style={{ "--depth": depth } as React.CSSProperties}>empty</div>;
     return entries.map((entry) => {
       const spec = entry.dir ? undefined : props.specs.find((candidate) => candidate.file === entry.path);
+      const tests = entry.dir ? undefined : props.testPlainFiles.find((candidate) => candidate.file === entry.path);
       const isOpen = entry.dir && open.has(entry.path);
       return (
         <div key={entry.path} role="treeitem" aria-expanded={entry.dir ? isOpen : undefined} aria-selected={entry.path === props.selected}>
@@ -126,6 +127,7 @@ export function FileTree(props: { root: string; specs: Spec[]; selected: string 
             {/* Its state at the right, with how much of it is built: the icon's place is ***plain's mark. */}
             {spec && <SpecState spec={spec} running={props.isRunning(spec.module)} />}
             {spec && <span className="spec-row-count">{spec.ok ? `${spec.functionalSpecs.filter((entry) => entry.built).length}/${spec.functionalSpecs.length}` : "!"}</span>}
+            {tests && <TestsState tests={tests} />}
           </button>
           {isOpen && <div role="group">{rows(entry.path, depth + 1)}</div>}
         </div>
@@ -141,11 +143,32 @@ export function FileTree(props: { root: string; specs: Spec[]; selected: string 
 }
 
 /** A spec's state: up to date and conformance tested, up to date, still to regenerate, not built, being regenerated, or not parsing. */
+/**
+ * A test plain file's mark, where a module has its state: in the colour of what is conformance tested, the functional
+ * spec it holds the scenarios of and how many - or, one turri does not read, what is wrong with it.
+ */
+function TestsState({ tests }: { tests: TestPlainFile }) {
+  if (tests.error !== undefined)
+    return (
+      <span className="tree-state" title={tests.error}>
+        <span className="state-dot error" />
+      </span>
+    );
+  const count = (n: number, kind: string) => `${n} ${kind} scenario${n === 1 ? "" : "s"}`;
+  return (
+    <span className="tree-state tests" title={`the scenarios of ${tests.module}:${tests.funcId} - ${count(tests.conformance.length, "conformance")}, ${count(tests.acceptance.length, "acceptance")}`}>
+      <Icon name="test" size={12} />
+    </span>
+  );
+}
+
 function SpecState({ spec, running }: { spec: Spec; running: boolean }) {
   const total = spec.functionalSpecs.length;
   const built = spec.functionalSpecs.filter((entry) => entry.built).length;
   const done = total > 0 && built === total && !spec.drifted;
-  const conformed = done && spec.functionalSpecs.every((entry) => entry.conformed);
+  // Conformance tested as far as it goes: every functional spec with scenarios - one with none is not tested, no fault.
+  const testable = spec.functionalSpecs.filter((entry) => entry.scenarios.conformance.length + entry.scenarios.acceptance.length > 0);
+  const conformed = done && testable.length > 0 && testable.every((entry) => entry.conformed);
   const state = !spec.ok ? "error" : running ? "running" : conformed ? "conformed" : done ? "done" : built > 0 ? "partial" : "new";
   const label = { error: "does not parse", running: "regenerating", conformed: "up to date and conformance tested", done: "up to date", partial: "to regenerate", new: "not built" }[state];
   return (

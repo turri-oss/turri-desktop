@@ -60,6 +60,8 @@ function withScreenshots(messages, images) {
 }
 
 const NOTHING = { type: "object", properties: {}, additionalProperties: false };
+/** How browser_press names a key: electron/preview.ts has the key events for each. */
+const KEY = "a key with its modifiers joined by +: left, up, space, enter, escape, a, w, shift+tab, ctrl+z, f5";
 const ELEMENT = {
   ref: { type: "integer", description: "The element's number, as browser_read listed it: [3] is 3." },
   selector: { type: "string", description: "A CSS selector for the element, when it has no number." },
@@ -70,6 +72,7 @@ const GUIDELINES = [
   "Use them to check what you built works as the ***plain says: open it, read the page, try a flow, read the console for errors.",
   "Prefer browser_read to browser_screenshot: it is text, and costs less. Take a screenshot when how the page looks matters.",
   "browser_click clicks what browser_read numbered, or the text a page shows when it has no number; a point of the screenshot (x and y) for a canvas, or what nothing else reaches.",
+  "browser_press presses keys on the page as a keyboard does - a shortcut, Enter in a field, or a game's controls: hold a key for as long as it should act (hold), press keys together (together), and look with browser_screenshot between moves.",
   "They see only a running app: if nothing answers, start it first (release it, or run it with terminal_run), then open it.",
 ];
 
@@ -153,6 +156,29 @@ export function browserTools(request) {
         const ways = [ref !== undefined, Boolean(selector), Boolean(shows), x !== undefined || y !== undefined].filter(Boolean).length;
         if (ways !== 1 || (x === undefined) !== (y === undefined)) throw new Error("Say what to click - one of: ref, selector, text, or x and y.");
         const result = await request("click", { ref, selector, text: shows, occurrence, x, y, button, double, modifiers });
+        return { content: [text(`${result.did}\nNow: ${header(result)}`)], details: undefined };
+      },
+    },
+    {
+      name: "browser_press",
+      label: "Press keys in the preview",
+      description:
+        "Press keys on the preview page as a keyboard does - each held down, then let go, one after another: arrows, space, enter, a letter, ctrl+z. For a game or what listens to the keyboard itself; to fill in a field, browser_type.",
+      promptSnippet: "Press keys on the preview page - shortcuts, a game's controls",
+      parameters: {
+        type: "object",
+        properties: {
+          keys: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50, description: `The keys, in order, each ${KEY}.` },
+          hold: { type: "integer", minimum: 0, maximum: 10000, description: "Milliseconds each key is held down - longer for a game's move that lasts while the key is down. 50 unless said." },
+          together: { type: "boolean", description: "Press the keys at once - all down, held, then all up - as up and right together for a diagonal." },
+          repeat: { type: "integer", minimum: 1, maximum: 100, description: "Press the whole sequence this many times. 1 unless said." },
+          delay: { type: "integer", minimum: 0, maximum: 5000, description: "Milliseconds between one key's release and the next. 50 unless said." },
+        },
+        required: ["keys"],
+        additionalProperties: false,
+      },
+      execute: async (_id, { keys, hold, together, repeat, delay }) => {
+        const result = await request("press", { keys, hold, together, repeat, delay });
         return { content: [text(`${result.did}\nNow: ${header(result)}`)], details: undefined };
       },
     },

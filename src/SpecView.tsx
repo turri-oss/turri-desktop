@@ -1,43 +1,47 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
-import type { Job, Spec } from "./types.ts";
-import { Icon, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
+import type { Advisor, FunctionalSpec, Job, Spec, TestPlainFile } from "./types.ts";
+import { Icon, PlainMark, PlainName, Spinner, StartedFrom, withPlain } from "./ui.tsx";
 import { type Point, pointNow, relocate } from "./PulseSpec.tsx";
 import { followAt, PlainLinks, useModHeld, usePlainLinks, type Followed, type OpenLink } from "./PlainLinks.tsx";
 import { keys, withMod } from "./platform.ts";
 
 type Token = { text: string; role: string | null };
 type State = "conformed" | "built" | "now" | "todo";
-/** A line of a functional spec: its id, whether it is the spec's first, and which line that is. */
-type SpecLine = { frid: string; first: boolean; line: number };
+/** A line of a functional spec: its func-id, whether it is its heading, and which line that is. */
+type SpecLine = { funcId: string; first: boolean; line: number };
 
 /**
- * The lines of each functional spec in the text, by its id: turri numbers them 1 to n, one for each top-level bullet
- * under ***functional specs***, and a spec runs on over the indented lines below its bullet.
+ * The lines of each functional spec in the text, by its func-id, as turri's own grammar colours them: its `# <func-id>`
+ * heading - the `id` role - and its body below it, up to the next heading or section, its blank lines left unmarked.
+ * The colours are a moment behind the text: while they catch up, a line keeps the role it had.
  */
-function functionalSpecLines(text: string): Map<number, SpecLine> {
+function functionalSpecLines(all: string[], colours: Token[][]): Map<number, SpecLine> {
   const found = new Map<number, SpecLine>();
-  let inSection = false;
-  let count = 0;
-  let current: string | null = null;
-  let start = 0;
-  text.split("\n").forEach((line, index) => {
-    const heading = /^\*\*\*(.+)\*\*\*\s*$/.exec(line);
-    if (heading) {
-      inSection = heading[1]!.trim().toLowerCase() === "functional specs";
-      current = null;
-    } else if (!inSection || line.trim() === "") {
-      return;
-    } else if (/^-(\s|$)/.test(line)) {
-      current = String(++count);
-      start = index;
-      found.set(index, { frid: current, first: true, line: index });
-    } else if (current !== null && /^\s/.test(line)) {
-      found.set(index, { frid: current, first: false, line: start });
-    } else {
-      current = null;
-    }
+  let heading: { funcId: string; line: number } | null = null;
+  all.forEach((line, index) => {
+    const roles = colours[index]?.map((token) => token.role) ?? [];
+    if (roles.includes("section")) heading = null;
+    else if (roles.includes("id")) {
+      heading = { funcId: line.replace(/^#+/, "").trim(), line: index };
+      found.set(index, { funcId: heading.funcId, first: true, line: index });
+    } else if (heading !== null && line.trim() !== "") found.set(index, { funcId: heading.funcId, first: false, line: heading.line });
   });
   return found;
+}
+
+/**
+ * How far each functional spec runs, by its heading's line: its last line, and its body's first - the last a collapsed
+ * one shows. One with more below that can be collapsed, hiding up to its last line.
+ */
+function extentOf(specLines: Map<number, SpecLine>) {
+  const lastOf = new Map<number, number>();
+  const bodyOf = new Map<number, number>();
+  for (const [index, mark] of specLines) {
+    lastOf.set(mark.line, Math.max(lastOf.get(mark.line) ?? index, index));
+    if (!mark.first && !bodyOf.has(mark.line)) bodyOf.set(mark.line, index);
+  }
+  const foldable = [...lastOf].filter(([first, last]) => last > (bodyOf.get(first) ?? last));
+  return { lastOf, bodyOf, foldable };
 }
 
 /** Where each line starts in the text, from 0. */
@@ -76,16 +80,26 @@ function savedCollapsed() {
 const STATE_LABEL: Record<State, string> = { conformed: "built and conformance tested", built: "built", now: "building now", todo: "to build" };
 
 /**
- * The lines of this file the running work renders now, from 0: a code pulse's are what its spec change adds here - its
- * diff's added lines, placed in the files as they were when it started - and the functional specs it carries unchanged,
- * as context: a functional spec regenerated again is in its diff so, its text the same. They are found where they are
- * now, as the ***plain is edited while it runs - a functional spec added above them moves them - and one whose text is
- * not in the file any more is left out. A conformance run's are the functional spec it builds: the one with its text,
- * or else its number.
+ * The functional specs of a module the running work builds now, by func-id: those its pulse covers, as its cases say -
+ * added, changed, regenerated again - or the one a conformance run of one functional spec builds.
+ */
+export function buildingIn(job: Job | undefined, module: string): Set<string> {
+  if (job === undefined) return new Set();
+  const covered = [...(job.cases?.add ?? []), ...(job.cases?.patch ?? []), ...(job.cases?.again ?? []), ...(job.building?.spec ? [job.building.spec] : [])];
+  return new Set(covered.filter((each) => each.module === module).map((each) => each.funcId));
+}
+
+/**
+ * The lines of this file the running work renders now, from 0: every line of the functional specs it builds, by their
+ * func-ids, wherever they are now - and what else its ***plain diff adds here, a definition or a req: its added lines,
+ * placed in the files as they were when it started and found where they are now, as the ***plain is edited while it
+ * runs. One whose text is not in the file any more is left out.
  */
 function renderingLines(job: Job | undefined, spec: Spec, text: string, specLines: Map<number, SpecLine>): Set<number> {
   const found = new Set<number>();
   if (job === undefined) return found;
+  const building = buildingIn(job, spec.module);
+  for (const [index, mark] of specLines) if (building.has(mark.funcId)) found.add(index);
   const lines = text.split("\n").map((line) => line.trimEnd());
   if (job.diff !== undefined && job.diffWhere !== undefined) {
     const diffLines = job.diff.split("\n");
@@ -96,21 +110,12 @@ function renderingLines(job: Job | undefined, spec: Spec, text: string, specLine
       // Found by its text as the file has it - a link as a link, where the diff has it as turri reads it - or, from a
       // turri that does not say it, the diff's own.
       const text = where.written ?? line.slice(1).trimEnd();
-      // Carried unchanged: a line of a functional spec, as context - by its text, as the file may have moved since.
-      const again = line.startsWith(" ") && [...specLines.keys()].some((at) => lines[at] === text);
-      if (!line.startsWith("+") && !again) continue;
+      if (!line.startsWith("+")) continue;
       placed.push({ line: where.line, text });
     }
     placed.sort((a, b) => a.line - b.line);
     const now = relocate(lines, placed.map((each) => each.line), placed.map((each) => each.text));
     now.forEach((line, at) => lines[line - 1] === placed[at]!.text && found.add(line - 1));
-  }
-  const building = /^(\S+) functionality (\d+) of/.exec(job.building?.label ?? "");
-  if (building && building[1] === spec.module) {
-    // By its text where the ***plain has it, as a functional spec added before it numbers it anew; else by its number.
-    const first = job.building?.text?.split("\n")[0]?.trimEnd();
-    const frid = [...specLines].find(([index, mark]) => mark.first && first !== undefined && first !== "" && lines[index] === first)?.[1].frid ?? building[2];
-    for (const [index, mark] of specLines) if (mark.frid === frid) found.add(index);
   }
   return found;
 }
@@ -121,7 +126,19 @@ function renderingLines(job: Job | undefined, spec: Spec, text: string, specLine
  */
 export function SpecView(props: {
   spec: Spec;
+  /**
+   * A test plain file shown, not a module: a functional spec's scenarios - `spec` its file - with the functional spec
+   * they are of, opened in its module by `onShowSpec`. Its # <scenario-id> headings are scenarios, so none is marked.
+   */
+  tests?: TestPlainFile;
+  onShowSpec?: () => void;
+  /** Its module opened - at its top. */
+  onShowModule?: () => void;
+  /** A functional spec's test plain file opened, at a line of it - a scenario's heading - from 1. */
+  onOpenTests: (file: string, line: number) => void;
   running?: Job;
+  /** The base folder its codebase started from, and how many of its files the code has still. */
+  base?: { folder: string; files: number };
   /**
    * Lines to bring into view and light for a moment, from 1: a pulse's part of the spec, shown from the work - with their
    * text, to find them by where the ***plain has changed since the pulse ran, and the point clicked in it, for the caret
@@ -131,8 +148,11 @@ export function SpecView(props: {
   onSaved: (spec: Spec) => void;
   onDirty: (dirty: boolean) => void;
   saveRef: MutableRefObject<(() => Promise<void>) | null>;
-  onRegenerate: (frids?: string[]) => void;
-  onConform: (frids?: string[]) => void;
+  onRegenerate: (funcIds?: string[]) => void;
+  onConform: (funcIds?: string[]) => void;
+  /** The test advisor asked whether a functional spec with no scenarios needs them - and they written, asked of the chat. */
+  onEvaluate: (funcId: string) => void;
+  onWriteScenarios: (funcId: string) => void;
   /** A module it imports or requires, or a .plain that requires or imports it: the stdlib view's, or the project's file. */
   onOpen: OpenLink;
   /** A module, concept or linked resource ⌘-clicked in it: to open what it names. */
@@ -146,8 +166,9 @@ export function SpecView(props: {
   const [saving, setSaving] = useState(false);
   // The file as it is on disk now, when it changed there under edits not yet saved: for the person to take or leave.
   const [onDisk, setOnDisk] = useState<string | null>(null);
-  // The functional specs collapsed to their first line, by the line that is: the lines under it are not shown.
-  const [folded, setFolded] = useState<Set<number>>(new Set());
+  // The functional specs collapsed, by their heading's line, each with the last line it hid when it was collapsed: a
+  // functional spec's body is free text, so a line typed below one is of it - and stays in sight, not hidden as it is typed.
+  const [folded, setFolded] = useState<Map<number, number>>(new Map());
   // Where the caret is to be, in the whole text, once a spec opens or closes under it.
   const caretRef = useRef<number | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -155,13 +176,14 @@ export function SpecView(props: {
   const now = useRef({ text, saved });
   now.current = { text, saved };
   const links = usePlainLinks(spec.file);
+  // A test plain file's links: the module its scenarios are of - its front matter's module: - and nothing else.
+  const following = props.tests !== undefined ? { imports: [], requires: props.tests.module !== undefined ? [{ name: props.tests.module, file: props.tests.moduleFile }] : [], requiredBy: [], importedBy: [] } : links;
   const linking = useModHeld();
 
   useEffect(() => {
     void window.turri.call<{ text: string }>("readSpec", { file: spec.file }).then(({ text }) => {
       setText(text);
       setSaved(text);
-      if (savedCollapsed()) setFolded(new Set([...functionalSpecLines(text).values()].filter((mark) => mark.first).map((mark) => mark.line)));
     });
   }, [spec.file]);
 
@@ -185,6 +207,16 @@ export function SpecView(props: {
     const timer = setTimeout(() => void window.turri.call<Token[][]>("highlightSpec", { text }).then(setLines), 80);
     return () => clearTimeout(timer);
   }, [text]);
+  // Its functional specs collapsed as it opens, unless Expand all was the last choice - once its colours say where they
+  // are, and only while nothing has been typed: a fold coming then would hide what is being written.
+  const foldedOnOpen = useRef(false);
+  useEffect(() => {
+    if (foldedOnOpen.current || text === null || lines.length === 0) return;
+    foldedOnOpen.current = true;
+    const all = text.split("\n");
+    const current = text === saved && lines.length === all.length && lines.every((tokens, index) => tokens.map((token) => token.text).join("") === all[index]);
+    if (current && savedCollapsed()) setFolded(new Map(extentOf(functionalSpecLines(all, lines)).foldable));
+  }, [lines]);
 
   const dirty = text !== null && text !== saved;
   useEffect(() => props.onDirty(dirty), [dirty]);
@@ -196,29 +228,24 @@ export function SpecView(props: {
       const next = await window.turri.call<Spec>("writeSpec", { file: spec.file, text });
       setSaved(text);
       setOnDisk(null);
+      // Not parsing, it is a problem of the project's - the status panel opens on it.
       props.onSaved(next);
-      if (!next.ok) props.say(`saved, but the ***plain does not parse: ${next.error}`, "error");
     } finally {
       setSaving(false);
     }
   };
   props.saveRef.current = save;
 
-  // The functional spec a conformance run builds now, as "<module> functionality <n>".
-  const building = running?.building?.label.replace(/ of \d+$/, "");
-  // Saved, a functional spec's state is its number's. Edited since, numbers shift as specs are added or moved: a spec is
-  // known by its text then, and one whose text is new is still to build.
-  const entryFor = (frid: string, line: string) =>
-    dirty ? spec.functionalSpecs.find((entry) => entry.text.split("\n")[0]!.trim() === line.replace(/^-\s*/, "").trim()) : spec.functionalSpecs.find((entry) => entry.frid === frid);
-  const stateOf = (frid: string, line: string): State => {
-    if (renderingFrids.has(frid)) return "now";
-    const entry = entryFor(frid, line);
+  // A functional spec is known by its func-id, edited or not: one the saved ***plain does not have is new, still to build.
+  const entryFor = (funcId: string) => spec.functionalSpecs.find((entry) => entry.funcId === funcId);
+  const stateOf = (funcId: string): State => {
+    if (renderingFuncIds.has(funcId)) return "now";
+    const entry = entryFor(funcId);
     if (entry === undefined) return "todo";
-    if (building !== undefined && building === `${spec.module} functionality ${entry.frid}`) return "now";
     return entry.conformed ? "conformed" : entry.built ? "built" : "todo";
   };
   // The functional spec the pointer rests on, for a moment: its state, said beside it.
-  const [hover, setHover] = useState<{ frid: string; line: string; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ funcId: string; x: number; y: number } | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const leave = () => {
     clearTimeout(hoverTimer.current);
@@ -236,11 +263,11 @@ export function SpecView(props: {
     });
     const mark = row ? specLines.get(Number(row.dataset.line)) : undefined;
     if (mark === undefined) return leave();
-    if (hover?.frid === mark.frid) return;
+    if (hover?.funcId === mark.funcId) return;
     clearTimeout(hoverTimer.current);
     setHover(null);
     const box = row!.getBoundingClientRect();
-    hoverTimer.current = setTimeout(() => setHover({ frid: mark.frid, line: all[mark.line] ?? "", x, y: box.bottom }), 350);
+    hoverTimer.current = setTimeout(() => setHover({ funcId: mark.funcId, x, y: box.bottom }), 350);
   };
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
@@ -248,26 +275,34 @@ export function SpecView(props: {
    * A functional spec's mark, clicked: its menu, under it - regenerate that functional spec, and only it, or validate it,
    * its conformance tests written, which wait for its code.
    */
-  const [markMenu, setMarkMenu] = useState<{ frid: string; x: number; y: number } | null>(null);
+  const [markMenu, setMarkMenu] = useState<{ funcId: string; x: number; y: number } | null>(null);
   // What the pointer is on in that menu: the functional spec it would act on lit in the text, in that one's colour.
   const [pointed, setPointed] = useState<"regenerate" | "validate" | null>(null);
-  const markerMenu = (frid: string, mark: HTMLElement) => {
+  const markerMenu = (funcId: string, mark: HTMLElement) => {
     leave();
     const box = mark.getBoundingClientRect();
-    setMarkMenu({ frid, x: box.left, y: box.bottom + 4 });
+    setMarkMenu({ funcId, x: box.left, y: box.bottom + 4 });
   };
 
   const total = spec.functionalSpecs.length;
   const built = spec.functionalSpecs.filter((entry) => entry.built).length;
   const conformedCount = spec.functionalSpecs.filter((entry) => entry.conformed).length;
-  const specLines = spec.ok && text !== null ? functionalSpecLines(text) : new Map<number, SpecLine>();
+  // What is tested is counted over the functional specs with scenarios, as turri counts it: the others are not tested.
+  const testable = spec.functionalSpecs.filter((entry) => scenarioCount(entry) > 0).length;
   const all = text?.split("\n") ?? [];
-  // A functional spec collapses to its first line when it has more than one: what is under it is hidden.
-  const lastOf = new Map<number, number>();
-  for (const [index, mark] of specLines) lastOf.set(mark.line, Math.max(lastOf.get(mark.line) ?? index, index));
-  const foldable = [...lastOf].filter(([first, last]) => last > first).map(([first]) => first);
+  const specLines = spec.ok && props.tests === undefined ? functionalSpecLines(all, lines) : new Map<number, SpecLine>();
+  const { lastOf, bodyOf, foldable: foldables } = extentOf(specLines);
+  const foldable = foldables.map(([first]) => first);
   const hiddenBy = new Map<number, number>();
-  for (const first of folded) for (let index = first + 1; index <= (lastOf.get(first) ?? first); index++) hiddenBy.set(index, first);
+  // A collapsed functional spec's heading by the line it shows last.
+  const peekOf = new Map<number, number>();
+  for (const [first, hid] of folded) {
+    const peek = bodyOf.get(first);
+    const last = Math.min(lastOf.get(first) ?? first, hid);
+    if (peek === undefined || last <= peek) continue;
+    peekOf.set(peek, first);
+    for (let index = peek + 1; index <= last; index++) hiddenBy.set(index, first);
+  }
   const shown = all.flatMap((_, index) => (hiddenBy.has(index) ? [] : [index]));
   // The textarea holds what is shown; an edit to it is made to the whole text, by where the shown lines are in it.
   const visible = shown.map((index) => all[index]).join("\n");
@@ -280,25 +315,26 @@ export function SpecView(props: {
   const toShown = (at: number) => {
     const line = atOrBelow(fullStarts, at);
     const first = hiddenBy.get(line);
-    if (first !== undefined) return shownStarts[shown.indexOf(first)]! + all[first]!.length;
+    if (first !== undefined) return shownStarts[shown.indexOf(bodyOf.get(first)!)]! + all[bodyOf.get(first)!]!.length;
     return shownStarts[shown.indexOf(line)]! + at - fullStarts[line]!;
   };
   const lineAt = (at: number) => atOrBelow(fullStarts, at);
-  const isCollapsed = (line: number) => folded.has(line) && (lastOf.get(line) ?? line) > line;
+  /** The collapsed functional spec a shown line is of - its heading or its body's first line - by its heading's line. */
+  const collapsedAt = (line: number): number | undefined => ([...peekOf.values()].includes(line) ? line : peekOf.get(line));
   const allFolded = foldable.length > 0 && foldable.every((first) => folded.has(first));
 
   const toggle = (first: number) => {
     const area = areaRef.current;
     if (area !== null && document.activeElement === area) caretRef.current = toFull(area.selectionStart);
     setFolded((now) => {
-      const next = new Set(now);
+      const next = new Map(now);
       if (next.has(first)) next.delete(first);
-      else next.add(first);
+      else next.set(first, lastOf.get(first) ?? first);
       return next;
     });
   };
   const foldAll = (fold: boolean) => {
-    setFolded(new Set(fold ? foldable : []));
+    setFolded(new Map(fold ? foldables : []));
     try {
       localStorage.setItem(COLLAPSED_KEY, fold ? "1" : "0");
     } catch {
@@ -323,26 +359,27 @@ export function SpecView(props: {
     const from = toFull(prefix);
     const to = toFull(visible.length - suffix);
     const inserted = next.slice(prefix, next.length - suffix);
-    // An edit that would take hidden lines with it, or break a collapsed spec's first line, opens that spec instead
+    // An edit that would take hidden lines with it, or break a line a collapsed functional spec shows, opens it instead
     // of being made: the person sees what they would change.
     const reached = new Set([...hiddenBy].filter(([index]) => fullStarts[index]! > from && fullStarts[index]! < to).map(([, first]) => first));
     const line = lineAt(from);
-    if (isCollapsed(line) && (inserted.includes("\n") || text.slice(from, to).includes("\n"))) reached.add(line);
+    const over = collapsedAt(line);
+    if (over !== undefined && (inserted.includes("\n") || text.slice(from, to).includes("\n"))) reached.add(over);
     if (reached.size > 0) {
       caretRef.current = from;
-      setFolded((now) => new Set([...now].filter((first) => !reached.has(first))));
+      setFolded((now) => new Map([...now].filter(([first]) => !reached.has(first))));
       return;
     }
     const newlines = (part: string) => part.split("\n").length - 1;
     const moved = newlines(inserted) - newlines(text.slice(from, to));
-    // The collapsed specs below the edit move down or up with it.
-    if (moved !== 0) setFolded((now) => new Set([...now].map((first) => (first > line ? first + moved : first))));
+    // The collapsed functional specs below the edit move down or up with it.
+    if (moved !== 0) setFolded((now) => new Map([...now].map(([first, hid]) => (first > line ? [first + moved, hid + moved] : [first, hid]))));
     setText(text.slice(0, from) + inserted + text.slice(to));
   };
   const rendering = text !== null ? renderingLines(running, spec, text, specLines) : new Set<number>();
   const firstRendering = rendering.size > 0 ? Math.min(...rendering) : undefined;
   // A functional spec any of whose lines the running work renders is being built now.
-  const renderingFrids = new Set([...rendering].flatMap((index) => specLines.get(index)?.frid ?? []));
+  const renderingFuncIds = new Set([...buildingIn(running, spec.module), ...[...rendering].flatMap((index) => specLines.get(index)?.funcId ?? [])]);
 
   const showLine = (index: number) => {
     const line = editorRef.current?.querySelector<HTMLElement>(`.editor-colours > div[data-line="${hiddenBy.get(index) ?? index}"]`);
@@ -357,7 +394,7 @@ export function SpecView(props: {
     const first = hiddenBy.get(index);
     if (first !== undefined)
       setFolded((now) => {
-        const next = new Set(now);
+        const next = new Map(now);
         next.delete(first);
         return next;
       });
@@ -378,13 +415,16 @@ export function SpecView(props: {
     const numbers = texts !== undefined ? relocate(all, then, texts) : then;
     const lines = new Set(numbers.map((line) => line - 1));
     setRevealed(lines);
+    // Shown whole: a collapsed functional spec any of them is hidden in is opened.
+    const opened = new Set([...lines].flatMap((line) => hiddenBy.get(line) ?? []));
+    if (opened.size > 0) setFolded((now) => new Map([...now].filter(([first]) => !opened.has(first))));
     if (point !== undefined && texts !== undefined) putCaret(pointNow(all, then, texts, point) - 1);
     else requestAnimationFrame(() => showLine(Math.min(...lines)));
     const timer = setTimeout(() => setRevealed(new Set()), 4000);
     return () => clearTimeout(timer);
   }, [props.reveal?.at, text === null]);
 
-  const hovered = hover !== null ? { ...hover, state: stateOf(hover.frid, hover.line), entry: entryFor(hover.frid, hover.line) } : null;
+  const hovered = hover !== null ? { ...hover, state: stateOf(hover.funcId), entry: entryFor(hover.funcId) } : null;
 
   return (
     // What runs now, in its kind's colour - regenerating pink, conformance testing cyan - wherever the view shows it.
@@ -392,9 +432,12 @@ export function SpecView(props: {
       {markMenu && (
         <MarkMenu
           {...markMenu}
-          built={spec.functionalSpecs.find((entry) => entry.frid === markMenu.frid)?.built === true}
-          onRegenerate={() => props.onRegenerate([markMenu.frid])}
-          onConform={() => props.onConform([markMenu.frid])}
+          entry={entryFor(markMenu.funcId)}
+          onRegenerate={() => props.onRegenerate([markMenu.funcId])}
+          onConform={() => props.onConform([markMenu.funcId])}
+          onOpenTests={(file, line) => props.onOpenTests(file, line)}
+          onEvaluate={() => props.onEvaluate(markMenu.funcId)}
+          onWriteScenarios={() => props.onWriteScenarios(markMenu.funcId)}
           onPoint={setPointed}
           onClose={() => {
             setMarkMenu(null);
@@ -409,19 +452,38 @@ export function SpecView(props: {
             <PlainMark /> {spec.rel}
           </span>
           <span className="pane-header-right">
+            {props.tests?.funcId !== undefined && (
+              <span className="tests-of">
+                <Icon name="test" size={12} /> the scenarios of{" "}
+                <button className="link" onClick={props.onShowModule} title="open the module">
+                  {props.tests.module}
+                </button>
+                :
+                <button className="link" onClick={props.onShowSpec} title="open the functional spec in its module">
+                  {props.tests.funcId}
+                </button>{" "}
+                <span className="muted">·</span>
+              </span>
+            )}
+            {/* The base folder its codebase started from, once it has: what it builds on. */}
+            {props.base && (
+              <>
+                <StartedFrom base={props.base} /> <span className="muted">·</span>
+              </>
+            )}
             {spec.ok && total > 0 && (
               <span className="built-count" title="functional specs whose code is regenerated from the ***plain">
                 <Icon name="check" size={12} /> {built} of {total} regenerated <span className="muted">·</span>
               </span>
             )}
-            {spec.ok && conformedCount > 0 && (
-              <span className="conformed-count" title="built, and their conformance tests written and passing">
-                <Icon name="checks" size={12} /> {conformedCount} conformed ·
+            {spec.ok && testable > 0 && (
+              <span className="conformed-count" title="of the functional specs with scenarios, those built with their conformance tests written and passing">
+                <Icon name="checks" size={12} /> {conformedCount} of {testable} conformed ·
               </span>
             )}
             {foldable.length > 0 && (
               <>
-                <button className="link fold-all" onClick={() => foldAll(!allFolded)} title={allFolded ? "show every functional spec whole" : "show only the first line of each functional spec"}>
+                <button className="link fold-all" onClick={() => foldAll(!allFolded)} title={allFolded ? "show every functional spec whole" : "show only each functional spec's heading and first line"}>
                   {allFolded ? "expand all" : "collapse all"}
                 </button>
                 <span className="muted">·</span>
@@ -442,15 +504,6 @@ export function SpecView(props: {
           </div>
         )}
         <PlainLinks links={links} onOpen={props.onOpen} />
-        {!spec.ok && (
-          <div className="parse-error">
-            <Icon name="warn" />
-            <div>
-              <strong>the <PlainName /> does not parse</strong>
-              <p>{spec.error}</p>
-            </div>
-          </div>
-        )}
         {onDisk !== null && (
           <div className="disk-banner">
             <Icon name="warn" />
@@ -491,16 +544,18 @@ export function SpecView(props: {
                 const tokens = lines[index];
                 const coloured = tokens !== undefined && tokens.map((token) => token.text).join("") === line;
                 const mark = specLines.get(index);
-                const state = mark && stateOf(mark.frid, all[mark.line]!);
-                const canFold = mark?.first === true && (lastOf.get(index) ?? index) > index;
+                const state = mark && stateOf(mark.funcId);
+                const canFold = mark?.first === true && foldable.includes(index);
                 const isFolded = canFold && folded.has(index);
-                const hidden = isFolded ? (lastOf.get(index) ?? index) - index : 0;
+                // The line a collapsed functional spec's hidden lines are under, and how many they are.
+                const peeked = peekOf.get(index);
+                const hidden = peeked !== undefined ? lastOf.get(peeked)! - index : 0;
                 // A collapsed spec is lit while the work renders any of its lines.
                 // The work's lines in its colour; the lines a click opened on in the highlighter's - each on a folded
                 // functional spec's line when it hides them.
                 const lit = rendering.has(index) || (isFolded && [...rendering].some((at) => hiddenBy.get(at) === index));
                 const shown = revealed.has(index) || (isFolded && [...revealed].some((at) => hiddenBy.get(at) === index));
-                const aimed = pointed !== null && mark !== undefined && mark.frid === markMenu?.frid ? `pointed ${pointed}` : "";
+                const aimed = pointed !== null && mark !== undefined && mark.funcId === markMenu?.funcId ? `pointed ${pointed}` : "";
                 return (
                   <div key={index} data-line={index} className={[lit ? "rendering" : "", shown ? "revealed" : "", isFolded ? "folded" : "", aimed].join(" ").trim() || undefined}>
                     {mark && state && (
@@ -508,8 +563,8 @@ export function SpecView(props: {
                         {canFold && (
                           <button
                             className={`fold ${isFolded ? "" : "open"}`}
-                            title={isFolded ? `show all of functional spec ${mark.frid}` : `show only the first line of functional spec ${mark.frid}`}
-                            aria-label={isFolded ? `expand functional spec ${mark.frid}` : `collapse functional spec ${mark.frid}`}
+                            title={isFolded ? `show all of functional spec ${mark.funcId}` : `show only the heading and first line of functional spec ${mark.funcId}`}
+                            aria-label={isFolded ? `expand functional spec ${mark.funcId}` : `collapse functional spec ${mark.funcId}`}
                             aria-expanded={!isFolded}
                             onClick={() => toggle(index)}
                           >
@@ -519,11 +574,11 @@ export function SpecView(props: {
                         {mark.first && (
                           <button
                             className="mark"
-                            aria-label={`functional spec ${mark.frid}, ${STATE_LABEL[state]}`}
-                            onClick={(event) => markerMenu(mark.frid, event.currentTarget)}
+                            aria-label={`functional spec ${mark.funcId}, ${STATE_LABEL[state]}`}
+                            onClick={(event) => markerMenu(mark.funcId, event.currentTarget)}
                             onContextMenu={(event) => {
                               event.preventDefault();
-                              markerMenu(mark.frid, event.currentTarget);
+                              markerMenu(mark.funcId, event.currentTarget);
                             }}
                           >
                             {state === "now" ? <Spinner /> : state === "conformed" ? <Icon name="checks" size={12} /> : state === "built" ? <Icon name="check" size={12} /> : null}
@@ -532,9 +587,10 @@ export function SpecView(props: {
                       </span>
                     )}
                     {line === "" ? "\u200b" : coloured ? tokens.map((token, at) => (token.role ? <span key={at} className={`plain-${token.role}`}>{token.text}</span> : token.text)) : line}
-                    {isFolded && (
+                    {mark?.first && <ScenarioChip entry={entryFor(mark.funcId)} onOpen={props.onOpenTests} />}
+                    {peeked !== undefined && mark && (
                       // Out of the flow, so it never changes where the line wraps: the two layers stay alike.
-                      <button className="fold-more" onClick={() => toggle(index)} title={`show all of functional spec ${mark.frid}`}>
+                      <button className="fold-more" onClick={() => toggle(peeked)} title={`show all of functional spec ${mark.funcId}`}>
                         +{hidden} line{hidden === 1 ? "" : "s"}
                       </button>
                     )}
@@ -547,18 +603,19 @@ export function SpecView(props: {
               spellCheck={false}
               value={visible}
               onChange={(event) => edit(event.target.value)}
-              // A click on a collapsed spec's first line opens it, the caret where it was clicked; ⌘-click on a module it
-              // imports or requires opens that.
+              // A click on a line a collapsed functional spec shows opens it, the caret where it was clicked; ⌘-click on a
+              // module it imports or requires opens that.
               onMouseUp={(event) => {
                 const area = event.currentTarget;
                 if (area.selectionStart !== area.selectionEnd) return;
                 const at = toFull(area.selectionStart);
                 const line = lineAt(at);
-                const followed = withMod(event) ? followAt(links, lines[line], at - fullStarts[line]!, line + 1) : null;
+                const followed = withMod(event) ? followAt(following, lines[line], at - fullStarts[line]!, line + 1) : null;
                 if (followed !== null) return props.onFollow(followed, { x: event.clientX, y: event.clientY });
-                if (isCollapsed(lineAt(at))) {
+                const over = collapsedAt(lineAt(at));
+                if (over !== undefined) {
                   caretRef.current = at;
-                  toggle(lineAt(at));
+                  toggle(over);
                 }
               }}
               onKeyDown={(event) => {
@@ -589,19 +646,25 @@ export function SpecView(props: {
  * neither yet.
  */
 /**
- * What a functional spec's mark offers: regenerate it, or validate it once it is built - that functional spec alone.
- * Each is lit as it is pointed at, or reached with the arrow keys, in its kind's colour - and the functional spec with it.
- * Escape, a click elsewhere or the window left closes it.
+ * What a functional spec's mark offers: regenerate it, or validate it once it is built and has scenarios - that
+ * functional spec alone - and open its scenarios, when it has a test plain file. Regenerate and validate are lit as they
+ * are pointed at, or reached with the arrow keys, in their kind's colour - and the functional spec with them. Escape, a
+ * click elsewhere or the window left closes it.
  */
 function MarkMenu(props: {
   x: number;
   y: number;
-  built: boolean;
+  entry: FunctionalSpec | undefined;
   onRegenerate: () => void;
   onConform: () => void;
+  onOpenTests: (file: string, line: number) => void;
+  onEvaluate: () => void;
+  onWriteScenarios: () => void;
   onPoint: (item: "regenerate" | "validate" | null) => void;
   onClose: () => void;
 }) {
+  const built = props.entry?.built === true;
+  const tested = scenarioCount(props.entry) > 0;
   const ref = useRef<HTMLDivElement>(null);
   const { onClose } = props;
   useEffect(() => {
@@ -632,7 +695,7 @@ function MarkMenu(props: {
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
     next?.focus();
-    if (next) props.onPoint(next.classList.contains("validate") ? "validate" : "regenerate");
+    if (next) props.onPoint(next.classList.contains("validate") ? "validate" : next.classList.contains("regenerate") ? "regenerate" : null);
   };
   const aim = (item: "regenerate" | "validate") => ({
     onMouseEnter: () => props.onPoint(item),
@@ -647,15 +710,116 @@ function MarkMenu(props: {
       <button role="menuitem" className="regenerate" onClick={choose(props.onRegenerate)} {...aim("regenerate")}>
         regenerate
       </button>
-      <button role="menuitem" className="validate" disabled={!props.built} onClick={choose(props.onConform)} {...aim("validate")}>
-        validate{!props.built && <span className="muted"> - once it is built</span>}
+      <button role="menuitem" className="validate" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("validate")}>
+        validate{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
       </button>
+      {props.entry?.testPlainFile && (
+        <button role="menuitem" className="open-tests" onClick={choose(() => props.onOpenTests(props.entry!.testPlainFile!, firstScenarioLine(props.entry!)))}>
+          open its scenarios
+        </button>
+      )}
+      {props.entry !== undefined && !tested && (
+        <>
+          <button role="menuitem" className="evaluate" disabled={props.entry.advisor?.state === "pending"} onClick={choose(props.onEvaluate)}>
+            evaluate testing scenarios{props.entry.advisor?.state === "pending" && <span className="muted"> - being evaluated</span>}
+          </button>
+          <button role="menuitem" className="write-scenarios" onClick={choose(props.onWriteScenarios)}>
+            write testing scenarios
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
-function SpecStatePop(props: { frid: string; x: number; y: number; state: State; running?: Job; isNew: boolean }) {
-  const { state, running } = props;
+/** How many scenarios a functional spec has, of both kinds: none, and it is not tested. */
+const scenarioCount = (entry: FunctionalSpec | undefined) => (entry === undefined ? 0 : entry.scenarios.conformance.length + entry.scenarios.acceptance.length);
+
+/** Where a functional spec's test plain file opens: at its first scenario's heading, or its top. */
+function firstScenarioLine(entry: FunctionalSpec): number {
+  const lines = [...entry.scenarios.conformance, ...entry.scenarios.acceptance].map((scenario) => scenario.line);
+  return lines.length > 0 ? Math.min(...lines) : 1;
+}
+
+/**
+ * A functional spec's scenarios, at the end of its heading's line - out of the flow, so the two layers wrap alike: how
+ * many of each kind, conformance and acceptance, and a click opens its test plain file there. One with none is not
+ * tested, and that is no fault of it: nothing - but while the test advisor evaluates whether it needs testing
+ * scenarios, and when it found it does, until the chat has written them.
+ */
+function ScenarioChip({ entry, onOpen }: { entry: FunctionalSpec | undefined; onOpen: (file: string, line: number) => void }) {
+  if (entry === undefined) return null;
+  if (entry.testPlainFile === null || scenarioCount(entry) === 0) {
+    if (entry.advisor?.state === "pending")
+      return (
+        <span className="advisor-chip pending">
+          <Spinner /> evaluating testing scenarios
+        </span>
+      );
+    if (entry.advisor?.state === "yes")
+      return (
+        <span className="advisor-chip yes">
+          <Icon name="test" size={11} /> needs testing scenarios
+        </span>
+      );
+    return null;
+  }
+  const { conformance, acceptance } = entry.scenarios;
+  const count = (n: number, kind: string) => `${n} ${kind} scenario${n === 1 ? "" : "s"}`;
+  const said = `${count(conformance.length, "conformance")}, ${count(acceptance.length, "acceptance")} - open its test plain file`;
+  return (
+    <button className="scenario-chip" title={said} aria-label={`${entry.funcId}: ${said}`} onClick={() => onOpen(entry.testPlainFile!, firstScenarioLine(entry))}>
+      <Icon name="test" size={11} /> {conformance.length} · {acceptance.length}
+    </button>
+  );
+}
+
+/** The test advisor's four questions, as a yes to each reads. */
+const QUESTION_SAID: Record<NonNullable<Advisor["report"]>["questions"][number]["question"], string> = {
+  "silent-failure": "a wrong implementation could look right",
+  divergence: "it can be read two ways",
+  revisited: "it is likely to be changed or built on",
+  cost: "a bug in it would cost much",
+};
+
+/**
+ * What the test advisor made of a functional spec with no scenarios, in its card: evaluating it, or its verdict - on a
+ * yes, the questions that were a yes with their evidence, and how many inputs the scenarios are to cover.
+ */
+function AdvisorSaid({ advisor }: { advisor: Advisor }) {
+  const inputs = advisor.report?.inputs.length ?? 0;
+  return (
+    <div className={`spec-pop-advisor ${advisor.state}`}>
+      {advisor.state === "pending" ? (
+        <span>testing scenarios being evaluated, in the background.</span>
+      ) : advisor.state === "yes" ? (
+        <>
+          <span>
+            needs testing scenarios{inputs > 0 ? `, covering ${inputs} input${inputs === 1 ? "" : "s"}` : ""} -{" "}
+            {advisor.undelivered ? "the chat writes them at turri's next start." : "the chat writes them."}
+          </span>
+          <ul>
+            {advisor.report?.questions.map((answer) => (
+              <li key={answer.question}>
+                {QUESTION_SAID[answer.question]} <span className="muted">- {answer.evidence}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : advisor.state === "no" ? (
+        <span>doesn't need testing scenarios.</span>
+      ) : (
+        <span>
+          its testing scenarios could not be evaluated{advisor.reason ? <span className="muted"> - {advisor.reason}</span> : null}.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SpecStatePop(props: { funcId: string; x: number; y: number; state: State; running?: Job; isNew: boolean; entry?: FunctionalSpec }) {
+  const { state, running, entry } = props;
+  const tested = scenarioCount(entry) > 0;
   // Built now: no more than what is being done - validating or regenerating - by the loader.
   const working = state === "now";
   const [title, detail] = props.isNew
@@ -665,7 +829,7 @@ function SpecStatePop(props: { frid: string; x: number; y: number; state: State;
       : state === "conformed"
         ? ["regenerated and validated", "its code is built from the ***plain as it is, and its conformance tests pass."]
         : state === "built"
-          ? ["regenerated", "its code is built from the ***plain as it is. it has no passing conformance tests yet."]
+          ? ["regenerated", tested ? "its code is built from the ***plain as it is. its conformance tests do not pass yet." : "its code is built from the ***plain as it is."]
           : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];
   // Kept inside the window: below the line, or above it near the bottom.
   const left = Math.min(props.x + 12, window.innerWidth - 340);
@@ -677,6 +841,30 @@ function SpecStatePop(props: { frid: string; x: number; y: number; state: State;
         <strong>{title}</strong>
       </div>
       {detail !== null && <div className="spec-pop-detail">{withPlain(detail)}</div>}
+      {!props.isNew && !tested && entry?.advisor && <AdvisorSaid advisor={entry.advisor} />}
+      {!props.isNew && (
+        <div className="spec-pop-scenarios">
+          {!tested ? (
+            <span className="muted">no scenarios - not tested</span>
+          ) : (
+            (["conformance", "acceptance"] as const).map(
+              (kind) =>
+                entry!.scenarios[kind].length > 0 && (
+                  <div key={kind}>
+                    <span className="muted">{kind}</span>
+                    <ul>
+                      {entry!.scenarios[kind].map((scenario) => (
+                        <li key={scenario.id}>
+                          <span className="plain-id">{scenario.id}</span> <span className="muted">{scenario.text.split("\n")[0]}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ),
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }

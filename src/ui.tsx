@@ -102,6 +102,8 @@ const PATHS: Record<string, string> = {
   spark: "M10 2.5l1.6 4.9 4.9 1.6-4.9 1.6L10 15.5l-1.6-4.9L3.5 9l4.9-1.6z",
   warn: "M10 3l7.5 13h-15zM10 8v3.5M10 13.5v.5",
   x: "M5.5 5.5l9 9M14.5 5.5l-9 9",
+  error: "M10 17.5a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15zM7.5 7.5l5 5M12.5 7.5l-5 5",
+  bell: "M5 14V9a5 5 0 0 1 10 0v5l1.5 1.5h-13zM8.5 17.5h3",
   copy: "M7.5 7.5h9v9h-9zM4.5 12.5v-8h8",
   layers: "M10 3l7 3.5-7 3.5-7-3.5zM3 10l7 3.5 7-3.5M3 13.5L10 17l7-3.5",
   test: "M7 3h6M8 3v5l-4.5 8.5h13L12 8V3",
@@ -241,5 +243,14 @@ export function TurriVersionLine() {
       </span>
       {version.warning && <span className="turri-version-warning">{version.warning}</span>}
     </div>
+  );
+}
+
+/** The base folder a codebase started from, and how many of its files the code has still - turri's, as its status says. */
+export function StartedFrom({ base }: { base: { folder: string; files: number } }) {
+  return (
+    <span className="started-from muted" title={`its codebase started as a copy of the base folder ${base.folder} - ${base.files} of its files are in the code still`}>
+      <Icon name="folder" size={12} /> started from <code>{base.folder}</code> · {base.files} file{base.files === 1 ? "" : "s"}
+    </span>
   );
 }

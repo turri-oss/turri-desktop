@@ -317,6 +317,42 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
       await settle(page);
       return { ...where(), did };
     },
+    // Keys as the keyboard presses them - each down, held, then up - on the page as it has the focus: a game's controls,
+    // a shortcut. The page hears them as the person's own (sendInputEvent), as browser_click's mouse is.
+    press: async ({ keys, hold = 50, together = false, repeat = 1, delay = 50 }: { keys: string[]; hold?: number; together?: boolean; repeat?: number; delay?: number }) => {
+      if (!Array.isArray(keys) || keys.length === 0) throw new Error("Say which keys to press.");
+      const pressed = keys.map(pageKey);
+      const lasts = repeat * (together ? hold + delay : pressed.length * (hold + delay));
+      if (lasts > 60_000) throw new Error(`That would take ${Math.round(lasts / 1000)} seconds of pressing - a minute at most: fewer keys, shorter holds, or fewer repeats.`);
+      const page = loaded().webContents;
+      await stage();
+      page.focus();
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const down = (key: ReturnType<typeof pageKey>) => {
+        page.sendInputEvent({ type: "keyDown", keyCode: key.keyCode, modifiers: key.modifiers });
+        if (key.char !== undefined) page.sendInputEvent({ type: "char", keyCode: key.char, modifiers: key.modifiers });
+      };
+      const up = (key: ReturnType<typeof pageKey>) => page.sendInputEvent({ type: "keyUp", keyCode: key.keyCode, modifiers: key.modifiers });
+      for (let round = 0; round < repeat; round++) {
+        if (together) {
+          pressed.forEach(down);
+          await pause(hold);
+          [...pressed].reverse().forEach(up);
+          await pause(delay);
+        } else {
+          for (const key of pressed) {
+            down(key);
+            await pause(hold);
+            up(key);
+            await pause(delay);
+          }
+        }
+      }
+      await settle(page);
+      const which = together ? `${keys.join(" and ")} together` : keys.join(", ");
+      const how = [hold !== 50 ? `held ${hold} ms` : "", repeat > 1 ? `${repeat} times` : ""].filter(Boolean).join(", ");
+      return { ...where(), did: `Pressed ${which}${how ? `, ${how}` : ""}.` };
+    },
     type: async ({ ref, selector, text, submit }: { ref?: number; selector?: string; text: string; submit?: boolean }) => {
       const page = loaded().webContents;
       await stage();
@@ -334,6 +370,50 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
   }
 
   return { place, open, go, state, dispose, reloadSoon, request };
+}
+
+/** browser_press's keys by name - as terminal_press names them - and the key each is to Electron's input events. */
+const NAMED_KEYS: Record<string, string> = {
+  enter: "Enter",
+  return: "Enter",
+  tab: "Tab",
+  escape: "Escape",
+  esc: "Escape",
+  backspace: "Backspace",
+  delete: "Delete",
+  insert: "Insert",
+  space: "Space",
+  up: "Up",
+  down: "Down",
+  left: "Left",
+  right: "Right",
+  arrowup: "Up",
+  arrowdown: "Down",
+  arrowleft: "Left",
+  arrowright: "Right",
+  home: "Home",
+  end: "End",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+};
+const MODIFIERS: Record<string, "shift" | "control" | "alt" | "meta"> = { shift: "shift", ctrl: "control", control: "control", alt: "alt", option: "alt", opt: "alt", meta: "meta", cmd: "meta", command: "meta" };
+const KEY_GRAMMAR = "A key is its modifiers - ctrl, alt, shift, meta - joined by + to one key: a single character, or enter, tab, escape, backspace, delete, insert, space, up, down, left, right, home, end, pageup, pagedown, f1-f24 - such as left, space, w, shift+tab, ctrl+z.";
+
+/** A key as browser_press names it - shift+tab, ctrl+z, left, w - as the page's keyboard sends it: its key, the keys held, and the character it types, if any. */
+export function pageKey(spec: string): { keyCode: string; modifiers: Array<"shift" | "control" | "alt" | "meta">; char?: string } {
+  const parsed = /^((?:[a-z]+\+)*)(.+)$/i.exec(spec.trim());
+  if (parsed === null || spec.trim() === "") throw new Error(`No such key: ${JSON.stringify(spec)}. ${KEY_GRAMMAR}`);
+  const named = parsed[1]!.toLowerCase().split("+").filter(Boolean);
+  const modifiers = [...new Set(named.map((name) => MODIFIERS[name]))];
+  if (modifiers.includes(undefined as never)) throw new Error(`No such key: ${JSON.stringify(spec)}. ${KEY_GRAMMAR}`);
+  const raw = parsed[2]!;
+  const lower = raw.toLowerCase();
+  if (NAMED_KEYS[lower] !== undefined) return { keyCode: NAMED_KEYS[lower]!, modifiers, ...(lower === "space" && !modifiers.some((held) => held === "control" || held === "meta") ? { char: " " } : {}) };
+  if (/^f([1-9]|1[0-9]|2[0-4])$/.test(lower)) return { keyCode: lower.toUpperCase(), modifiers };
+  if ([...raw].length !== 1) throw new Error(`No such key: ${JSON.stringify(spec)}. ${KEY_GRAMMAR}`);
+  // A letter with shift is its capital, as the keyboard types it; with ctrl or meta, a shortcut that types nothing.
+  const typed = modifiers.includes("shift") ? raw.toUpperCase() : raw;
+  return { keyCode: raw, modifiers, ...(modifiers.some((held) => held === "control" || held === "meta") ? {} : { char: typed }) };
 }
 
 /** How a click is made: browser_click's button, a double click, the keys held. */

@@ -12,4 +12,5 @@ description: A greeting, for the app's tests to open.
 
 ***functional specs***
 
-- :Greeter: prints "hello, world" and exits with 0.
+# print-hello
+:Greeter: prints "hello, world" and exits with 0.

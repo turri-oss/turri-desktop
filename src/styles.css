@@ -65,6 +65,7 @@
   --plain-module: #8eebee;
   --plain-comment: #85a3b2;
   --plain-bullet: #85a3b2;
+  --plain-id: #5ce1e6; /* a # <func-id> or # <scenario-id> heading */
   /* The preview's terminal: the ANSI colours a program prints in, from the same palette - success pink, as turri's is. */
   --ansi-black: #22344a;
   --ansi-red: #ff7a3d;
@@ -131,6 +132,7 @@
   --plain-module: #1e3442;
   --plain-comment: #3e5a6b;
   --plain-bullet: #3e5a6b;
+  --plain-id: #732553;
   --ansi-black: #0a0f1a;
   --ansi-red: #c4501c;
   --ansi-green: #d63a6f;
@@ -191,6 +193,7 @@
   --plain-module: #1e3442;
     --plain-comment: #3e5a6b;
     --plain-bullet: #3e5a6b;
+    --plain-id: #732553;
     --ansi-black: #0a0f1a;
     --ansi-red: #c4501c;
     --ansi-green: #d63a6f;
@@ -529,6 +532,18 @@ code {
 }
 .state-dot.error {
   background: var(--red);
+}
+/* A test plain file's header: the functional spec its scenarios are of, in the colour of what is conformance tested. */
+.tests-of {
+  white-space: nowrap;
+}
+.tests-of .icon {
+  color: var(--tested);
+  vertical-align: middle;
+}
+/* A test plain file: what it holds is what is conformance tested. */
+.tree-row .tree-state.tests .icon {
+  color: var(--tested);
 }
 /* Built now: the building loader in the dot's place, whole. */
 .state-dot.running {
@@ -1081,6 +1096,52 @@ code {
   white-space: nowrap;
   cursor: pointer;
 }
+/* A functional spec's scenarios, at its heading's end: out of the flow, as "+n lines" is - in what is conformance
+   tested's colour. */
+.scenario-chip {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
+  margin-left: 1ch;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--tested) 50%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--tested);
+  font: 11px/1.5 var(--body);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* No scenarios, and the test advisor on it: evaluating, or found it needs testing scenarios - out of the flow too. */
+.advisor-chip {
+  position: absolute;
+  z-index: 1;
+  margin-left: 1ch;
+  padding: 0 6px;
+  border: 1px dashed color-mix(in srgb, var(--tested) 60%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg-2);
+  font: 11px/1.5 var(--body);
+  white-space: nowrap;
+}
+.advisor-chip .spinner {
+  vertical-align: -2px;
+}
+.advisor-chip.yes {
+  border-style: solid;
+  color: var(--tested);
+}
+.advisor-chip .icon {
+  vertical-align: -1px;
+}
+.scenario-chip .icon {
+  vertical-align: -1px;
+}
+.scenario-chip:hover {
+  border-color: var(--tested);
+}
 .fold-more:hover {
   border-style: solid;
   border-color: var(--accent);
@@ -1115,6 +1176,12 @@ code {
 }
 .plain-bullet {
   color: var(--plain-bullet);
+}
+/* turri's palette has it bold; here coloured only, as it is a line the person edits - a rename is just that - and a bold
+   glyph is wider than the one under the caret. */
+.plain-id,
+.plain-func-ref {
+  color: var(--plain-id);
 }
 
 .progress {
@@ -1162,28 +1229,219 @@ code {
   margin-left: auto;
 }
 
-.parse-error {
-  display: flex;
-  gap: 8px;
-  margin: 12px 16px 0 64px;
-  max-width: 872px;
-  padding: 12px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--red) 10%, var(--card));
-  color: var(--red);
-}
 /* In the ***plain view, as wide as its text: in from the right as from the left. */
-.parse-error,
 .editor-pane:has(.editor-sheet:not(.file-sheet)) .disk-banner {
   max-width: none;
   margin-right: 64px;
 }
-.parse-error p {
-  margin: 4px 0 0;
+
+/* ---------- the status panel: problems and notifications, along the bottom of every view ---------- */
+
+.status-panel {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.status-strip {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.status-strip > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.status-strip > button:hover,
+.status-strip > button.on {
+  color: var(--fg);
+  background: var(--card);
+}
+.status-problems > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-problems .has-errors {
+  color: var(--red);
+}
+.status-problems .has-warnings {
+  color: var(--tested);
+}
+/* The newest notification, said a moment where the eye is not taken from the work. */
+.status-said {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+}
+.status-said.error {
+  color: var(--red);
+}
+.status-bell {
+  margin-left: auto;
+}
+.status-count {
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--fg);
+  background: var(--line);
+}
+.status-bell .status-count {
+  color: var(--bg);
+  background: var(--tested);
+}
+.status-bell .status-count.error {
+  background: var(--red);
+}
+.status-body {
+  height: 240px;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+.status-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.status-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 0;
+  background: none;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.status-tabs > button.on {
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.status-tabs-end {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.status-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  font-size: 12px;
+}
+.status-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 12px;
+}
+.status-list > li:hover {
+  background: var(--card);
+}
+.status-list > li > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.status-list p {
+  margin: 0;
   color: var(--fg);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.status-none {
+  padding: 8px 12px;
+}
+.problem > div {
+  flex: 1;
+  min-width: 0;
+}
+.problem.error > .icon {
+  color: var(--red);
+}
+.problem.warning > .icon {
+  color: var(--tested);
+}
+.problem-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.problem-file {
   font-family: var(--mono);
+  font-size: 11px;
+}
+.problem p {
+  margin-top: 2px;
+  color: var(--fg-2);
+}
+.problem > .button {
+  flex: none;
+}
+.notification p {
+  flex: 1;
+  min-width: 0;
+}
+.notification.error > .icon,
+.notification.error p {
+  color: var(--red);
+}
+.notification.warning > .icon {
+  color: var(--amber);
+}
+.status-said.warning {
+  color: var(--amber);
+}
+.notification-action {
+  flex: none;
   font-size: 12px;
+}
+.notification-at {
+  flex: none;
+  font-size: 11px;
+}
+/* turri's notices among them: the sentinel's card, as wide as the panel. */
+.status-list > li.notice-item {
+  align-items: flex-start;
+}
+.status-list > li.notice-item:hover {
+  background: none;
+}
+.status-list .msg.notice-card {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  box-shadow: none;
+}
+.status-list .notice-card .notice-summary p {
+  white-space: normal;
 }
 
 /* ---------- work ---------- */
@@ -1200,6 +1458,18 @@ code {
 }
 .module-plan {
   margin: 8px 0;
+}
+/* A pure rename turri made, or will once the running pulse ends: under its module, nothing regenerated. */
+.module-rename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px 24px;
+  font-size: 12px;
+}
+.module-rename .icon {
+  flex: none;
+  color: var(--fg-3);
 }
 .module-plan-head {
   display: flex;
@@ -1844,11 +2114,10 @@ code {
   animation: breathe 1s infinite;
   color: var(--fg-3);
 }
-/* What turri says outside its replies - a command's outcome, a pulse's end, the sentinel's notices and conclusions - is
+/* What turri says outside its replies - a command's outcome, the sentinel's conclusions - is
    a message of its own, on the left as wide as what it says, as the person's are on the right: not a band across the
    chat. */
 .msg.note,
-.msg.job-note,
 .msg.concluded,
 .msg.notice-card {
   align-self: flex-start;
@@ -1865,45 +2134,20 @@ code {
 .msg.note.error {
   color: var(--red);
 }
+/* Where the chat's own turn on a yes of the test advisor's starts - or on a testing script not written in the background: a
+   mark, as the sentinel's conclusion is a line. */
+.msg.advisor-verdict {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-left: 3px solid var(--tested);
+  color: var(--tested);
+  font-size: 12px;
+}
+.msg.advisor-verdict .icon {
+  vertical-align: -2px;
+}
 .msg.note.warning {
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
-}
-.msg.job-note {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--kind, var(--built));
-  border-radius: var(--radius);
-  padding: 8px 8px;
-  font-size: 12.5px;
-}
-.msg.job-note.failed,
-.msg.job-note.incomplete {
-  border-left-color: var(--red);
-}
-.msg.job-note.stopped {
-  border-left-color: var(--fg-3);
-}
-.job-note-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.job-note-head:disabled {
-  cursor: default;
-}
-.job-note-head[aria-expanded="true"] {
-  margin-bottom: 8px;
-}
-.job-note-head .muted {
-  font-size: 11.5px;
 }
 /* The sentinel's notice: a card in the transcript, the sentinel's - edged in its indigo, as its conclusions are, its
    name heading it - with how grave it is in its mark: red an error, tan a warning, indigo what is only said. Its actions
@@ -2689,11 +2933,9 @@ code {
 }
 .job,
 .msg.note,
-.msg.job-note,
 .hint,
 .option,
 .toast,
-.parse-error,
 .diagnosis {
   box-shadow: var(--shadow);
 }
@@ -2994,7 +3236,7 @@ code {
   display: flex;
   gap: 8px;
 }
-.regenerate-frid {
+.regenerate-func-id {
   flex: none;
   font: 12px var(--mono);
   color: var(--fg-2);
@@ -3149,6 +3391,15 @@ code {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+/* A test plain file's block in a pulse's ***plain: the functional spec its scenarios are of. */
+.pulse-spec-of {
+  margin-left: 8px;
+  color: var(--fg-3);
+}
+.pulse-spec-of .icon {
+  color: var(--tested);
+  vertical-align: -1px;
 }
 .part-head:hover {
   background: var(--hover);
@@ -3416,6 +3667,7 @@ code {
 }
 /* ⌘ held: the modules, concepts and linked resources a ***plain names are links, ⌘-clicked. */
 .editor.linking .plain-module,
+.editor.linking .plain-func-ref,
 .editor.linking .plain-concept,
 .follows-resources .editor.linking .plain-link {
   text-decoration: underline;
@@ -3504,6 +3756,32 @@ code {
     opacity: 0;
     transform: translateY(-3px);
   }
+}
+/* Its scenarios, by kind: each its id and first line - or none, and it is not tested. */
+.spec-pop-advisor {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.spec-pop-advisor.yes > span {
+  color: var(--tested);
+}
+.spec-pop-advisor ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.spec-pop-scenarios {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.spec-pop-scenarios ul {
+  margin: 2px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+.spec-pop-scenarios li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .spec-pop-head {
   display: flex;
@@ -3765,22 +4043,58 @@ code {
   font-weight: 600;
 }
 
-/* A pulse that ended, in the chat: coloured by its kind, as in the work view - and opened there. */
-.msg.job-note.regenerate {
-  --kind: var(--built);
+/* Why a pulse failed, when turri has no diagnosis of it - one stopped before it started: its reason, whole. */
+.job-why {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--red);
+  background: color-mix(in srgb, var(--red) 6%, var(--card));
+  font-size: 12.5px;
 }
-.msg.job-note.conformance {
-  --kind: var(--tested);
+.job-why > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--red);
 }
-.msg.job-note.succeeded .job-note-head > .icon:first-child {
-  color: var(--kind);
+.job-why .prose p {
+  margin: 0 0 4px;
 }
-.msg.job-note .job-note-head > .icon:last-child {
-  margin-left: auto;
-  color: var(--fg-3);
+
+/* The base folder a codebase started from: in the ***plain's header and regen's module head. */
+.started-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
 }
-.msg.job-note:hover {
-  border-color: var(--kind);
+.module-plan-head .started-from {
+  margin-left: 8px;
+}
+
+/* What a project's code starts from: in the empty view, and as a new project is made. */
+.empty-start {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.new-project-start {
+  margin-top: 12px;
+}
+.new-project-start .bedrock-row {
+  flex-wrap: wrap;
+}
+
+/* A folder that cannot be chosen - the project's own, turri's: why, beside the button. */
+.choose-refused {
+  color: var(--red);
 }
 
 /* ---------- which turri the app runs ---------- */

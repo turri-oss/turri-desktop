@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { Failure, Job, PastPulse, PastRun, Spec, Status } from "./types.ts";
-import { cost, elapsed, Empty, Fold, type Folded, Icon, PlainName, Spinner, tokens, useTick, withPlain } from "./ui.tsx";
-import { PulseSpec, type ReadPlain, type ShowInSpec, turriSays } from "./PulseSpec.tsx";
+import type { Failure, Job, PastPulse, PastRun, Renamed, Spec, Status } from "./types.ts";
+import { cost, elapsed, Empty, Fold, type Folded, Icon, PlainName, Spinner, StartedFrom, tokens, useTick, withPlain } from "./ui.tsx";
+import { type PlainTests, PulseSpec, type ReadPlain, type ShowInSpec, turriSays } from "./PulseSpec.tsx";
 import { type ChatItem, type Conclusion, Prose, Transcript } from "./Chat.tsx";
 
 /** Earlier sessions' runs shown at first: the last few, and more on asking. */
@@ -108,8 +108,10 @@ function InvestigateButton({ failed, onInvestigate }: { failed: Failed; onInvest
 export function WorkView({
   status,
   jobs,
+  renamed,
   earlier,
   specs,
+  tests,
   onShowInSpec,
   readPlain,
   debug,
@@ -123,9 +125,12 @@ export function WorkView({
 }: {
   status: Status;
   jobs: Job[];
+  /** The pure renames turri made this session, the oldest first. */
+  renamed: Renamed[];
   earlier: PastRun[];
   /** The project's ***plain files as they are now: a pulse's lines open in one only while they are still there. */
   specs: Spec[];
+  tests: PlainTests;
   onShowInSpec: ShowInSpec;
   readPlain: ReadPlain;
   /** turri's debug mode on (config.turri.yaml's debug): a pulse's report shown - otherwise left out. */
@@ -183,7 +188,22 @@ export function WorkView({
               <strong>{module.module}</strong>
               {module.stack && <span className="tag">{module.stack}</span>}
               {module.why && <span className="muted"> - {withPlain(turriSays(module.why))}</span>}
+              {module.base && <StartedFrom base={module.base} />}
             </div>
+            {/* Pure renames: made by turri, nothing regenerated - waiting for the running pulse, or made this session. */}
+            {(module.renames ?? []).map((rename) => (
+              <div key={rename} className="module-rename muted">
+                <Icon name="clock" size={13} /> to rename once the running pulse ends: {rename}
+              </div>
+            ))}
+            {renamed
+              .filter((rename) => rename.spec.startsWith(`${module.module}:`))
+              .map((rename) => (
+                <div key={`${rename.at}-${rename.from}`} className="module-rename">
+                  <Icon name="check" size={13} /> renamed {rename.what === "func-id" ? "functional spec" : `scenario of ${rename.spec}`} <code>{rename.from}</code> to <code>{rename.to}</code>
+                  <span className="muted"> - nothing regenerated</span>
+                </div>
+              ))}
             {module.planned.length > 0 && (
               <ol className="planned">
                 {module.planned.map((entry, index) => (
@@ -205,7 +225,7 @@ export function WorkView({
           </div>
         )}
         {jobs.map((job) => (
-          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} />
+          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} />
         ))}
 
         {earlier.length > 0 && <div className="sidebar-section inline">earlier sessions</div>}
@@ -218,7 +238,7 @@ export function WorkView({
               {runCost(run) && <span className="muted">· {runCost(run)}</span>}
             </div>
             {run.pulses.map((pulse) => (
-              <PastPulseCard key={pulse.id} pulse={pulse} open={opened.has(pulse.id)} marked={pulse.id === focus?.id} onToggle={() => toggle(pulse.id)} part={partOf(pulse.id)} specs={specs} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} />
+              <PastPulseCard key={pulse.id} pulse={pulse} open={opened.has(pulse.id)} marked={pulse.id === focus?.id} onToggle={() => toggle(pulse.id)} part={partOf(pulse.id)} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} />
             ))}
           </div>
         ))}
@@ -292,12 +312,13 @@ function JobCard({
   part,
   debug,
   specs,
+  tests,
   onShowInSpec,
   readPlain,
   onInvestigate,
   sentinel,
   sentinelRunning,
-}: Shown & { job: Job; debug: boolean; specs: Spec[]; onShowInSpec: ShowInSpec; readPlain: ReadPlain; onInvestigate: (failed: Failed) => void; sentinel?: SentinelWork; sentinelRunning: Map<string, boolean> }) {
+}: Shown & { job: Job; debug: boolean; specs: Spec[]; tests: PlainTests; onShowInSpec: ShowInSpec; readPlain: ReadPlain; onInvestigate: (failed: Failed) => void; sentinel?: SentinelWork; sentinelRunning: Map<string, boolean> }) {
   // Open, what a pulse that ended reports, and what it found the ***plain does not say - closed, its head says how it
   // went without them. A failed one's report is not read here: investigate hands it to a chat.
   const gaps = job.specGaps.length;
@@ -350,8 +371,15 @@ function JobCard({
       )}
       {open && (
         <div className="job-body">
+          {/* Failed with no diagnosis - stopped before it started, its base folder not there, say: turri's reason, whole. */}
+          {failed && !job.diagnosis && job.error && (
+            <div className="job-why" role="note">
+              <Icon name="warn" size={14} />
+              <Prose text={job.error} />
+            </div>
+          )}
           {/* The ***plain it works on: what it renders, or the functional spec a conformance run builds. */}
-          <PulseSpec job={job} specs={specs} onShowInSpec={onShowInSpec} readPlain={readPlain} part={part} />
+          <PulseSpec job={job} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} part={part} />
           {/* What its agents are doing, while it runs: once it has ended, there is no trace. */}
           {job.status === "running" && <Trace job={job} folded={part("trace")} />}
           {debug && !failed && report !== "" && (
@@ -507,7 +535,7 @@ function outcome(pulse: PastPulse): string {
  * A pulse of an earlier session: read only - how it ended, how long, what it cost, a failed one with investigate beside
  * that, and, open, the ***plain it regenerated, as the ledger keeps it, in its right half.
  */
-function PastPulseCard({ pulse, open, marked, onToggle, part, specs, onShowInSpec, readPlain, onInvestigate }: Shown & { pulse: PastPulse; specs: Spec[]; onShowInSpec: ShowInSpec; readPlain: ReadPlain; onInvestigate: (failed: Failed) => void }) {
+function PastPulseCard({ pulse, open, marked, onToggle, part, specs, tests, onShowInSpec, readPlain, onInvestigate }: Shown & { pulse: PastPulse; specs: Spec[]; tests: PlainTests; onShowInSpec: ShowInSpec; readPlain: ReadPlain; onInvestigate: (failed: Failed) => void }) {
   const kind = pulse.kind === "conformance" ? "conformance" : "regenerate";
   const summary = pulse.title ?? pulse.summary;
   // Nothing more than its head says - no marks, no ***plain kept of it: a card that does not open.
@@ -544,7 +572,7 @@ function PastPulseCard({ pulse, open, marked, onToggle, part, specs, onShowInSpe
       </div>
       {open && more && (
         <div className="job-body">
-          <PulseSpec job={{ diff: pulse.diff ?? undefined, diffWhere: pulse.diffWhere ?? undefined, kind: pulse.kind, status: pulse.status }} specs={specs} onShowInSpec={onShowInSpec} readPlain={readPlain} part={part} />
+          <PulseSpec job={{ diff: pulse.diff ?? undefined, diffWhere: pulse.diffWhere ?? undefined, kind: pulse.kind, status: pulse.status, cases: pulse.cases }} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} part={part} />
           <Failures failures={pulse.failures} folded={part("failure")} />
         </div>
       )}

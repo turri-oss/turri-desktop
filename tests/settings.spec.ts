@@ -98,8 +98,11 @@ test.describe("a project's settings", () => {
     const sheet = page.getByRole("dialog", { name: "project settings" });
     // As config.turri.yaml has them, the models among turri's own choices.
     await expect(sheet.getByRole("combobox", { name: "harness-model", exact: true })).toHaveValue("anthropic/claude-sonnet-5-5");
-    await expect(sheet.getByRole("combobox", { name: "conformance-tests" })).toHaveValue("false");
-    await expect(sheet.getByRole("combobox", { name: "conformance-tests" }).locator("option")).toHaveText(["unset - all, where a module has test reqs", "all", "chosen", "module", "false"]);
+    // No switch for conformance tests: a functional spec's scenarios decide them. The test advisor's start and the test
+    // plain files' folder are settings instead.
+    await expect(sheet.getByRole("combobox", { name: "conformance-tests" })).toHaveCount(0);
+    await expect(sheet.getByRole("switch", { name: "test-advisor" })).toHaveAttribute("aria-checked", "true");
+    await expect(sheet.getByLabel("test-dir", { exact: true })).toBeVisible();
     // Every setting of the file, as /turri-config knows them - not only the ones the sidebar used to show.
     await expect(sheet.getByRole("switch", { name: "mutation-testing" })).toBeVisible();
     await expect(sheet.getByRole("switch", { name: "release-after-pulse" })).toBeVisible();
@@ -111,6 +114,41 @@ test.describe("a project's settings", () => {
     await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^review: true$/m);
     expect(readFileSync(join(project, "config.turri.yaml"), "utf8")).toContain("# The app's tests open this project");
     await expect(review).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+test.describe("a folder setting", () => {
+  test("is chosen in the system's sheet - in the project or beside it, never the project itself or turri's own", async ({ launched: { app, window: page, project } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    mkdirSync(join(project, "assets"));
+    // The system's sheet answers with each folder in turn.
+    const answer = (path: string) =>
+      app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [chosen] })) as unknown as typeof dialog.showOpenDialog;
+      }, path);
+    await choose(app, page, "project-settings");
+    const sheet = page.getByRole("dialog", { name: "project settings" });
+    const row = sheet.locator(".project-setting", { has: page.getByLabel("base-folder", { exact: true }) });
+    const pick = row.getByRole("button", { name: "choose…" });
+
+    // The project's own folder, one holding it, or turri's: refused, saying why.
+    await answer(project);
+    await pick.click();
+    await expect(row.getByRole("alert")).toHaveText("that is the project's own folder - choose a folder in it, or beside it.");
+    await answer(join(project, "plain_modules", "hello"));
+    await pick.click();
+    await expect(row.getByRole("alert")).toContainText("that is turri's own");
+
+    // One in it: sent as /turri-config, written by turri, by its path from the project's folder.
+    await answer(join(project, "assets"));
+    await pick.click();
+    await expect(row.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator(".chat-body")).toContainText("base-folder: assets - written to config.turri.yaml");
+    await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^base-folder: assets$/m);
+    // One beside it, by a path that goes up out of it.
+    await answer(join(project, "..", "legacy-app"));
+    await pick.click();
+    await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^base-folder: \.\.\/legacy-app$/m);
   });
 });
 
@@ -226,6 +264,61 @@ test.describe("the window's text", () => {
 
 test.describe("a project just started", () => {
   test.use({ open: false });
+
+  test("is made where the last new project was - the system's save sheet starting there, not in Documents", async ({ launched: { app, window: page }, scratch }) => {
+    // The save sheet answered with a folder in a place of the person's own, and asked where it starts - each time.
+    await app.evaluate(({ dialog }, scratch) => {
+      const asked: string[] = [];
+      (globalThis as unknown as { asked: string[] }).asked = asked;
+      dialog.showSaveDialog = (async (_window: unknown, options: { defaultPath?: string }) => {
+        asked.push(options.defaultPath ?? "");
+        return { canceled: false, filePath: `${scratch}/work/projects/project-${asked.length}` };
+      }) as unknown as typeof dialog.showSaveDialog;
+    }, scratch);
+    await page.evaluate(() => window.turri.newProject());
+    await page.evaluate(() => window.turri.newProject());
+    const asked = await app.evaluate(() => (globalThis as unknown as { asked: string[] }).asked);
+    // The first, with none made before: Documents. The next, beside the one made.
+    expect(asked[0]).not.toContain(scratch);
+    expect(asked[1]).toBe(join(scratch, "work", "projects", "my-project"));
+  });
+
+  test("on Amazon Bedrock in a geography of its own, says the AWS region turri calls its models in - nothing to set in a shell", async ({ launched: { app, window: page }, scratch }) => {
+    await app.evaluate(({ dialog }, dir) => {
+      dialog.showSaveDialog = (async () => ({ canceled: false, filePath: dir })) as typeof dialog.showSaveDialog;
+    }, join(scratch, "on-bedrock"));
+    await choose(app, page, "new-project");
+    await page.locator(".new-project .option").filter({ hasText: "Amazon Bedrock" }).click();
+    await page.locator(".bedrock .segmented button", { hasText: /^Anthropic$/ }).click();
+    await page.locator(".bedrock .segmented button", { hasText: /^eu$/ }).click();
+    await expect(page.locator(".bedrock-note")).toHaveText(/^turri calls these models in eu-central-1, as they answer only in eu/);
+    await expect(page.locator(".bedrock-note")).not.toContainText("set AWS_REGION");
+  });
+
+  test("starts from a folder chosen as it is made - written as base-folder: through /turri-config, said in its empty view", async ({ launched: { app, window: page }, scratch }) => {
+    const dir = join(scratch, "on-legacy");
+    mkdirSync(join(scratch, "legacy"), { recursive: true });
+    // The save sheet answers with the new folder, the folder sheet with one beside it; the doctor finds nothing.
+    await app.evaluate(({ dialog, ipcMain }, [dir, legacy]) => {
+      dialog.showSaveDialog = (async () => ({ canceled: false, filePath: dir })) as typeof dialog.showSaveDialog;
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [legacy] })) as unknown as typeof dialog.showOpenDialog;
+      ipcMain.removeHandler("doctor:run");
+      ipcMain.handle("doctor:run", () => []);
+    }, [dir, join(scratch, "legacy")] as const);
+    await choose(app, page, "new-project");
+    const sheet = page.locator(".new-project");
+    await expect(sheet.locator(".new-project-start")).toContainText("nothing - the code starts empty");
+    await sheet.getByRole("button", { name: "a folder…" }).click();
+    await expect(sheet.locator(".new-project-start code")).toHaveText("../legacy");
+    await sheet.locator(".option").filter({ hasText: "Anthropic" }).first().click();
+    await sheet.getByRole("button", { name: "create" }).click();
+
+    // Open, and written as the person would type it - turri saying so in the chat.
+    await expect(page.locator(".chat-body")).toContainText("base-folder: ../legacy - written to config.turri.yaml");
+    await expect.poll(() => readFileSync(join(dir, "config.turri.yaml"), "utf8")).toMatch(/^base-folder: \.\.\/legacy$/m);
+    // No ***plain yet: it says what the code starts from.
+    await expect(page.locator(".empty-start")).toContainText("its code starts from ../legacy");
+  });
 
   test("opens on the conversation - the chat two thirds of the window, the files hidden - until its first ***plain", async ({ launched: { app, window: page }, scratch }) => {
     const dir = join(scratch, "fresh");

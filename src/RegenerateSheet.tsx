@@ -6,7 +6,7 @@ import { Icon, withPlain } from "./ui.tsx";
 export type Regeneration =
   | { how: "continue"; left: string[] }
   | { how: "changed" }
-  | { how: "again"; frids: string[] }
+  | { how: "again"; funcIds: string[] }
   | { how: "scratch"; chain: boolean };
 
 type How = "continue" | "changed" | "again" | "scratch" | "chain";
@@ -20,22 +20,22 @@ type How = "continue" | "changed" | "again" | "scratch" | "chain";
  */
 export function RegenerateSheet({ spec, initial, onClose, onRegenerate }: { spec: Spec; initial?: string[]; onClose: () => void; onRegenerate: (regeneration: Regeneration) => void }) {
   // Some of its functional specs built and some not - a regeneration stopped, or halted, part of the way: carry on.
-  const left = spec.functionalSpecs.filter((entry) => !entry.built).map((entry) => entry.frid);
+  const left = spec.functionalSpecs.filter((entry) => !entry.built).map((entry) => entry.funcId);
   const partly = left.length > 0 && left.length < spec.functionalSpecs.length;
   const none = !spec.functionalSpecs.some((entry) => entry.built);
   // Built from the ***plain as it is now: nothing changed, so nothing for "what changed" to do - it is not offered.
   const unchanged = !none && spec.drifted === false;
   const [how, setHow] = useState<How>(initial?.length && !none ? "again" : partly ? "continue" : unchanged ? "again" : "changed");
-  const [frids, setFrids] = useState<Set<string>>(new Set(initial ?? []));
+  const [funcIds, setFuncIds] = useState<Set<string>>(new Set(initial ?? []));
   const chained = spec.requires.length > 0;
   // Only what is built is regenerated again: what is not is built by continuing, or by what changed.
   const builtSpecs = spec.functionalSpecs.filter((entry) => entry.built);
 
-  const toggle = (frid: string) =>
-    setFrids((now) => {
+  const toggle = (funcId: string) =>
+    setFuncIds((now) => {
       const next = new Set(now);
-      if (next.has(frid)) next.delete(frid);
-      else next.add(frid);
+      if (next.has(funcId)) next.delete(funcId);
+      else next.add(funcId);
       return next;
     });
 
@@ -68,11 +68,11 @@ export function RegenerateSheet({ spec, initial, onClose, onRegenerate }: { spec
       : []),
       ];
 
-  const ordered = builtSpecs.filter((entry) => frids.has(entry.frid)).map((entry) => entry.frid);
+  const ordered = builtSpecs.filter((entry) => funcIds.has(entry.funcId)).map((entry) => entry.funcId);
   const ready = how !== "again" || ordered.length > 0;
   const go = () => {
     if (!ready) return;
-    onRegenerate(how === "continue" ? { how, left } : how === "changed" ? { how } : how === "again" ? { how, frids: ordered } : { how: "scratch", chain: how === "chain" });
+    onRegenerate(how === "continue" ? { how, left } : how === "changed" ? { how } : how === "again" ? { how, funcIds: ordered } : { how: "scratch", chain: how === "chain" });
   };
   const deletes = how === "scratch" || how === "chain";
 
@@ -95,16 +95,16 @@ export function RegenerateSheet({ spec, initial, onClose, onRegenerate }: { spec
               <span className="muted">
                 {ordered.length} of {builtSpecs.length} built chosen
               </span>
-              <button className="link" onClick={() => setFrids(new Set(ordered.length === builtSpecs.length ? [] : builtSpecs.map((entry) => entry.frid)))}>
+              <button className="link" onClick={() => setFuncIds(new Set(ordered.length === builtSpecs.length ? [] : builtSpecs.map((entry) => entry.funcId)))}>
                 {ordered.length === builtSpecs.length ? "none" : "all"}
               </button>
             </div>
             <div className="options">
               {builtSpecs.map((entry) => (
-                <button key={entry.frid} role="checkbox" aria-checked={frids.has(entry.frid)} className={`option check ${frids.has(entry.frid) ? "on" : ""}`} onClick={() => toggle(entry.frid)}>
-                  <span className="checkbox">{frids.has(entry.frid) && <Icon name="check" size={12} />}</span>
+                <button key={entry.funcId} role="checkbox" aria-checked={funcIds.has(entry.funcId)} className={`option check ${funcIds.has(entry.funcId) ? "on" : ""}`} onClick={() => toggle(entry.funcId)}>
+                  <span className="checkbox">{funcIds.has(entry.funcId) && <Icon name="check" size={12} />}</span>
                   <span className="regenerate-spec">
-                    <span className="regenerate-frid">{entry.frid}</span>
+                    <span className="regenerate-func-id">{entry.funcId}</span>
                     <span className="regenerate-text">{entry.text.split("\n")[0]}</span>
                   </span>
                   <span className="muted small">{entry.conformed ? "tested" : "built"}</span>

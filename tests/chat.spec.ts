@@ -315,6 +315,45 @@ test.describe("a turn at work", () => {
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   });
 
+  test("is stopped by escape too - but escape puts away a menu first, and in a chat doing nothing leaves its draft and the window", async ({ launched: { app, window } }) => {
+    const box = window.getByPlaceholder("talk to turri - or / for a command");
+    const stop = window.locator(".composer-bar button", { hasText: "stop" });
+    for (const focus of ["the message box", "nothing", "the ***plain"]) {
+      await box.fill("hello");
+      await box.press("Enter");
+      await expect(stop).toBeVisible();
+      await window.waitForTimeout(700);
+      await window.evaluate((where) => {
+        if (where === "the message box") return;
+        (document.activeElement as HTMLElement | null)?.blur();
+        if (where === "the ***plain") document.querySelector<HTMLTextAreaElement>(".editor-pane textarea")?.focus();
+      }, focus);
+      await window.keyboard.press("Escape");
+      await expect(stop, `stopped with the focus on ${focus}`).toHaveCount(0);
+    }
+
+    // A functional spec's menu open: escape closes it, and the turn goes on.
+    await box.fill("hello");
+    await box.press("Enter");
+    await expect(stop).toBeVisible();
+    await window.waitForTimeout(700);
+    await window.locator(".editor-colours .mark").first().click();
+    await expect(window.getByRole("menu")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.getByRole("menu")).toHaveCount(0);
+    await window.waitForTimeout(500);
+    await expect(stop).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(stop).toHaveCount(0);
+
+    // Doing nothing: the draft stays, and so does the window.
+    await box.fill("not sent yet");
+    await box.press("Escape");
+    await window.waitForTimeout(500);
+    await expect(box).toHaveValue("not sent yet");
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  });
+
   test("says it is thinking with the turri icon jumping, a pixel at a time", async ({ launched: { window } }) => {
     const box = window.locator(".composer textarea");
     await box.fill("hello");

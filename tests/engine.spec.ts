@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./app.ts";
 
@@ -29,6 +30,30 @@ test.describe("the engine", () => {
     await box.fill("/stdlib");
     await box.press("Enter");
     await expect(window.locator(".chat-body")).toContainText("The plain standard library", { timeout: 15_000 });
+  });
+});
+
+test.describe("the project's modules", () => {
+  test("are its .plain files but its test plain files, each functional spec by its func-id", async ({ launched: { window: page, project } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    // A test plain file of hello's, in turri's test folder: a functional spec's scenarios, not a module.
+    mkdirSync(join(project, "tests", "hello"), { recursive: true });
+    writeFileSync(join(project, "tests", "hello", "print-hello.plain"), "---\nmodule: hello\nfunc_id: print-hello\n---\n\n***conformance tests***\n\n# prints-hello\nRunning :Greeter: prints \"hello, world\".\n");
+    const summary = await page.evaluate(() => window.turri.call<{ specs: Array<{ rel: string; functionalSpecs: Array<{ funcId: string; text: string }> }> }>("summary"));
+    expect(summary.specs.map((spec) => spec.rel)).toEqual(["hello.plain"]);
+    // Its scenarios, from its test plain file.
+    expect(summary.specs[0]!.functionalSpecs).toEqual([
+      {
+        funcId: "print-hello",
+        text: ':Greeter: prints "hello, world" and exits with 0.',
+        built: false,
+        conformed: false,
+        testPlainFile: join(project, "tests", "hello", "print-hello.plain"),
+        scenarios: { conformance: [{ id: "prints-hello", text: 'Running :Greeter: prints "hello, world".', line: 8 }], acceptance: [] },
+        // Not looked at by the test advisor.
+        advisor: null,
+      },
+    ]);
   });
 });
 

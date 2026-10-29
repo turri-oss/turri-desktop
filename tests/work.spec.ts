@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ElectronApplication, Locator, Page } from "@playwright/test";
 import { clickMenu, expect, leaveRegen, offers, showRegen, tellChat, test } from "./app.ts";
 
-/** A pulse as the engine sends it, done: it rendered one line of hello.plain, its functional specs' second. */
+/** A pulse as the engine sends it, done: it added hello.plain's one functional spec, print-hello - its heading and body. */
 const pulse = () => ({
   id: "p1",
   kind: "regenerate",
@@ -11,8 +11,9 @@ const pulse = () => ({
   module: "hello",
   pulse: 1,
   title: "the greeting by name",
-  diff: "diff --git a/hello.plain b/hello.plain\n--- a/hello.plain\n+++ b/hello.plain\n@@ -13,1 +13,2 @@\n ***functional specs***\n+- :Greeter: prints \"hello, world\" and exits with 0.\n",
-  diffWhere: { 4: { file: "hello.plain", line: 13 }, 5: { file: "hello.plain", line: 15 } },
+  diff: "diff --git a/hello.plain b/hello.plain\n--- a/hello.plain\n+++ b/hello.plain\n@@ -13,1 +13,3 @@\n ***functional specs***\n+# print-hello\n+:Greeter: prints \"hello, world\" and exits with 0.\n",
+  diffWhere: { 4: { file: "hello.plain", line: 13 }, 5: { file: "hello.plain", line: 15 }, 6: { file: "hello.plain", line: 16 } },
+  cases: { add: [{ module: "hello", funcId: "print-hello" }], patch: [], again: [], delete: [] },
   status: "succeeded",
   sequence: 1,
   queuedAt: Date.now() - 60_000,
@@ -49,7 +50,7 @@ async function reposPulse({ app, window, project }: { app: ElectronApplication; 
     // Since the pulse ran, a definition was added above what it rendered: its lines are two further down now.
     writeFileSync(
       join(project, "repos.plain"),
-      "---\ndescription: Repos.\n---\n\n***definitions***\n\n- :Repo: is a store.\n\n- :Owner: is who owns a :Repo:.\n\n***implementation reqs***\n\n- :Implementation: is in Java.\n\n***functional specs***\n\n- An :Owner: creates a :Repo:.\n  - A missing token returns `401`.\n\n- An :Owner: lists their :Repo: items.\n  - A missing token returns `401`.\n",
+      "---\ndescription: Repos.\n---\n\n***definitions***\n\n- :Repo: is a store.\n\n- :Owner: is who owns a :Repo:.\n\n***implementation reqs***\n\n- :Implementation: is in Java.\n\n***functional specs***\n\n# create-repo\nAn :Owner: creates a :Repo:.\n- A missing token returns `401`.\n\n# list-repos\nAn :Owner: lists their :Repo: items.\n- A missing token returns `401`.\n",
     );
     await expect(window.locator(".tree-row", { hasText: "repos.plain" })).toBeVisible();
     const diff = [
@@ -58,12 +59,14 @@ async function reposPulse({ app, window, project }: { app: ElectronApplication; 
       "+++ b/repos.plain",
       "@@ @@",
       " ***functional specs***",
-      "+- An :Owner: creates a :Repo:.",
-      "+  - A missing token returns `401`.",
-      "+- An :Owner: lists their :Repo: items.",
-      "+  - A missing token returns `401`.",
+      "+# create-repo",
+      "+An :Owner: creates a :Repo:.",
+      "+- A missing token returns `401`.",
+      "+# list-repos",
+      "+An :Owner: lists their :Repo: items.",
+      "+- A missing token returns `401`.",
     ].join("\n");
-    const where = Object.fromEntries([13, 15, 16, 18, 19].map((line, at) => [at + 4, { file: "repos.plain", line }]));
+    const where = Object.fromEntries([13, 15, 16, 17, 19, 20, 21].map((line, at) => [at + 4, { file: "repos.plain", line }]));
     const job = { ...pulse(), id: "p2", module: "repos", summary: "repos: create and list", title: "create and list", diff, diffWhere: where };
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), job);
     await showRegen(window);
@@ -215,34 +218,39 @@ test.describe("the regen view", () => {
     await expect(window.locator(".toolbar").getByRole("tab", { name: "preview", selected: true })).toBeVisible();
   });
 
-  test("opens what a pulse clicked in the chat built in the ***plain, lit - as a click on its lines in regen does", async ({ launched: { app, window } }) => {
+  test("says a pulse's end as a notification - not in the chat - and shows what it built in the ***plain, lit", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), pulse());
+    // turri's line of it in the chat that asked: left out - the notification says it.
     await tellChat(app, window, "chat:message", { role: "job", id: "p1", summary: "hello: the greeting by name", status: "succeeded", duration: "1m" });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:finished", { id: "p1", status: "succeeded", title: "the greeting by name", module: "hello", kind: "regenerate" }));
     await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
     // Said as plainly as it gets: its module, and that it finished - no time, cost or status word.
-    await expect(window.locator(".job-note-head")).toHaveText("hello · regeneration finished");
-    await window.locator(".job-note-head").click();
+    await expect(window.locator(".status-said")).toHaveText("hello · regeneration finished");
+    await expect(window.locator(".chat-body")).not.toContainText("regeneration finished");
+    await window.getByRole("button", { name: /^notifications:/ }).click();
+    const note = window.getByRole("tabpanel", { name: "notifications" }).locator(".notification", { hasText: "hello · regeneration finished" });
+    await note.getByRole("button", { name: "show" }).click();
     await expect(window.locator(".dive")).toHaveCount(0);
     await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
     await expect(window.locator(".editor-pane .pane-header")).toContainText("hello.plain");
-    await expect(window.locator(".editor-colours > div.revealed")).toContainText('prints "hello, world"');
+    await expect(window.locator(".editor-colours > div.revealed")).toHaveText(["# print-hello", ':Greeter: prints "hello, world" and exits with 0.']);
   });
 
   test("says a conformance run's end as validation", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), id: "c1", kind: "conformance" });
-    await tellChat(app, window, "chat:message", { role: "job", id: "c1", summary: "hello: conformance tests", status: "succeeded", duration: "2m", spent: "$0.04" });
-    await expect(window.locator(".job-note-head")).toHaveText("hello · validation finished");
-    await expect(window.locator(".msg.job-note")).toHaveClass(/conformance/);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:finished", { id: "c1", status: "succeeded", title: "conformance tests", module: "hello", kind: "conformance" }));
+    await expect(window.locator(".status-said")).toHaveText("hello · validation finished");
   });
 
-  test("opens a pulse clicked in the chat that went wrong in regen, to see why", async ({ launched: { app, window } }) => {
+  test("opens a pulse that went wrong in regen from its notification, to see why", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: "the tests failed" });
-    await tellChat(app, window, "chat:message", { role: "job", id: "p1", summary: "hello: the greeting by name", status: "failed", duration: "1m" });
-    await expect(window.locator(".job-note-head")).toHaveText("hello · regeneration failed");
-    await window.locator(".job-note-head").click();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:finished", { id: "p1", status: "failed", title: "the greeting by name", module: "hello", kind: "regenerate" }));
+    // An error: the panel opens on it.
+    const note = window.getByRole("tabpanel", { name: "notifications" }).locator(".notification.error", { hasText: "hello · regeneration failed" });
+    await note.getByRole("button", { name: "see why" }).click();
     await expect(window.locator(".dive").getByRole("tab", { name: "regen", selected: true })).toBeVisible();
     const card = window.locator(".job", { hasText: "the greeting by name" });
     await expect(card.locator(".job-head")).toHaveAttribute("aria-expanded", "true");
@@ -332,7 +340,7 @@ test.describe("the regen view", () => {
       summary: "gone: a file since removed",
       title: "a file since removed",
       diff: gone.diff.replaceAll("hello.plain", "gone.plain"),
-      diffWhere: { 4: { file: "gone.plain", line: 13 }, 5: { file: "gone.plain", line: 15 } },
+      diffWhere: { 4: { file: "gone.plain", line: 13 }, 5: { file: "gone.plain", line: 15 }, 6: { file: "gone.plain", line: 16 } },
     });
     await showRegen(window);
     const card = await unfold(await opened(window.locator(".job", { hasText: "the greeting by name" })), "hello.plain");
@@ -341,23 +349,137 @@ test.describe("the regen view", () => {
     const removed = await unfold(await opened(window.locator(".job", { hasText: "a file since removed" })), "gone.plain");
     await expect(removed.locator(".pulse-spec-lines")).toContainText("hello, world");
     await expect(removed.locator(".opens-in-plain")).toHaveCount(0);
-    // Its line edited away since: the button goes.
+    // Its lines edited away since: the button goes.
     const file = join(project, "hello.plain");
-    writeFileSync(file, readFileSync(file, "utf8").replace('prints "hello, world" and exits with 0.', "prints a greeting."));
+    writeFileSync(file, readFileSync(file, "utf8").replace('# print-hello\n:Greeter: prints "hello, world" and exits with 0.', "# greet\n:Greeter: prints a greeting."));
     await expect(open).toHaveCount(0);
   });
 
-  test("lights a functional spec a pulse carries unchanged as what it builds, beside one it adds", async ({ launched: { app, window } }) => {
+  test("lights a functional spec a pulse carries unchanged as what it builds, by its cases - regenerated again marked so", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
-    // turri's diff of a pulse that writes fs 1's tests again and adds fs 2's: fs 1 carried as it is, as context.
-    const diff = `diff --git a/hello.plain b/hello.plain\n--- a/hello.plain\n+++ b/hello.plain\n@@ @@\n ***functional specs***\n - :Greeter: prints "hello, world" and exits with 0.\n+- :Greeter: waves.\n`;
-    const diffWhere = { 4: { file: "hello.plain", line: 13 }, 5: { file: "hello.plain", line: 15 }, 6: { file: "hello.plain", line: 17 } };
-    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), kind: "conformance", diff, diffWhere });
+    // turri's diff of a pulse that builds print-hello again and adds wave: print-hello carried as it is, as context -
+    // and say-goodbye too, which the pulse does not build.
+    const diff = [
+      "diff --git a/hello.plain b/hello.plain",
+      "--- a/hello.plain",
+      "+++ b/hello.plain",
+      "@@ @@",
+      " ***functional specs***",
+      " # print-hello",
+      ' :Greeter: prints "hello, world" and exits with 0.',
+      "+# wave",
+      "+:Greeter: waves.",
+      " # say-goodbye",
+      " :Greeter: says goodbye.",
+    ].join("\n");
+    const diffWhere = Object.fromEntries([13, 15, 16, 18, 19, 21, 22].map((line, at) => [at + 4, { file: "hello.plain", line }]));
+    const cases = { add: [{ module: "hello", funcId: "wave" }], patch: [], again: [{ module: "hello", funcId: "print-hello" }], delete: [] };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), diff, diffWhere, cases });
     await showRegen(window);
     const rows = (await unfold(await opened(window.locator(".job", { hasText: "the greeting by name" })), "hello.plain")).locator(".pulse-spec-lines > div");
-    await expect(rows.filter({ hasText: "hello, world" })).toHaveClass(/\badd\b.*\bagain\b/);
+    await expect(rows.filter({ hasText: "# print-hello" })).toHaveClass("add again");
+    await expect(rows.filter({ hasText: "hello, world" })).toHaveClass("add again");
     await expect(rows.filter({ hasText: "waves." })).toHaveClass("add");
+    await expect(rows.filter({ hasText: "says goodbye." })).toHaveClass("context");
     await expect(rows.filter({ hasText: "***functional specs***" })).toHaveClass("context");
+  });
+
+  test("shows a test plain file's scenarios apart, as git diffs them - its context only context - and opens them in it", async ({ launched: { app, window, project } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    mkdirSync(join(project, "tests", "hello"), { recursive: true });
+    writeFileSync(join(project, "tests", "hello", "print-hello.plain"), "---\nmodule: hello\nfunc_id: print-hello\n---\n\n***conformance tests***\n\n# prints-hello\nRunning :Greeter: prints \"hello, world\".\n\n# exits-zero\nRunning :Greeter: exits with 0.\n");
+    await expect(window.locator(".tree-row", { hasText: /^tests$/ })).toBeVisible();
+    // A conformance pulse whose scenario exits-zero was added: one scenario, with git's context around it.
+    const diff = [
+      "diff --git a/tests/hello/print-hello.plain b/tests/hello/print-hello.plain",
+      "--- a/tests/hello/print-hello.plain",
+      "+++ b/tests/hello/print-hello.plain",
+      "@@ -8,3 +8,5 @@",
+      " # prints-hello",
+      ' Running :Greeter: prints "hello, world".',
+      " ",
+      "+# exits-zero",
+      "+Running :Greeter: exits with 0.",
+    ].join("\n");
+    const diffWhere = Object.fromEntries([8, 9, 10, 11, 12].map((line, at) => [at + 4, { file: "tests/hello/print-hello.plain", line }]));
+    const cases = { add: [], patch: [{ module: "hello", funcId: "print-hello" }], again: [], delete: [] };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), kind: "conformance", diff, diffWhere, cases });
+    await showRegen(window);
+    const card = await opened(window.locator(".job", { hasText: "the greeting by name" }));
+    const head = card.locator(".part-head", { hasText: "tests/hello/print-hello.plain" });
+    await expect(head).toContainText("the scenarios of hello:print-hello");
+    await unfold(card, "print-hello.plain");
+    const rows = card.locator(".pulse-spec-lines > div");
+    await expect(rows.filter({ hasText: "# prints-hello" })).toHaveClass("context");
+    await expect(rows.filter({ hasText: "# exits-zero" })).toHaveClass("add");
+    // Opened in the test plain file, its scenario lit.
+    await card.locator(".opens-in-plain").click();
+    await expect(window.locator(".editor-pane .pane-header")).toContainText("the scenarios of hello:print-hello");
+    await expect(window.locator(".editor-colours > div.revealed").first()).toHaveText("# exits-zero");
+  });
+
+  test("starts a test plain file's block in no section - never under its module's ***functional specs***", async ({ launched: { app, window, project } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    mkdirSync(join(project, "tests", "hello"), { recursive: true });
+    writeFileSync(join(project, "tests", "hello", "print-hello.plain"), "---\nmodule: hello\nfunc_id: print-hello\n---\n\n***conformance tests***\n\n# returns-code\nRunning :Greeter: exits with 0.\n");
+    await expect(window.locator(".tree-row", { hasText: /^tests$/ })).toBeVisible();
+    const diff = [
+      "diff --git a/hello.plain b/hello.plain",
+      "--- a/hello.plain",
+      "+++ b/hello.plain",
+      "@@ -13,3 +13,4 @@",
+      " ***functional specs***",
+      " ",
+      "-# print-hello",
+      "+# print-hello",
+      '+:Greeter: prints "hello, world" and exits with 0.',
+      "diff --git a/tests/hello/print-hello.plain b/tests/hello/print-hello.plain",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/tests/hello/print-hello.plain",
+      "@@ -0,0 +1,9 @@",
+      "+---",
+      "+module: hello",
+      "+func_id: print-hello",
+      "+---",
+      "+",
+      "+***conformance tests***",
+      "+",
+      "+# returns-code",
+      "+Running :Greeter: exits with 0.",
+    ].join("\n");
+    const blocks = async (diffWhere?: object) => {
+      await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), kind: "conformance", diff, ...(diffWhere !== undefined ? { diffWhere } : {}) });
+      await showRegen(window);
+      // Opened, and its test plain file's block unfolded - once: the card is kept as it was left.
+      const card = window.locator(".job", { hasText: "the greeting by name" });
+      if ((await card.locator(".job-head").getAttribute("aria-expanded")) !== "true") await opened(card);
+      const head = card.locator(".part-head", { hasText: "tests/hello/print-hello.plain" });
+      if ((await head.getAttribute("aria-expanded")) !== "true") await unfold(card, "tests/hello/print-hello.plain");
+      return card.locator(".pulse-spec-lines").last().locator("> div");
+    };
+    const scenarios = [
+      "---",
+      "module: hello",
+      "func_id: print-hello",
+      "---",
+      "",
+      "***conformance tests***",
+      "",
+      "# returns-code",
+      "Running :Greeter: exits with 0.",
+    ];
+    // A blank line is drawn holding a zero-width space, so it keeps its height.
+    const drawn = scenarios.map((text) => (text === "" ? "\u200b" : text));
+    // Placed by nothing turri said: the sections read from the diff, each file starting in none.
+    await expect(await blocks()).toHaveText(drawn);
+    await leaveRegen(window);
+    // Placed by turri: its sections - none for the front matter, ***conformance tests*** from its header on.
+    const where = Object.fromEntries(
+      scenarios.map((text, at) => [14 + at, { file: "tests/hello/print-hello.plain", line: at + 1, ...(at >= 5 ? { section: "***conformance tests***" } : {}), written: text }]),
+    );
+    // Each with its line number, as turri placed it.
+    await expect(await blocks(where)).toHaveText(drawn.map((text, at) => `${at + 1}${text}`));
   });
 
   test("keeps a long ***plain change within a ceiling, to scroll", async ({ launched: { app, window } }) => {
@@ -410,6 +532,37 @@ test.describe("the regen view", () => {
     await expect(box).toBeFocused();
   });
 
+  test("says the base folder a codebase started from - in the ***plain's header and regen's module row", async ({ launched: { app, window, spec } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const send = (data: object) => app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:status", sent), data);
+    const header = window.locator(".editor-pane .pane-header");
+    await expect(header.locator(".started-from")).toHaveCount(0);
+    // As turri's status has it once the codebase started from it: the folder, and how many of its files are there still.
+    await send({ modules: [{ module: "hello", plainFile: spec, planned: [], base: { folder: "assets", files: 12 } }], jobs: [], planned: [] });
+    await expect(header.locator(".started-from")).toHaveText("started from assets · 12 files");
+    await showRegen(window);
+    await expect(window.locator(".module-plan-head .started-from")).toHaveText("started from assets · 12 files");
+    // One file: said as one.
+    await send({ modules: [{ module: "hello", plainFile: spec, planned: [], base: { folder: "../legacy-app", files: 1 } }], jobs: [], planned: [] });
+    await expect(window.locator(".module-plan-head .started-from")).toHaveText("started from ../legacy-app · 1 file");
+  });
+
+  test("says a pure rename as a rename, under its module - nothing regenerated - and one waiting for the running pulse", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    await send("engine:status", { modules: [{ module: "hello", plainFile: "hello.plain", planned: [], renames: ["print-hello to say-hello"] }], jobs: [] });
+    await send("engine:renamed", { what: "func-id", from: "greet", to: "greet-by-name", spec: "hello:greet-by-name", at: 1 });
+    await send("engine:renamed", { what: "scenario-id", from: "ada", to: "greets-ada", spec: "hello:greet-by-name", at: 2 });
+    // Another module's: not under hello.
+    await send("engine:renamed", { what: "func-id", from: "list", to: "list-repos", spec: "repos:list-repos", at: 3 });
+    await showRegen(window);
+    await expect(window.locator(".module-rename")).toHaveText([
+      "to rename once the running pulse ends: print-hello to say-hello",
+      "renamed functional spec greet to greet-by-name - nothing regenerated",
+      "renamed scenario of hello:greet-by-name ada to greets-ada - nothing regenerated",
+    ]);
+  });
+
   test("says a codebase is built from ***plain as it is, never the spec", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     const status = { modules: [{ module: "hello", plainFile: "hello.plain", planned: [], why: "built from the spec as it is" }], jobs: [] };
@@ -445,15 +598,17 @@ test.describe("the regen view", () => {
     // drawn, numbered.
     const panel = card.locator(".pulse-spec-lines > div");
     await expect(panel.nth(1)).toHaveText("14​");
-    await expect(panel.nth(4)).toHaveText("17​");
-    await expect(panel.nth(5)).toContainText("lists their :Repo: items");
+    await expect(panel.nth(5)).toHaveText("18​");
+    await expect(panel.nth(6)).toContainText("# list-repos");
 
     // Both lit in the ***plain view, where they are now - not where they were.
     await card.locator(".opens-in-plain").click();
     const line = (index: number) => window.locator(`.editor-colours [data-line="${index}"]`);
     // In the highlighter's tan - where the click took the person - not the pink of what is being built.
+    // Collapsed as the ***plain opens, each functional spec is opened to show them whole.
     await expect(line(16)).toHaveClass(/revealed/);
-    await expect(line(19)).toHaveClass(/revealed/);
+    await expect(line(18)).toHaveClass(/revealed/);
+    await expect(line(22)).toHaveClass(/revealed/);
     await expect(line(16)).not.toHaveClass(/rendering/);
     await expect(line(12)).not.toHaveClass(/revealed/);
     await expect(line(14)).not.toHaveClass(/revealed/);
@@ -550,18 +705,18 @@ test.describe("the regen view", () => {
     const back = () => showRegen(window);
     // A line of text: there, two lines down from where it was.
     await rows.filter({ hasText: "lists their" }).click();
-    await expect.poll(caret).toEqual({ focused: true, line: "- An :Owner: lists their :Repo: items.", next: expect.any(String) });
+    await expect.poll(caret).toEqual({ focused: true, line: "An :Owner: lists their :Repo: items.", next: expect.any(String) });
     await expect(window.locator(".pane-title")).toHaveText(/repos\.plain$/);
     // A blank line, between the two: the blank still between them.
     await back();
     // Unfolded, it stays so.
     await expect(card.locator(".part-head", { hasText: "repos.plain" })).toHaveAttribute("aria-expanded", "true");
     await card.locator(".opens-in-plain").waitFor();
-    await rows.nth(4).click();
-    await expect.poll(caret).toMatchObject({ focused: true, line: "", next: "- An :Owner: lists their :Repo: items." });
+    await rows.nth(5).click();
+    await expect.poll(caret).toMatchObject({ focused: true, line: "", next: "# list-repos" });
     // A line taken out since: where it was, below what was above it.
     const file = join(project, "repos.plain");
-    writeFileSync(file, readFileSync(file, "utf8").replace("- An :Owner: lists their :Repo: items.\n  - A missing token returns `401`.\n", ""));
+    writeFileSync(file, readFileSync(file, "utf8").replace("# list-repos\nAn :Owner: lists their :Repo: items.\n- A missing token returns `401`.\n", ""));
     await back();
     // Unfolded, it stays so.
     await expect(card.locator(".part-head", { hasText: "repos.plain" })).toHaveAttribute("aria-expanded", "true");
@@ -573,19 +728,21 @@ test.describe("the regen view", () => {
   });
 
   test("keeps what a running pulse renders lit in the ***plain view as a functional spec is added above it", async ({ launched: { app, window, spec } }) => {
-    // Running: it renders hello.plain's functional spec, line 15 when it started.
-    const diff = ["diff --git a/hello.plain b/hello.plain", "--- a/hello.plain", "+++ b/hello.plain", "@@ @@", " ***functional specs***", '+- :Greeter: prints "hello, world" and exits with 0.'].join("\n");
-    const running = { ...pulse(), id: "p3", status: "running", finishedAt: undefined, diff, diffWhere: { 4: { file: "hello.plain", line: 13 }, 5: { file: "hello.plain", line: 15 } } };
+    // Running: it builds hello.plain's functional spec print-hello - its heading and body lines 15 and 16 when it started.
+    const running = { ...pulse(), id: "p3", status: "running", finishedAt: undefined };
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), running);
     const line = (index: number) => window.locator(`.editor-colours [data-line="${index}"]`);
     await expect(line(14)).toHaveClass(/rendering/);
+    await expect(line(15)).toHaveClass(/rendering/);
 
-    // A functional spec written in above it, as turri or the chat would: it moves down two lines, and stays lit there.
-    writeFileSync(spec, readFileSync(spec, "utf8").replace("- :Greeter: prints", "- :Greeter: waves first.\n\n- :Greeter: prints"));
-    await expect(line(16)).toContainText("prints");
-    await expect(line(16)).toHaveClass(/rendering/);
+    // A functional spec written in above it, as turri or the chat would: it moves down three lines, and stays lit there.
+    writeFileSync(spec, readFileSync(spec, "utf8").replace("# print-hello", "# wave-first\n:Greeter: waves first.\n\n# print-hello"));
+    await expect(line(18)).toContainText("prints");
+    await expect(line(17)).toHaveClass(/rendering/);
+    await expect(line(18)).toHaveClass(/rendering/);
     await expect(line(14)).not.toHaveClass(/rendering/);
+    await expect(line(15)).not.toHaveClass(/rendering/);
   });
 
   test("lights a line with a link a running pulse renders - found by its text as the file has it, not as turri reads it", async ({ launched: { app, window, spec } }) => {
@@ -696,6 +853,20 @@ test.describe("a pulse's report, with debug on", () => {
 
 test.describe("a failed pulse", () => {
   test.use({ stubModel: "silent" });
+
+  test("says why it failed when turri has no diagnosis - stopped before it started, its base folder not there", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const why = "Stopped before building hello: its codebase is to start from the base folder assets (base-folder: in config.turri.yaml), and there is no such folder - /tmp/hello/assets.";
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: why });
+    await showRegen(window);
+    // A failed pulse's card may be open already: opened, if not.
+    const card = window.locator(".job", { hasText: "the greeting by name" });
+    if ((await card.locator(".job-head").getAttribute("aria-expanded")) !== "true") await opened(card);
+    await expect(card.locator(".job-why")).toHaveText(why);
+    // One with a diagnosis says that instead, in its failure.
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: why, diagnosis: "the tests kept failing" });
+    await expect(card.locator(".job-why")).toHaveCount(0);
+  });
 
   test("opens a closed pulse on a click anywhere on its card - but not on investigate, nor closes it from its body", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();

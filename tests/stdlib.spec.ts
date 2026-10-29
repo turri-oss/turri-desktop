@@ -157,7 +157,7 @@ test.describe("the stdlib view", () => {
     writeFileSync(join(project, "template", "store.plain"), "---\ndescription: Where things are kept.\n---\n\n***definitions***\n\n- :Store: is where the greetings are kept.\n");
     writeFileSync(
       join(project, "backend.plain"),
-      "---\nimport:\n  - template/store\ndescription: A backend.\n---\n\n***definitions***\n\n- :Greeting: is what :Store: keeps.\n\n***functional specs***\n\n- It answers with a :Greeting:.\n",
+      "---\nimport:\n  - template/store\ndescription: A backend.\n---\n\n***definitions***\n\n- :Greeting: is what :Store: keeps.\n\n***functional specs***\n\n# answer\nIt answers with a :Greeting:.\n",
     );
     await window.locator(".tree-row", { hasText: "backend.plain" }).click();
     const area = window.locator(".editor textarea");
@@ -195,12 +195,13 @@ test.describe("the stdlib view", () => {
     await window.locator(".tree-row", { hasText: "hello.plain" }).click();
     const area = window.locator(".editor textarea");
     await modClick(window, window.locator(".editor-colours .plain-concept", { hasText: ":Implementation:" }));
-    const toast = window.locator(".toast");
-    await expect(toast).toContainText(":Implementation: is plain's own: no plain file defines it.");
-    // Its words one element in the notice's row, ***plain's name and its "'s" with no gap between them.
-    await expect(toast.locator("> *")).toHaveCount(1);
-    const name = (await toast.locator(".plain-name").first().boundingBox())!;
-    const line = (await toast.boundingBox())!;
+    // Said in the status strip, at the bottom of the view - nothing floating over the ***plain.
+    const said = window.locator(".status-said");
+    await expect(said).toContainText(":Implementation: is plain's own: no plain file defines it.");
+    // Its words one element in the strip, ***plain's name and its "'s" with no gap between them.
+    await expect(said.locator("> *")).toHaveCount(1);
+    const name = (await said.locator(".plain-name").first().boundingBox())!;
+    const line = (await said.boundingBox())!;
     expect(name.height).toBeLessThan(line.height);
   });
 
@@ -213,7 +214,7 @@ test.describe("the stdlib view", () => {
     writeFileSync(join(project, "resources", "schema.json"), '{ "greeting": "string" }\n');
     writeFileSync(
       join(project, "backend.plain"),
-      "---\ndescription: A backend.\n---\n\n***functional specs***\n\n- It keeps [the database](resources/database.yaml) as [the schema](resources/schema.json) says.\n- It reads [the archive](resources/gone.md).\n",
+      "---\ndescription: A backend.\n---\n\n***functional specs***\n\n# keep\nIt keeps [the database](resources/database.yaml) as [the schema](resources/schema.json) says.\n\n# read\nIt reads [the archive](resources/gone.md).\n",
     );
     const open = async (nth: number, part: "first" | "last" = "first") => {
       await window.locator(".tree-row", { hasText: "backend.plain" }).click();
@@ -232,7 +233,7 @@ test.describe("the stdlib view", () => {
     await expect(await open(1, "last")).toHaveValue(/"greeting": "string"/);
     // One to a file that is not there: said so, and the ***plain stays open.
     await open(2);
-    await expect(window.locator(".toast")).toContainText("resources/gone.md is not in the project.");
+    await expect(window.locator(".status-said")).toContainText("resources/gone.md is not in the project.");
     await expect(window.locator(".editor-pane .pane-header")).toContainText("backend.plain");
   });
 });

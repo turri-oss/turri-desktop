@@ -107,3 +107,16 @@ test.describe("browser_click", () => {
     expect(asked.map((each) => Object.fromEntries(Object.entries(each.params).filter(([, value]) => value !== undefined)))).toEqual([{ text: "Save", occurrence: 2, double: true }, { x: 10, y: 20 }, { ref: 3 }]);
   });
 });
+
+test.describe("browser_press", () => {
+  test("takes keys, how long each is held, whether together, and repeats - and says what it pressed", async () => {
+    const { named, asked } = await tools("browser", () => ({ did: "Pressed left, space.", title: "game", url: "http://localhost:8000/" }));
+    const press = named("browser_press");
+    expect(press.label).toBe("Press keys in the preview");
+    expect(Object.keys(press.parameters.properties)).toEqual(["keys", "hold", "together", "repeat", "delay"]);
+    expect(press.parameters.required).toEqual(["keys"]);
+    const done = await press.execute("1", { keys: ["left", "space"], hold: 300 });
+    expect(done.content[0]!.text).toBe("Pressed left, space.\nNow: game - http://localhost:8000/");
+    expect(asked).toEqual([{ action: "press", params: { keys: ["left", "space"], hold: 300, together: undefined, repeat: undefined, delay: undefined } }]);
+  });
+});

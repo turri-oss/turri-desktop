@@ -1,5 +1,4 @@
 # The app's tests open this project; none of them calls a model. A dummy ANTHROPIC_API_KEY is enough to open it.
 harness-model: anthropic/claude-sonnet-5-5
 coding-model: anthropic/claude-sonnet-5-5
-conformance-tests: false
 review: false

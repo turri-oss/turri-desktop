@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./types.ts";
-import type { Concept, Job, Pane, PastRun, Project, Spec, Status, StdlibModule, View } from "./types.ts";
+import type { Concept, Job, Pane, PastRun, Project, Renamed, Spec, Status, StdlibModule, View } from "./types.ts";
 import { Welcome } from "./Welcome.tsx";
-import { SpecView } from "./SpecView.tsx";
+import { buildingIn, SpecView } from "./SpecView.tsx";
 import { newestJobs, newestRuns, sentinelByPulse, WorkView } from "./WorkView.tsx";
 import { PlanSheet, type Plan } from "./PlanSheet.tsx";
 import { type Point, type PulseLines, pulseLinesOf } from "./PulseSpec.tsx";
@@ -10,7 +10,7 @@ import { DoctorSheet, problems, toSeeTo } from "./DoctorSheet.tsx";
 import { AuthSheet } from "./AuthSheet.tsx";
 import { AboutSheet, type AboutTab } from "./AboutSheet.tsx";
 import { SettingsSheet } from "./SettingsSheet.tsx";
-import { ProjectSettingsSheet } from "./ProjectSettings.tsx";
+import { ChooseFolder, ProjectSettingsSheet } from "./ProjectSettings.tsx";
 import { GettingStartedSheet } from "./GettingStarted.tsx";
 import type { Check } from "../electron/preload.ts";
 import { RegenerateSheet, type Regeneration } from "./RegenerateSheet.tsx";
@@ -23,8 +23,9 @@ import { StdlibView } from "./StdlibView.tsx";
 import { DiveScreen } from "./DiveScreen.tsx";
 import { ConceptUses, type Followed, type Link, type Place, type Use } from "./PlainLinks.tsx";
 import { Empty, Icon, Jellyfish, PlainName, Spinner, TurriVersionLine, withPlain } from "./ui.tsx";
-import { Chat } from "./Chat.tsx";
-import { useChats } from "./chats.ts";
+import { Chat, pulseLine } from "./Chat.tsx";
+import { StatusPanel, type Notification, type Problem } from "./StatusPanel.tsx";
+import { type Tone, useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
 
 /** The views, as the toolbar has them, left to right: ctrl+tab goes along them. regen is the dive's. */
@@ -111,7 +112,13 @@ export function App() {
   const [jobs, setJobs] = useState<Map<string, Job>>(new Map());
   /** Earlier sessions' pulses, from the ledger: read when the project opens and again as each pulse ends. */
   const [earlier, setEarlier] = useState<PastRun[]>([]);
-  const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  // What the window was told or found, this project's, for the status panel: kept until dismissed.
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const noticed = useRef(0);
+  // A pulse opened from its notification - the current render's way to it, for the engine's events to reach.
+  const openPulse = useRef<(id: string) => void>(() => {});
+  // turri's notices that have ended, put away from the status panel.
+  const [putAway, setPutAway] = useState<Set<string>>(new Set());
   // The engine stopped under the window - crashed, say: said until it is started again, with the button that does it.
   const [stopped, setStopped] = useState<"stopped" | "starting" | null>(null);
   const [plan, setPlan] = useState<Plan | "loading" | null>(null);
@@ -137,6 +144,8 @@ export function App() {
   const diveNow = useRef(false);
   diveNow.current = dive;
   // Lines of a spec to bring into view and light: a pulse's part of it, shown from the work.
+  /** The pure renames turri made this session - a func-id or a scenario-id, nothing regenerated - for regen to say. */
+  const [renamed, setRenamed] = useState<Renamed[]>([]);
   const [reveal, setReveal] = useState<{ file: string; lines: number[]; texts?: string[]; point?: Point; at: number } | null>(null);
   // Lit once, where it was asked for: gone as the person looks elsewhere - another view, file or template, the dive - so
   // coming back
@@ -210,13 +219,14 @@ export function App() {
       /* not kept: it is 400 again next time */
     }
   }, [chatWidth]);
-  const say = useCallback((text: string, tone: "info" | "error" = "info") => {
-    setToast({ text, tone });
-    setTimeout(() => setToast((now) => (now?.text === text ? null : now)), tone === "error" ? 9000 : 4500);
+  const say = useCallback((text: string, tone: Tone = "info", action?: Notification["action"]) => {
+    noticed.current += 1;
+    const note = { id: noticed.current, text, tone, at: Date.now(), ...(action !== undefined ? { action } : {}) };
+    setNotifications((now) => [...now, note]);
   }, []);
   // turri's chats - tabs of the chat, each its own conversation on the project's one work loop - and the one shown. A
   // question asked in any of them brings the chat out.
-  const chats = useChats({ onAsk: useCallback(() => setChatOpen(true), []), onError: useCallback((text: string) => say(text, "error"), [say]) });
+  const chats = useChats({ onAsk: useCallback(() => setChatOpen(true), []), onNotify: say });
   const shownChat = chats.shown;
   const [commands, setCommands] = useState<Array<{ name: string; description: string }>>([]);
   /** The concepts the project's ***plain can name, for the chat to offer as one is typed: read again as a .plain changes. */
@@ -247,7 +257,9 @@ export function App() {
   // for Regenerate What Changed to do. The menu bar is told, to offer it only then.
   const changed = spec !== null && spec.ok && spec.drifted !== false;
   useEffect(() => void window.turri.changed(changed), [changed]);
-  const file = spec === null && project !== null && selected !== null ? selected : null;
+  // A test plain file: a functional spec's scenarios, in the ***plain view as a module is.
+  const tests = project?.testPlainFiles.find((entry) => entry.file === selected) ?? null;
+  const file = spec === null && tests === null && project !== null && selected !== null ? selected : null;
 
   const refreshProject = useCallback(async () => {
     const summary = await window.turri.call<Omit<Project, never>>("summary");
@@ -259,6 +271,9 @@ export function App() {
     setSwitching(null);
     setStopped(null);
     setGuide(false);
+    setRenamed([]);
+    setNotifications([]);
+    setPutAway(new Set());
     setProject(summary);
     setSelected(summary.specs[0]?.file ?? null);
     setFreshChat(Boolean(summary.setup));
@@ -276,7 +291,11 @@ export function App() {
     setPane(null);
     setPanes([]);
     // A project just started opens on what turri said of its config: its models, and how to sign in to them.
-    void chats.reset(summary.setup ? [{ role: "note", text: summary.setup, level: "info" }] : []);
+    // Its base folder, chosen as it was made: written as the person would type it - /turri-config - once its chats are read,
+    // so turri says so there.
+    void chats.reset(summary.setup ? [{ role: "note", text: summary.setup, level: "info" }] : []).then(() => {
+      if (summary.startFrom !== undefined) void window.turri.call("sendChat", { text: `/turri-config base-folder ${summary.startFrom}` }).catch(() => {});
+    });
     // Its models just chosen and its config written: whether this machine is ready for it, and the models answer - said
     // only when something wants seeing to, as a project that is ready needs nothing of you.
     if (summary.setup)
@@ -301,12 +320,16 @@ export function App() {
         setStatus(next);
         setJobs(new Map(next.jobs.map((job) => [job.id, job])));
       }),
-      window.turri.on("engine:finished", (done: { status: string; title: string; module?: string }) => {
-        say(`${done.module ?? "job"} - ${done.title}: ${done.status}`, done.status === "failed" ? "error" : "info");
+      // A pulse's end - said as the chat said it, its module and that it finished, and opened from there.
+      window.turri.on("engine:finished", (done: { id: string; status: string; title: string; module?: string; kind?: string }) => {
+        const line = pulseLine(done.module, done.kind === "conformance" ? "conformance" : "regenerate", done.status);
+        say(line, done.status === "failed" ? "error" : "info", { label: done.status === "succeeded" ? "show" : "see why", run: () => openPulse.current(done.id) });
         void refreshProject();
       }),
       window.turri.on("engine:earlier", (runs: PastRun[]) => setEarlier(newestRuns(runs))),
       window.turri.on("engine:incident", (incident: { job?: string; text: string }) => say(incident.text, "error")),
+      // A pure rename turri made: regen says it as one.
+      window.turri.on("engine:renamed", (rename: Renamed) => setRenamed((now) => [...now, rename])),
       window.turri.on("engine:exit", () => {
         setStopped("stopped");
         // Its pulses went with it: none is running or waiting any more, whatever they last said.
@@ -353,11 +376,11 @@ export function App() {
       try {
         await window.turri.call("regenerate", {
           file: spec.file,
-          frids: how?.how === "again" ? how.frids : undefined,
+          funcIds: how?.how === "again" ? how.funcIds : undefined,
           scratch: how?.how === "scratch",
           chain: how?.how === "scratch" && how.chain,
           // Continued: what changed, as turri brings a module up to its spec - with the planner told where it stopped.
-          guidance: how?.how === "continue" ? `carry on where it stopped: build the functional specs not built yet - ${how.left.join(", ")}` : undefined,
+          guidance: how?.how === "continue" ? `carry on where it stopped: build the functional specs not built yet - ${how.left.map((funcId) => `${spec.module}:${funcId}`).join(", ")}` : undefined,
         });
       } catch (error) {
         say(String((error as Error).message ?? error), "error");
@@ -366,12 +389,94 @@ export function App() {
     [spec, dirty, say],
   );
 
+  /** Said to the chat shown, as the person would type it - a next step turri named, from a button: the chat opened on it. */
+  const ask = useCallback(
+    async (text: string) => {
+      setChatOpen(true);
+      try {
+        await window.turri.call("sendChat", { text });
+      } catch (error) {
+        say(String((error as Error).message ?? error), "error");
+      }
+    },
+    [say],
+  );
+
+  /**
+   * The project's problems, as turri reads its files: a ***plain or a test plain file that does not parse - with what the
+   * chat can do about it - and a module whose conformance tests wait on a step of adding tests. The one open first.
+   */
+  const plainProblems = useMemo((): Problem[] => {
+    if (project === null) return [];
+    const found: Problem[] = [
+      ...project.specs.flatMap((each): Problem[] => [
+        ...(each.ok
+          ? []
+          : [
+              {
+                key: `${each.file}\nerror`,
+                tone: "error" as const,
+                file: each.file,
+                rel: each.rel,
+                title: (
+                  <>
+                    the <PlainName /> does not parse
+                  </>
+                ),
+                text: each.nextStep !== undefined ? `${each.error ?? ""} ${each.nextStep}` : (each.error ?? ""),
+                ...(each.nextStep !== undefined ? { action: { label: "convert it", run: () => void ask(`Convert ${each.rel} to the new ***plain syntax.`) } } : {}),
+              },
+            ]),
+        // validate's warnings - a step of adding tests skipped, a base folder not there: said, not an error, in turri's
+        // words, each under the one heading - what each is about is turri's to say.
+        ...(each.warnings ?? []).map((warning) => ({
+          key: `${each.file}\n${warning}`,
+          tone: "warning" as const,
+          file: each.file,
+          rel: each.rel,
+          title: "turri warns",
+          text: warning,
+        })),
+        // Its base folder not as its codebase started from it - not copied in again: said, as drift says it.
+        ...(each.ok && each.baseFolder !== undefined
+          ? [{ key: `${each.file}\nbase folder`, tone: "warning" as const, file: each.file, rel: each.rel, title: "its base folder", text: each.baseFolder }]
+          : []),
+      ]),
+      ...project.testPlainFiles
+        .filter((each) => each.error !== undefined)
+        .map((each) => ({ key: `${each.file}\nerror`, tone: "error" as const, file: each.file, rel: each.rel, title: "turri does not read this test plain file", text: each.error ?? "" })),
+    ];
+    return [...found.filter((problem) => problem.file === selected), ...found.filter((problem) => problem.file !== selected)];
+  }, [project, selected, ask]);
+
+  /**
+   * The test advisor asked whether a functional spec needs testing scenarios: it says at once what it took up - each
+   * verdict comes to the chat shown, as the advisor's own do.
+   */
+  const evaluate = useCallback(
+    async (of: Spec, funcId: string) => {
+      try {
+        const outcome = await window.turri.call<{ started: string[]; already: string[]; scenarios: string[]; missing: string[] }>("evaluateTests", { file: of.file, funcIds: [funcId] });
+        const said = [
+          ...outcome.started.map((name) => `testing scenarios for ${name} are being evaluated - the verdict comes to the chat.`),
+          ...outcome.already.map((name) => `${name} is being evaluated already.`),
+          ...outcome.scenarios.map((name) => `${name} has scenarios already.`),
+          ...outcome.missing,
+        ];
+        say(said.join(" ") || `nothing was evaluated for ${of.module}:${funcId}.`, outcome.missing.length > 0 ? "error" : "info");
+      } catch (error) {
+        say(String((error as Error).message ?? error), "error");
+      }
+    },
+    [say],
+  );
+
   const conform = useCallback(
-    async (frids?: string[]) => {
+    async (funcIds?: string[]) => {
       if (spec === null) return;
       setChatOpen(true);
       try {
-        await window.turri.call("conform", { file: spec.file, frids });
+        await window.turri.call("conform", { file: spec.file, funcIds });
       } catch (error) {
         say(String((error as Error).message ?? error), "error");
       }
@@ -611,13 +716,19 @@ export function App() {
     async (file: string, followed: Followed, point: { x: number; y: number }) => {
       if ("module" in followed) return openLink(followed.module);
       if ("concept" in followed) return showConcept(followed.concept, { file, line: followed.line, ...point });
+      // A test plain file's func_id: the functional spec its scenarios are of, where its module has it.
+      if ("funcRef" in followed) {
+        const of = project?.testPlainFiles.find((entry) => entry.file === file);
+        if (of?.moduleFile == null || of.line == null) return say(`${of?.module ?? "its module"} has no functional spec ${followed.funcRef}.`);
+        return showAt({ file: of.moduleFile, line: of.line, module: of.module ?? "", stdlib: false });
+      }
       const resource = await window.turri.call<{ file: string } | { missing: string } | null>("linkedResource", { file, line: followed.line, index: followed.resource }).catch(() => null);
       if (resource === null) return;
       if ("missing" in resource) return say(`${resource.missing} is not in the project.`);
       setSelected(resource.file);
       setView("spec");
     },
-    [openLink, showConcept, say],
+    [openLink, showConcept, say, project, showAt],
   );
 
   const allJobs = useMemo(() => newestJobs(jobs.values()), [jobs]);
@@ -627,7 +738,8 @@ export function App() {
     () => sentinelByPulse(sentinelChat?.items ?? [], sentinelChat?.streaming ?? null, sentinelChat?.busy === true, chats.concluded),
     [sentinelChat?.items, sentinelChat?.streaming, sentinelChat?.busy, chats.concluded],
   );
-  const runningFor = (module: string) => allJobs.find((job) => job.module === module && job.status === "running");
+  // The pulse running on a module's ***plain: its own, or one at the top of its chain building a functional spec of it.
+  const runningFor = (module: string) => allJobs.find((job) => job.status === "running" && (job.module === module || buildingIn(job, module).size > 0));
   const running = allJobs.filter((job) => job.status === "running");
   // turri testing where the person is not looking: the preview's tab glows, inviting them to watch.
   const invited = testing && !(view === "preview" && (testingIn === null || pane === testingIn));
@@ -676,6 +788,7 @@ export function App() {
   const settingsSheet = settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} onPrivacy={() => (setSettingsOpen(false), setAbout("privacy"))} />;
   const projectSettingsSheet = projectSettingsOpen && project !== null && (
     <ProjectSettingsSheet
+      dir={project.dir}
       settings={project.settings}
       onClose={() => setProjectSettingsOpen(false)}
       onOpenFile={() => {
@@ -717,6 +830,23 @@ export function App() {
     setSelected(file);
     setReveal({ file, ...lit });
     setView("spec");
+  };
+
+  /**
+   * A pulse opened from where it is said - its notification: one that landed, what it built in the ***plain, lit, as a
+   * click on its lines in regen opens it; one that went wrong, or built no ***plain of its own (a conformance run), its
+   * card in regen, to see why and what.
+   */
+  openPulse.current = (id: string) => {
+    const past = earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id);
+    const job = jobs.get(id) ?? (past !== undefined ? { diff: past.diff ?? undefined, diffWhere: past.diffWhere ?? undefined, status: past.status } : undefined);
+    if (job === undefined) return say("that pulse ran in an earlier session, and the ledger has nothing of it now.");
+    const built = job.status === "succeeded" ? pulseLinesOf(job, { dirs: project.testDirs, files: project.testPlainFiles }) : null;
+    if (built !== null && built.lines.length > 0) return showInSpec(built.file, built.lines);
+    setDive(true);
+    // The pulse asked for, not a failure the tab was marked for.
+    setUnseenFailed([]);
+    showPulse(id);
   };
 
   // As wide as dragged, held to the window: the files first, then the chat beside them - the ***plain keeps its room.
@@ -797,19 +927,7 @@ export function App() {
             progress={shownChat.progress}
             stats={shownChat.stats}
             onShowConcept={(concept) => void showConcept(concept)}
-            onShowPulse={(id) => {
-              const past = earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id);
-              const job = jobs.get(id) ?? (past !== undefined ? { diff: past.diff ?? undefined, diffWhere: past.diffWhere ?? undefined, status: past.status } : undefined);
-              if (job === undefined) return say("that pulse ran in an earlier session, and the ledger has nothing of it now.");
-              // One that landed: what it built, in the ***plain - as a click on its lines in regen opens it. One that
-              // went wrong, or built no ***plain of its own (a conformance run): its card in regen, to see why and what.
-              const built = job.status === "succeeded" ? pulseLinesOf(job) : null;
-              if (built !== null && built.lines.length > 0) return showInSpec(built.file, built.lines);
-              setDive(true);
-              // The pulse asked for, not a failure the tab was marked for.
-              setUnseenFailed([]);
-              showPulse(id);
-            }}
+            onShowPulse={(id) => openPulse.current(id)}
             pulseOf={(id) => jobs.get(id) ?? earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id)}
             onShowSentinel={(id) => {
               if (!jobs.has(id)) return say("that pulse ran in an earlier session: what the sentinel did of it is not kept.");
@@ -822,27 +940,6 @@ export function App() {
             onAnswer={(value) => {
               void window.turri.call("answer", { id: shownChat.questions[0]!.id, value });
               chats.answered(chats.shownId!);
-            }}
-            notices={shownChat.notices}
-            noticesOver={shownChat.over}
-            onAnswerNotice={(id, answer) => {
-              const chat = chats.shownId!;
-              return window.turri.call<string>("answerNotice", { id, answer }).then(
-                (did) => {
-                  // Answered already, superseded, or gone with its session: nothing to do, and its card let go.
-                  if (did === "over" || did === "missing") {
-                    chats.noticeGone(chat, id);
-                    say("that notice is over already - nothing was done.");
-                  }
-                  // Ignore, on one turri says may not be: it stays open, to answer another way.
-                  if (did === "refused") say("this notice cannot be ignored - choose what to do, or dismiss it.");
-                  return did;
-                },
-                (error) => {
-                  say(engineSaid(error), "error");
-                  throw error;
-                },
-              );
             }}
           />
         )}
@@ -903,10 +1000,45 @@ export function App() {
               />
             ) : file !== null ? (
               <FileView key={file} root={project.dir} file={file} reveal={reveal?.file === file ? reveal : undefined} onDirty={setDirty} saveRef={saveRef} say={say} onOpen={openLink} onFollow={(followed, point) => void follow(file, followed, point)} />
+            ) : tests !== null ? (
+              <SpecView
+                key={tests.file}
+                spec={{ file: tests.file, rel: tests.rel, ok: tests.error === undefined, module: tests.module ?? "", requires: [], functionalSpecs: [], ...(tests.error !== undefined ? { error: tests.error } : {}) }}
+                tests={tests}
+                onShowSpec={() => tests.moduleFile !== null && tests.line !== null && showAt({ file: tests.moduleFile, line: tests.line, module: tests.module ?? "", stdlib: false })}
+                onShowModule={() => tests.moduleFile !== null && setSelected(tests.moduleFile)}
+                reveal={reveal?.file === tests.file ? reveal : undefined}
+                onSaved={() => void refreshProject()}
+                onDirty={setDirty}
+                saveRef={saveRef}
+                onRegenerate={() => {}}
+                onConform={() => {}}
+                onOpen={openLink}
+                onFollow={(followed, point) => void follow(tests.file, followed, point)}
+                onOpenTests={(file, line) => showAt({ file, line, module: tests.module ?? "", stdlib: false })}
+                onEvaluate={() => {}}
+                onWriteScenarios={() => {}}
+                say={say}
+              />
             ) : spec === null ? (
               project.specs.length === 0 && (
                 <Empty icon="doc" title="no ***plain yet">
                   tell turri what you want to build. it writes the first <PlainName /> with you, then builds the code from it.
+                  {/* What its code starts from: an existing codebase, files to use - base-folder:, through /turri-config. */}
+                  <span className="empty-start">
+                    {typeof project.settings["base-folder"] === "string" ? (
+                      <>
+                        its code starts from <code>{project.settings["base-folder"]}</code> ·{" "}
+                      </>
+                    ) : (
+                      "building on existing code, or files to use - images, fonts? "
+                    )}
+                    <ChooseFolder
+                      root={project.dir}
+                      label={typeof project.settings["base-folder"] === "string" ? "another folder…" : "start from a folder…"}
+                      onChosen={(path) => void window.turri.call("sendChat", { text: `/turri-config base-folder ${path}` }).catch((error) => say(engineSaid(error), "error"))}
+                    />
+                  </span>
                 </Empty>
               )
             ) : (
@@ -914,18 +1046,55 @@ export function App() {
                 key={spec.file}
                 spec={spec}
                 running={runningFor(spec.module)}
+                base={status.modules.find((module) => module.plainFile === spec.file || module.module === spec.module)?.base}
                 reveal={reveal?.file === spec.file ? reveal : undefined}
                 onSaved={(next: Spec) => setProject((now) => now && { ...now, specs: now.specs.map((entry) => (entry.file === next.file ? next : entry)) })}
                 onDirty={setDirty}
                 saveRef={saveRef}
-                onRegenerate={(frids) => void regenerate(frids?.length ? { how: "again", frids } : undefined)}
-                onConform={(frids) => void conform(frids)}
+                onRegenerate={(funcIds) => void regenerate(funcIds?.length ? { how: "again", funcIds } : undefined)}
+                onConform={(funcIds) => void conform(funcIds)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(spec.file, followed, point)}
+                onOpenTests={(file, line) => showAt({ file, line, module: spec.module, stdlib: false })}
+                onEvaluate={(funcId) => void evaluate(spec, funcId)}
+                onWriteScenarios={(funcId) => void ask(`Write testing scenarios for ${spec.module}:${funcId}.`)}
                 say={say}
               />
             )}
           </section>
+          <StatusPanel
+            problems={plainProblems}
+            notifications={notifications}
+            notices={chats.notices.filter((shown) => !putAway.has(shown.notice.id))}
+            onAnswerNotice={({ notice }, answer) =>
+              window.turri.call<string>("answerNotice", { id: notice.id, answer }).then(
+                (did) => {
+                  // Answered already, superseded, or gone with its session: nothing to do, and it is let go.
+                  if (did === "over" || did === "missing") {
+                    chats.noticeGone(notice.chat, notice.id);
+                    say("that notice is over already - nothing was done.");
+                  }
+                  // Ignore, on one turri says may not be: it stays open, to answer another way.
+                  if (did === "refused") say("this notice cannot be ignored - choose what to do, or dismiss it.");
+                  return did;
+                },
+                (error) => {
+                  say(engineSaid(error), "error");
+                  throw error;
+                },
+              )
+            }
+            onPutAway={(id) => setPutAway((now) => new Set(now).add(id))}
+            onOpenFile={(path) => {
+              setSelected(path);
+              setView("spec");
+            }}
+            onDismiss={(id) => setNotifications((now) => now.filter((note) => note.id !== id))}
+            onClear={() => {
+              setNotifications([]);
+              setPutAway((now) => new Set([...now, ...chats.notices.filter((shown) => shown.ended !== undefined).map((shown) => shown.notice.id)]));
+            }}
+          />
           {uses !== null && (
             <ConceptUses
               {...uses}
@@ -970,6 +1139,7 @@ export function App() {
             <FileTree
               root={project.dir}
               specs={project.specs}
+              testPlainFiles={project.testPlainFiles}
               selected={selected}
               isRunning={(module) => runningFor(module) !== undefined}
               onSelect={(path) => {
@@ -1022,12 +1192,6 @@ export function App() {
             </button>
           </div>
         )}
-        {toast && (
-          <div className={`toast ${toast.tone}`} onClick={() => setToast(null)}>
-            {toast.tone === "error" && <Icon name="warn" />}
-            {withPlain(toast.text)}
-          </div>
-        )}
       </div>
       {dive && (
         <DiveScreen project={project.name} asking={chats.asking.size > 0} running={running.length > 0} testing={testing} onWatch={watch} onLeave={() => setDive(false)}>
@@ -1036,6 +1200,8 @@ export function App() {
             jobs={allJobs}
             earlier={earlier}
             specs={project.specs}
+            tests={{ dirs: project.testDirs, files: project.testPlainFiles }}
+            renamed={renamed}
             opened={openPulses}
             onToggle={(id) =>
               setOpenPulses((now) => {
