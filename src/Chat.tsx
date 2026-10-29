@@ -218,12 +218,6 @@ export function Chat(props: {
   onAnswer: (value: unknown) => void;
   progress: SkillProgress | null;
   stats: ChatStats | null;
-  /** A pulse the chat says ended, opened in the work view. */
-  onShowPulse: (id: string) => void;
-  /** What the sentinel did of a pulse, from its conclusion: the pulse opened in regen, on what the sentinel did. */
-  onShowSentinel: (job: string) => void;
-  /** A pulse's module and kind, by its id - this session's or the ledger's: what its line in the chat says. */
-  pulseOf: (id: string) => PulseNamed | undefined;
   /** A concept said in the chat, clicked: opened where the ***plain defines it. */
   onShowConcept: (concept: string) => void;
   /** Whether any of the project's ***plain has changed since it was built: only then is regenerating what changed offered. */
@@ -477,8 +471,8 @@ export function Chat(props: {
         )}
         {/* turri's notices are the status panel's, not the conversation's: answered there, whichever chat they are of. */}
         {props.items.map((item, index) =>
-          item.role === "toolResult" || item.role === "notice" || item.role === "noticeOver" ? null : (
-            <Message key={index} item={item} results={results} running={props.running} onShowPulse={props.onShowPulse} onShowSentinel={props.onShowSentinel} pulseOf={props.pulseOf} />
+          item.role === "toolResult" || item.role === "notice" || item.role === "noticeOver" || item.role === "concluded" ? null : (
+            <Message key={index} item={item} results={results} running={props.running} />
           ),
         )}
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
@@ -665,18 +659,11 @@ function Message({
   results,
   running,
   live,
-  onShowPulse,
-  onShowSentinel,
-  pulseOf,
 }: {
   item: ChatItem;
   results: Map<string, Extract<ChatItem, { role: "toolResult" }>>;
   running: Map<string, boolean>;
   live?: boolean;
-  onShowPulse?: (id: string) => void;
-  /** What the sentinel did of a pulse, shown in regen: a conclusion's name opens it. */
-  onShowSentinel?: (job: string) => void;
-  pulseOf?: (id: string) => PulseNamed | undefined;
 }) {
   const [thinking, setThinking] = useState(false);
   if (item.role === "user")
@@ -696,36 +683,6 @@ function Message({
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
   // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
   // ***plain, its card in regen: the chat stays a conversation.
-  // The sentinel done with a pulse: one line, as a pulse's end is - its name a link to what it did of the pulse, and the
-  // pulse a link to the pulse, both in regen. Only something wrong is said, with what it found; when it holds, the tick is all.
-  if (item.role === "concluded") {
-    const { conclusion } = item;
-    const holds = conclusion.verdict === "holds";
-    // Its module alone: the pulse's number is regen's to say.
-    const pulse = conclusion.module || "the pulse";
-    return (
-      <div className={`msg concluded ${conclusion.verdict}`}>
-        <div className="concluded-head">
-          <Icon name={holds ? "check" : "x"} size={14} />{" "}
-          <button className="concluded-link sentinel" disabled={onShowSentinel === undefined} onClick={() => onShowSentinel?.(conclusion.job)} title="see what the sentinel did, in the dive">
-            <Icon name="eye" size={13} />
-            {SENTINEL_NAME}
-          </button>
-          <span className="muted"> · </span>
-          <button className="concluded-link pulse" onClick={() => onShowPulse?.(conclusion.job)} title="open what the pulse built in the ***plain, lit">
-            {pulse}
-          </button>
-          {!holds && (
-            <>
-              <span className="muted"> · </span>
-              <span className="concluded-verdict muted">found something wrong</span>
-            </>
-          )}
-        </div>
-        {!holds && conclusion.summary && <div className="concluded-summary"><Prose text={conclusion.summary} /></div>}
-      </div>
-    );
-  }
   // Where a turn of the chat's own comes from when nobody typed: the test advisor's yes, which the person does not read -
   // the chat says it, and writes the scenarios.
   if (item.role === "advisorVerdict")

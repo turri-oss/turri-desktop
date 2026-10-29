@@ -21,6 +21,23 @@ export type Notification = { id: number; text: string; tone: Tone; at: number; a
 /** How long the newest notification is said in the strip itself. */
 const SAID_FOR = 6000;
 
+/** The panel's height as it starts, and the least it is dragged to - kept between launches, per viewer. */
+const PANEL_HEIGHT = 240;
+const PANEL_LEAST = 120;
+const HEIGHT_KEY = "turri-app.status-height";
+
+/** As high as dragged, held to the window: the view above it keeps a little room. */
+const clampHeight = (height: number) => Math.round(Math.max(PANEL_LEAST, Math.min(height, window.innerHeight - 200)));
+
+function keptHeight(): number {
+  try {
+    const kept = Number(localStorage.getItem(HEIGHT_KEY));
+    return Number.isFinite(kept) && kept > 0 ? clampHeight(kept) : PANEL_HEIGHT;
+  } catch {
+    return PANEL_HEIGHT;
+  }
+}
+
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**
@@ -42,6 +59,17 @@ export function StatusPanel(props: {
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Its height: dragged by its top edge, kept for next time.
+  const [height, setHeight] = useState(keptHeight);
+  // Where a drag of its edge started: the pointer's height, and the panel's.
+  const dragging = useRef<{ y: number; height: number } | null>(null);
+  useEffect(() => {
+    try {
+      localStorage.setItem(HEIGHT_KEY, String(height));
+    } catch {
+      /* not kept: it starts at 240 again */
+    }
+  }, [height]);
   const [tab, setTab] = useState<"problems" | "notifications">("problems");
   // Notifications up to this id have been seen in the panel.
   const [seenUpTo, setSeenUpTo] = useState(0);
@@ -110,7 +138,30 @@ export function StatusPanel(props: {
   return (
     <div className="status-panel">
       {open && (
-        <div className="status-body" onKeyDown={(event) => event.key === "Escape" && setOpen(false)}>
+        <div className="status-body" style={{ height }} onKeyDown={(event) => event.key === "Escape" && setOpen(false)}>
+          {/* Its top edge: drag it up for more of the panel, down for less - double-click for the height it starts at. */}
+          <div
+            className="status-resize"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="resize the panel"
+            title="drag to resize the panel - double-click to reset"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              dragging.current = { y: event.clientY, height };
+            }}
+            onPointerMove={(event) => {
+              const from = dragging.current;
+              if (from === null || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              setHeight(clampHeight(from.height + from.y - event.clientY));
+            }}
+            onPointerUp={(event) => {
+              dragging.current = null;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onDoubleClick={() => setHeight(PANEL_HEIGHT)}
+          />
           <div className="status-tabs" role="tablist">
             <button role="tab" aria-selected={tab === "problems"} className={tab === "problems" ? "on" : ""} onClick={() => setTab("problems")}>
               problems {props.problems.length > 0 && <span className="status-count">{props.problems.length}</span>}

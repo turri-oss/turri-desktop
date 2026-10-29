@@ -1313,10 +1313,25 @@ code {
   background: var(--red);
 }
 .status-body {
+  position: relative;
   height: 240px;
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--line);
+}
+/* Its top edge, dragged for its height: a few pixels over the border, as the chat's and the files' edges are. */
+.status-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 5;
+  cursor: row-resize;
+}
+.status-resize:hover,
+.status-resize:active {
+  background: var(--accent);
 }
 .status-tabs {
   display: flex;
@@ -2114,11 +2129,10 @@ code {
   animation: breathe 1s infinite;
   color: var(--fg-3);
 }
-/* What turri says outside its replies - a command's outcome, the sentinel's conclusions - is
+/* What turri says outside its replies - a command's outcome - is
    a message of its own, on the left as wide as what it says, as the person's are on the right: not a band across the
    chat. */
 .msg.note,
-.msg.concluded,
 .msg.notice-card {
   align-self: flex-start;
   max-width: 88%;
@@ -2247,57 +2261,6 @@ code {
   margin-top: 8px;
   color: var(--fg-2);
   font-size: 11.5px;
-}
-/* The sentinel done with a pulse: a line, as a pulse's end is - in the sentinel's indigo when what it checked holds,
-   red when it does not - its name a link to what it did of the pulse, the pulse a link to it, both in regen. */
-.msg.concluded {
-  --verdict: var(--sentinel);
-  border-left: 3px solid var(--verdict);
-  padding: 4px 8px;
-  font-size: 12.5px;
-}
-.msg.concluded.wrong {
-  --verdict: var(--red);
-}
-.concluded-head .icon {
-  vertical-align: -2px;
-}
-.concluded-head > .icon {
-  color: var(--verdict);
-}
-.concluded-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.concluded-link.sentinel {
-  color: var(--sentinel);
-}
-.concluded-link.sentinel .icon {
-  margin-right: 4px;
-}
-.concluded-link:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.concluded-link:disabled {
-  cursor: default;
-}
-.concluded-head .muted {
-  font-size: 11.5px;
-}
-/* Each part whole: a narrow chat wraps between them, never inside one. */
-.concluded-link,
-.concluded-verdict {
-  white-space: nowrap;
-}
-.concluded-summary {
-  margin-top: 2px;
-  color: var(--fg-2);
-  font-size: 12px;
 }
 .msg-error {
   color: var(--red);

@@ -62,7 +62,7 @@ type History = { messages: ChatItem[]; queued?: string[]; model: string | null; 
  * turri's chats in the window: each one's state, kept whether it is shown or not - a hidden chat goes on working, and
  * what it said and asks is there when it is shown - from the engine's events, each of the chat it is of.
  */
-export function useChats({ onAsk, onNotify }: { onAsk: () => void; onNotify: (text: string, tone: Tone) => void }) {
+export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; onNotify: (text: string, tone: Tone) => void; onConcluded: (conclusion: Conclusion) => void }) {
   const [list, setList] = useState<ChatInfo[]>([]);
   const [states, setStates] = useState<Map<string, ChatState>>(new Map());
   const update = useCallback((id: string, change: (state: ChatState) => Partial<ChatState>) => {
@@ -122,6 +122,8 @@ export function useChats({ onAsk, onNotify }: { onAsk: () => void; onNotify: (te
       on<ChatItem>("chat:message", (id, item) => {
         if (notified(item)) return onNotify((item as { text: string }).text, "info");
         if (leftOut(item)) return;
+        // The sentinel done with a pulse: a notification - kept among the chat's items too, for regen to read, not drawn.
+        if (item.role === "concluded") onConcluded(item.conclusion);
         update(id, (state) => ({ items: [...state.items, item] }));
       }),
       on<{ texts: string[] }>("chat:queued", (id, { texts }) => update(id, () => ({ queued: texts }))),
@@ -150,7 +152,7 @@ export function useChats({ onAsk, onNotify }: { onAsk: () => void; onNotify: (te
       on<Notice>("chat:noticeOver", (id, notice) => update(id, (state) => ({ notices: without(state.notices, notice.id), over: new Map(state.over).set(notice.id, notice) }))),
     ];
     return () => off.forEach((stop) => stop());
-  }, [update, load, onAsk, onNotify]);
+  }, [update, load, onAsk, onNotify, onConcluded]);
 
   // Every chat's notices, the oldest first: open ones, and those that ended while the window was there.
   const notices = useMemo(

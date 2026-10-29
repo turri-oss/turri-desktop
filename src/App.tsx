@@ -23,7 +23,7 @@ import { StdlibView } from "./StdlibView.tsx";
 import { DiveScreen } from "./DiveScreen.tsx";
 import { ConceptUses, type Followed, type Link, type Place, type Use } from "./PlainLinks.tsx";
 import { Empty, Icon, Jellyfish, PlainName, Spinner, TurriVersionLine, withPlain } from "./ui.tsx";
-import { Chat, pulseLine } from "./Chat.tsx";
+import { Chat, type Conclusion, pulseLine } from "./Chat.tsx";
 import { StatusPanel, type Notification, type Problem } from "./StatusPanel.tsx";
 import { type Tone, useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
@@ -117,6 +117,7 @@ export function App() {
   const noticed = useRef(0);
   // A pulse opened from its notification - the current render's way to it, for the engine's events to reach.
   const openPulse = useRef<(id: string) => void>(() => {});
+  const showSentinel = useRef<(id: string) => void>(() => {});
   // turri's notices that have ended, put away from the status panel.
   const [putAway, setPutAway] = useState<Set<string>>(new Set());
   // The engine stopped under the window - crashed, say: said until it is started again, with the button that does it.
@@ -226,7 +227,16 @@ export function App() {
   }, []);
   // turri's chats - tabs of the chat, each its own conversation on the project's one work loop - and the one shown. A
   // question asked in any of them brings the chat out.
-  const chats = useChats({ onAsk: useCallback(() => setChatOpen(true), []), onNotify: say });
+  // The sentinel done with a pulse: a notification - what it found when something is wrong - with the way to what it did.
+  const concluded = useCallback(
+    (conclusion: Conclusion) => {
+      const pulse = conclusion.module || "the pulse";
+      const holds = conclusion.verdict === "holds";
+      say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", { label: "see what it did", run: () => showSentinel.current(conclusion.job) });
+    },
+    [say],
+  );
+  const chats = useChats({ onAsk: useCallback(() => setChatOpen(true), []), onNotify: say, onConcluded: concluded });
   const shownChat = chats.shown;
   const [commands, setCommands] = useState<Array<{ name: string; description: string }>>([]);
   /** The concepts the project's ***plain can name, for the chat to offer as one is typed: read again as a .plain changes. */
@@ -837,6 +847,16 @@ export function App() {
    * click on its lines in regen opens it; one that went wrong, or built no ***plain of its own (a conformance run), its
    * card in regen, to see why and what.
    */
+  /** What the sentinel did of a pulse, from its conclusion's notification: the pulse opened in regen, on that part. */
+  showSentinel.current = (id: string) => {
+    if (!jobs.has(id)) return say("that pulse ran in an earlier session: what the sentinel did of it is not kept.");
+    setDive(true);
+    setUnseenFailed([]);
+    // Its card opened on what the sentinel did.
+    setOpenPulses((now) => new Set(now).add(`${id}/sentinel`));
+    showPulse(id);
+  };
+
   openPulse.current = (id: string) => {
     const past = earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id);
     const job = jobs.get(id) ?? (past !== undefined ? { diff: past.diff ?? undefined, diffWhere: past.diffWhere ?? undefined, status: past.status } : undefined);
@@ -927,16 +947,6 @@ export function App() {
             progress={shownChat.progress}
             stats={shownChat.stats}
             onShowConcept={(concept) => void showConcept(concept)}
-            onShowPulse={(id) => openPulse.current(id)}
-            pulseOf={(id) => jobs.get(id) ?? earlier.flatMap((run) => run.pulses).find((pulse) => pulse.id === id)}
-            onShowSentinel={(id) => {
-              if (!jobs.has(id)) return say("that pulse ran in an earlier session: what the sentinel did of it is not kept.");
-              setDive(true);
-              setUnseenFailed([]);
-              // Its card opened on what the sentinel did.
-              setOpenPulses((now) => new Set(now).add(`${id}/sentinel`));
-              showPulse(id);
-            }}
             onAnswer={(value) => {
               void window.turri.call("answer", { id: shownChat.questions[0]!.id, value });
               chats.answered(chats.shownId!);

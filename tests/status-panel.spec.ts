@@ -53,4 +53,32 @@ test.describe("the status panel", () => {
     await expect(page.getByRole("tabpanel", { name: "notifications" }).locator(".notification.warning")).toHaveText(/The sentinel could not be opened: no model\./);
     await expect(page.locator(".chat-body")).not.toContainText("The sentinel could not be opened");
   });
+
+  test("is as high as its top edge is dragged - kept for next time, and its height again on a double-click", async ({ launched: { window: page } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    await page.getByRole("button", { name: /^problems:/ }).click();
+    const body = page.locator(".status-body");
+    const height = async () => Math.round((await body.boundingBox())!.height);
+    expect(await height()).toBe(240);
+    const edge = (await page.getByRole("separator", { name: "resize the panel" }).boundingBox())!;
+    await page.mouse.move(edge.x + 200, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + 200, edge.y + edge.height / 2 - 150, { steps: 5 });
+    await page.mouse.up();
+    expect(await height()).toBe(390);
+    // Kept: the window drawn again, it opens as high as it was left.
+    await page.reload();
+    await expect(page.locator(".chat-model")).toBeVisible();
+    await page.getByRole("button", { name: /^problems:/ }).click();
+    expect(await height()).toBe(390);
+    // Never so high the view above has no room.
+    const top = (await page.getByRole("separator", { name: "resize the panel" }).boundingBox())!;
+    await page.mouse.move(top.x + 200, top.y + top.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(top.x + 200, 0, { steps: 5 });
+    await page.mouse.up();
+    expect(await height()).toBe((await page.evaluate(() => window.innerHeight)) - 200);
+    await page.getByRole("separator", { name: "resize the panel" }).dblclick();
+    expect(await height()).toBe(240);
+  });
 });
