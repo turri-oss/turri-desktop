@@ -47,19 +47,29 @@ const choicesFor = (typed: string) => window.turri.call<string[]>("configChoices
 
 /**
  * A list to choose from - what is set now in it even when turri does not offer it, a model not signed in to, say - and
- * `blank`, when given, the choice of none: unset, or no thinking level of its own.
+ * `blank`, when given, the choice of none: unset, or no thinking level of its own. Models are grouped by their provider,
+ * each by its id under it: every model of every provider signed in to is a long list.
  */
-function Choose({ value, options, onChange, label, blank }: { value: string; options: string[] | null; onChange: (value: string) => void; label: string; blank?: string }) {
+function Choose({ value, options, onChange, label, blank, byProvider = false }: { value: string; options: string[] | null; onChange: (value: string) => void; label: string; blank?: string; byProvider?: boolean }) {
   if (options === null) return <Spinner />;
   const all = value === "" || options.includes(value) ? options : [value, ...options];
+  const option = (each: string, shown = each) => (
+    <option key={each} value={each}>
+      {shown}
+    </option>
+  );
+  const providers = new Map<string, string[]>();
+  if (byProvider) for (const each of all) providers.set(each.split("/")[0]!, [...(providers.get(each.split("/")[0]!) ?? []), each]);
   return (
     <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} title={value}>
       {blank !== undefined && <option value="">{blank}</option>}
-      {all.map((option) => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
+      {byProvider
+        ? [...providers].map(([provider, models]) => (
+            <optgroup key={provider} label={provider}>
+              {models.map((each) => option(each, each.slice(provider.length + 1) || each))}
+            </optgroup>
+          ))
+        : all.map((each) => option(each))}
     </select>
   );
 }
@@ -76,7 +86,7 @@ function ModelSetting({ setting, onChange }: { setting: Setting; onChange: (valu
   }, [setting.key, model]);
   return (
     <span className="model-setting">
-      <Choose value={model} options={models} onChange={(next) => onChange(next === "" ? "unset" : level ? `${next}:${level}` : next)} label={setting.key} blank={`unset - ${setting.unset}`} />
+      <Choose value={model} options={models} onChange={(next) => onChange(next === "" ? "unset" : level ? `${next}:${level}` : next)} label={setting.key} blank={`unset - ${setting.unset}`} byProvider />
       {model !== "" && <Choose value={level} options={levels} onChange={(next) => onChange(next ? `${model}:${next}` : model)} label={`how hard ${setting.key} thinks`} blank="its own thinking" />}
     </span>
   );
@@ -151,7 +161,10 @@ export function ChooseFolder({ root, onChosen, label = "choose…" }: { root: st
 }
 
 /** One setting: its control by its kind, what it does and when a change takes effect, and what wins over it. */
-function SettingRow({ setting, onChange, dir }: { setting: Setting; onChange: (value: string) => void; dir: string }) {
+/** The settings that do nothing while conformance tests are off: the test advisor, and the script that runs the tests. */
+const CONFORMANCE_ONLY = new Set(["test-advisor", "conformance-tests-script"]);
+
+function SettingRow({ setting, onChange, dir, conformanceOff }: { setting: Setting; onChange: (value: string) => void; dir: string; conformanceOff: boolean }) {
   const [choices, setChoices] = useState<string[] | null>(setting.kind === "choice" && setting.options.length > 0 ? setting.options : null);
   useEffect(() => {
     if (setting.kind === "choice" && choices === null) void choicesFor(`${setting.key} `).then(setChoices);
@@ -189,6 +202,7 @@ function SettingRow({ setting, onChange, dir }: { setting: Setting; onChange: (v
         {setting.value === null && setting.kind === "boolean" ? ` - unset, ${setting.unset}` : ""}
         {setting.effect ? `; ${setting.effect}.` : ""}
       </p>
+      {conformanceOff && CONFORMANCE_ONLY.has(setting.key) && <p className="setting-over small">no effect while conformance tests are off (conformance-tests).</p>}
       {setting.over.map((note) => (
         <p key={note} className="setting-over small">
           {note}
@@ -203,7 +217,20 @@ function SettingRow({ setting, onChange, dir }: { setting: Setting; onChange: (v
  * Each change is sent as the person would type it, /turri-config review false: turri checks it, writes it into the file
  * with its comments kept, and says in the chat when it takes effect. The sheet reads the file again once it changes.
  */
-export function ProjectSettingsSheet({ dir, settings, onClose, onOpenFile }: { dir: string; settings: Record<string, Value>; onClose: () => void; onOpenFile: () => void }) {
+export function ProjectSettingsSheet({
+  dir,
+  settings,
+  onClose,
+  onOpenFile,
+  onTurnOnConformance,
+}: {
+  dir: string;
+  settings: Record<string, Value>;
+  onClose: () => void;
+  onOpenFile: () => void;
+  /** conformance-tests switched on: turned on as a module's "turn on" does it - and what has scenarios and code, tested. */
+  onTurnOnConformance: () => void;
+}) {
   const [all, setAll] = useState<Setting[] | null>(null);
   // Read again as the summary is - once the file changes.
   useEffect(() => {
@@ -222,6 +249,7 @@ export function ProjectSettingsSheet({ dir, settings, onClose, onOpenFile }: { d
 
   const change = (key: string, value: string) => {
     setSent((before) => ({ ...before, [key]: value }));
+    if (key === "conformance-tests" && value === "true") return onTurnOnConformance();
     void window.turri.call("sendChat", { text: `/turri-config ${key} ${value}` });
   };
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -230,7 +258,10 @@ export function ProjectSettingsSheet({ dir, settings, onClose, onOpenFile }: { d
     .filter((setting) => words.every((word) => `${setting.key} ${setting.about}`.toLowerCase().includes(word)));
   const main = shown.filter((setting) => !setting.key.startsWith("models."));
   const byRole = shown.filter((setting) => setting.key.startsWith("models."));
-  const row = (setting: Setting) => <SettingRow key={setting.key} setting={setting} dir={dir} onChange={(value) => change(setting.key, value)} />;
+  // Off as the project's file has it, unset meaning off - a stack's own file may say otherwise, as its note says.
+  const conformance = shown.find((setting) => setting.key === "conformance-tests");
+  const conformanceOff = conformance !== undefined && (conformance.value ?? conformance.unset) !== "true";
+  const row = (setting: Setting) => <SettingRow key={setting.key} setting={setting} dir={dir} conformanceOff={conformanceOff} onChange={(value) => change(setting.key, value)} />;
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>

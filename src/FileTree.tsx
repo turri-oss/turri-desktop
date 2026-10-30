@@ -25,10 +25,20 @@ function parentOf(path: string) {
 
 /**
  * The project's ***plain, as a tree: the specs with their state beside them, the templates they import and the resources
- * they link - nothing else of the project, the engine lists only these - each folder listed when it is opened, and again
- * when what is in it changes. Which folders are open is kept between launches, project by project.
+ * they link - nothing else of the project, the engine lists only these - or, in debug mode, every file of the project,
+ * the engine listing all of each folder. Each folder is listed when it is opened, and again when what is in it changes
+ * or debug mode is switched. Which folders are open is kept between launches, project by project.
  */
-export function FileTree(props: { root: string; specs: Spec[]; testPlainFiles: TestPlainFile[]; selected: string | null; isRunning: (module: string) => boolean; onSelect: (path: string) => void }) {
+export function FileTree(props: {
+  root: string;
+  specs: Spec[];
+  testPlainFiles: TestPlainFile[];
+  selected: string | null;
+  /** turri's debug mode: the engine lists every file - what each folder shows is listed again as it is switched. */
+  debug: boolean;
+  isRunning: (module: string) => boolean;
+  onSelect: (path: string) => void;
+}) {
   const { root } = props;
   const [listed, setListed] = useState<Map<string, FileEntry[]>>(new Map());
   const [open, setOpen] = useState<Set<string>>(() => savedOpen(root));
@@ -64,6 +74,14 @@ export function FileTree(props: { root: string; specs: Spec[]; testPlainFiles: T
       /* not kept: the folders start closed next time */
     }
   }, [root, open]);
+
+  // Debug mode switched - /turri-config debug, the settings' switch: every folder listed is listed again.
+  const debugBefore = useRef(props.debug);
+  useEffect(() => {
+    if (debugBefore.current === props.debug) return;
+    debugBefore.current = props.debug;
+    for (const dir of listedRef.current.keys()) void list(dir);
+  }, [props.debug, list]);
 
   // Something changed on disk: the folders it changed in, that are listed, are listed again - every one, when a .plain
   // changed, as what it imports and links may be anywhere.
@@ -127,7 +145,7 @@ export function FileTree(props: { root: string; specs: Spec[]; testPlainFiles: T
             {/* Its state at the right, with how much of it is built: the icon's place is ***plain's mark. */}
             {spec && <SpecState spec={spec} running={props.isRunning(spec.module)} />}
             {spec && <span className="spec-row-count">{spec.ok ? `${spec.functionalSpecs.filter((entry) => entry.built).length}/${spec.functionalSpecs.length}` : "!"}</span>}
-            {tests && <TestsState tests={tests} />}
+            {tests && <TestsState tests={tests} tested={props.specs.find((candidate) => candidate.file === tests.moduleFile)?.conformanceTests !== false} />}
           </button>
           {isOpen && <div role="group">{rows(entry.path, depth + 1)}</div>}
         </div>
@@ -145,9 +163,10 @@ export function FileTree(props: { root: string; specs: Spec[]; testPlainFiles: T
 /** A spec's state: up to date and conformance tested, up to date, still to regenerate, not built, being regenerated, or not parsing. */
 /**
  * A test plain file's mark, where a module has its state: in the colour of what is conformance tested, the functional
- * spec it holds the scenarios of and how many - or, one turri does not read, what is wrong with it.
+ * spec it holds the scenarios of and how many - grey, its module's conformance tests off - or, one turri does not read,
+ * what is wrong with it.
  */
-function TestsState({ tests }: { tests: TestPlainFile }) {
+function TestsState({ tests, tested }: { tests: TestPlainFile; tested: boolean }) {
   if (tests.error !== undefined)
     return (
       <span className="tree-state" title={tests.error}>
@@ -156,7 +175,7 @@ function TestsState({ tests }: { tests: TestPlainFile }) {
     );
   const count = (n: number, kind: string) => `${n} ${kind} scenario${n === 1 ? "" : "s"}`;
   return (
-    <span className="tree-state tests" title={`the scenarios of ${tests.module}:${tests.funcId} - ${count(tests.conformance.length, "conformance")}, ${count(tests.acceptance.length, "acceptance")}`}>
+    <span className={`tree-state tests${tested ? "" : " untested"}`} title={`the scenarios of ${tests.module}:${tests.funcId} - ${count(tests.conformance.length, "conformance")}, ${count(tests.acceptance.length, "acceptance")}${tested ? "" : " - not tested: conformance tests are off"}`}>
       <Icon name="test" size={12} />
     </span>
   );
@@ -168,11 +187,13 @@ function SpecState({ spec, running }: { spec: Spec; running: boolean }) {
   const done = total > 0 && built === total && !spec.drifted;
   // Conformance tested as far as it goes: every functional spec with scenarios - one with none is not tested, no fault.
   const testable = spec.functionalSpecs.filter((entry) => entry.scenarios.conformance.length + entry.scenarios.acceptance.length > 0);
-  const conformed = done && testable.length > 0 && testable.every((entry) => entry.conformed);
+  // Never with conformance tests off: what was tested once is not tested now.
+  const conformed = spec.conformanceTests !== false && done && testable.length > 0 && testable.every((entry) => entry.conformed);
   const state = !spec.ok ? "error" : running ? "running" : conformed ? "conformed" : done ? "done" : built > 0 ? "partial" : "new";
   const label = { error: "does not parse", running: "regenerating", conformed: "up to date and conformance tested", done: "up to date", partial: "to regenerate", new: "not built" }[state];
+  const off = spec.ok && spec.conformanceTests === false && testable.length > 0 ? " - its scenarios not tested: conformance tests are off" : "";
   return (
-    <span className="tree-state" title={label}>
+    <span className="tree-state" title={`${label}${off}`}>
       <span className={`state-dot ${state}`}>{state === "running" ? <Spinner /> : null}</span>
     </span>
   );

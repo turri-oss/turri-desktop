@@ -545,6 +545,9 @@ code {
 .tree-row .tree-state.tests .icon {
   color: var(--tested);
 }
+.tree-state.tests.untested .icon {
+  color: var(--fg-3);
+}
 /* Built now: the building loader in the dot's place, whole. */
 .state-dot.running {
   width: auto;
@@ -1021,6 +1024,10 @@ code {
   gap: 4px;
   color: var(--accent);
 }
+/* Conformance tests off for the module: said plainly, with the way to turn them on. */
+.conformed-count.off {
+  color: var(--fg-3);
+}
 .gutter.now::before {
   background: var(--working);
   width: 4px;
@@ -1113,6 +1120,12 @@ code {
   white-space: nowrap;
   cursor: pointer;
 }
+/* Scenarios that are not tested - conformance tests off for the module: there, and grey. */
+.scenario-chip.untested,
+.scenario-chip.untested .icon {
+  border-color: var(--line);
+  color: var(--fg-3);
+}
 /* No scenarios, and the test advisor on it: evaluating, or found it needs testing scenarios - out of the flow too. */
 .advisor-chip {
   position: absolute;
@@ -1141,6 +1154,9 @@ code {
 }
 .scenario-chip:hover {
   border-color: var(--tested);
+}
+.scenario-chip.untested:hover {
+  border-color: var(--fg-3);
 }
 .fold-more:hover {
   border-style: solid;
@@ -3951,6 +3967,49 @@ code {
 .chat-meter-cost {
   padding-left: 8px;
   border-left: 1px solid var(--line);
+}
+.chat-meter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+/* What the project has spent, by part: a card above the meter while the pointer or the focus is on it. */
+.meter-pop {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  max-width: 360px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--float);
+  color: var(--fg);
+  font-size: 12px;
+  pointer-events: none;
+  animation: spec-pop-in 0.12s ease-out;
+}
+.meter-pop b {
+  font-weight: 600;
+}
+.meter-pop-total {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+/* Each part: its name, what it spent at the right, and what it is under them. */
+.meter-pop-part {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 16px;
+}
+.meter-pop-part > b {
+  text-align: right;
+}
+.meter-pop-part > .muted {
+  grid-column: 1 / -1;
+  font-size: 11px;
 }
 .chat-top .icon-button:disabled {
   color: var(--fg-3);

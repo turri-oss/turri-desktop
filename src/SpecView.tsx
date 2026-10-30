@@ -150,6 +150,13 @@ export function SpecView(props: {
   saveRef: MutableRefObject<(() => Promise<void>) | null>;
   onRegenerate: (funcIds?: string[]) => void;
   onConform: (funcIds?: string[]) => void;
+  /**
+   * Whether the module's functional specs are conformance tested (conformance-tests:, its stack's over the project's) -
+   * a test plain file's, its module's. Off, their scenarios are shown and not tested, and nothing offers to test them.
+   */
+  conformanceTests: boolean;
+  /** Conformance tests turned on for the module - and what it already has scenarios and code for, tested. */
+  onTurnOnConformance: () => void;
   /** The test advisor asked whether a functional spec with no scenarios needs them - and they written, asked of the chat. */
   onEvaluate: (funcId: string) => void;
   onWriteScenarios: (funcId: string) => void;
@@ -242,7 +249,7 @@ export function SpecView(props: {
     if (renderingFuncIds.has(funcId)) return "now";
     const entry = entryFor(funcId);
     if (entry === undefined) return "todo";
-    return entry.conformed ? "conformed" : entry.built ? "built" : "todo";
+    return entry.conformed && props.conformanceTests ? "conformed" : entry.built ? "built" : "todo";
   };
   // The functional spec the pointer rests on, for a moment: its state, said beside it.
   const [hover, setHover] = useState<{ funcId: string; x: number; y: number } | null>(null);
@@ -435,6 +442,8 @@ export function SpecView(props: {
           entry={entryFor(markMenu.funcId)}
           onRegenerate={() => props.onRegenerate([markMenu.funcId])}
           onConform={() => props.onConform([markMenu.funcId])}
+          conformanceTests={props.conformanceTests}
+          onTurnOnConformance={props.onTurnOnConformance}
           onOpenTests={(file, line) => props.onOpenTests(file, line)}
           onEvaluate={() => props.onEvaluate(markMenu.funcId)}
           onWriteScenarios={() => props.onWriteScenarios(markMenu.funcId)}
@@ -445,7 +454,7 @@ export function SpecView(props: {
           }}
         />
       )}
-      {hovered && <SpecStatePop {...hovered} running={running} isNew={dirty && hovered.entry === undefined} />}
+      {hovered && <SpecStatePop {...hovered} running={running} isNew={dirty && hovered.entry === undefined} conformanceTests={props.conformanceTests} />}
       <div className="editor-pane">
         <div className="pane-header">
           <span className="pane-title" title={spec.file}>
@@ -476,10 +485,21 @@ export function SpecView(props: {
                 <Icon name="check" size={12} /> {built} of {total} regenerated <span className="muted">·</span>
               </span>
             )}
-            {spec.ok && testable > 0 && (
-              <span className="conformed-count" title="of the functional specs with scenarios, those built with their conformance tests written and passing">
-                <Icon name="checks" size={12} /> {conformedCount} of {testable} conformed ·
+            {spec.ok && !props.conformanceTests ? (
+              <span className="conformed-count off" title="its scenarios are not tested, and none are written: conformance-tests is off">
+                <Icon name="checks" size={12} /> conformance tests off ·{" "}
+                <button className="link" onClick={props.onTurnOnConformance} title="turn on conformance tests - and test the functional specs that have scenarios and code">
+                  turn on
+                </button>{" "}
+                <span className="muted">·</span>
               </span>
+            ) : (
+              spec.ok &&
+              testable > 0 && (
+                <span className="conformed-count" title="of the functional specs with scenarios, those built with their conformance tests written and passing">
+                  <Icon name="checks" size={12} /> {conformedCount} of {testable} conformed ·
+                </span>
+              )
             )}
             {foldable.length > 0 && (
               <>
@@ -587,7 +607,7 @@ export function SpecView(props: {
                       </span>
                     )}
                     {line === "" ? "\u200b" : coloured ? tokens.map((token, at) => (token.role ? <span key={at} className={`plain-${token.role}`}>{token.text}</span> : token.text)) : line}
-                    {mark?.first && <ScenarioChip entry={entryFor(mark.funcId)} onOpen={props.onOpenTests} />}
+                    {mark?.first && <ScenarioChip entry={entryFor(mark.funcId)} onOpen={props.onOpenTests} tested={props.conformanceTests} />}
                     {peeked !== undefined && mark && (
                       // Out of the flow, so it never changes where the line wraps: the two layers stay alike.
                       <button className="fold-more" onClick={() => toggle(peeked)} title={`show all of functional spec ${mark.funcId}`}>
@@ -647,9 +667,10 @@ export function SpecView(props: {
  */
 /**
  * What a functional spec's mark offers: regenerate it, or conform it once it is built and has scenarios - that
- * functional spec alone - and open its scenarios, when it has a test plain file. Regenerate and conform are lit as they
- * are pointed at, or reached with the arrow keys, in their kind's colour - and the functional spec with them. Escape, a
- * click elsewhere or the window left closes it.
+ * functional spec alone - and open its scenarios, when it has a test plain file. With conformance tests off, nothing that
+ * tests or evaluates - but turning them on. Regenerate and conform are lit as they are pointed at, or reached with the
+ * arrow keys, in their kind's colour - and the functional spec with them. Escape, a click elsewhere or the window left
+ * closes it.
  */
 function MarkMenu(props: {
   x: number;
@@ -657,6 +678,8 @@ function MarkMenu(props: {
   entry: FunctionalSpec | undefined;
   onRegenerate: () => void;
   onConform: () => void;
+  conformanceTests: boolean;
+  onTurnOnConformance: () => void;
   onOpenTests: (file: string, line: number) => void;
   onEvaluate: () => void;
   onWriteScenarios: () => void;
@@ -710,15 +733,22 @@ function MarkMenu(props: {
       <button role="menuitem" className="regenerate" onClick={choose(props.onRegenerate)} {...aim("regenerate")}>
         regenerate
       </button>
-      <button role="menuitem" className="conform" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("conform")}>
-        conform{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
-      </button>
+      {props.conformanceTests && (
+        <button role="menuitem" className="conform" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("conform")}>
+          conform{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
+        </button>
+      )}
       {props.entry?.testPlainFile && (
         <button role="menuitem" className="open-tests" onClick={choose(() => props.onOpenTests(props.entry!.testPlainFile!, firstScenarioLine(props.entry!)))}>
           open its scenarios
         </button>
       )}
-      {props.entry !== undefined && !tested && (
+      {!props.conformanceTests && (
+        <button role="menuitem" className="turn-on" onClick={choose(props.onTurnOnConformance)}>
+          turn on conformance tests
+        </button>
+      )}
+      {props.conformanceTests && props.entry !== undefined && !tested && (
         <>
           <button role="menuitem" className="evaluate" disabled={props.entry.advisor?.state === "pending"} onClick={choose(props.onEvaluate)}>
             evaluate testing scenarios{props.entry.advisor?.state === "pending" && <span className="muted"> - being evaluated</span>}
@@ -747,9 +777,11 @@ function firstScenarioLine(entry: FunctionalSpec): number {
  * tested, and that is no fault of it: nothing - but while the test advisor evaluates whether it needs testing
  * scenarios, and when it found it does, until the chat has written them.
  */
-function ScenarioChip({ entry, onOpen }: { entry: FunctionalSpec | undefined; onOpen: (file: string, line: number) => void }) {
+function ScenarioChip({ entry, onOpen, tested }: { entry: FunctionalSpec | undefined; onOpen: (file: string, line: number) => void; tested: boolean }) {
   if (entry === undefined) return null;
   if (entry.testPlainFile === null || scenarioCount(entry) === 0) {
+    // With conformance tests off, the test advisor is off too: what it said before is not said.
+    if (!tested) return null;
     if (entry.advisor?.state === "pending")
       return (
         <span className="advisor-chip pending">
@@ -766,9 +798,9 @@ function ScenarioChip({ entry, onOpen }: { entry: FunctionalSpec | undefined; on
   }
   const { conformance, acceptance } = entry.scenarios;
   const count = (n: number, kind: string) => `${n} ${kind} scenario${n === 1 ? "" : "s"}`;
-  const said = `${count(conformance.length, "conformance")}, ${count(acceptance.length, "acceptance")} - open its test plain file`;
+  const said = `${count(conformance.length, "conformance")}, ${count(acceptance.length, "acceptance")}${tested ? "" : " - not tested: conformance tests are off"} - open its test plain file`;
   return (
-    <button className="scenario-chip" title={said} aria-label={`${entry.funcId}: ${said}`} onClick={() => onOpen(entry.testPlainFile!, firstScenarioLine(entry))}>
+    <button className={`scenario-chip${tested ? "" : " untested"}`} title={said} aria-label={`${entry.funcId}: ${said}`} onClick={() => onOpen(entry.testPlainFile!, firstScenarioLine(entry))}>
       <Icon name="test" size={11} /> {conformance.length} · {acceptance.length}
     </button>
   );
@@ -817,9 +849,10 @@ function AdvisorSaid({ advisor }: { advisor: Advisor }) {
   );
 }
 
-function SpecStatePop(props: { funcId: string; x: number; y: number; state: State; running?: Job; isNew: boolean; entry?: FunctionalSpec }) {
+function SpecStatePop(props: { funcId: string; x: number; y: number; state: State; running?: Job; isNew: boolean; entry?: FunctionalSpec; conformanceTests: boolean }) {
   const { state, running, entry } = props;
   const tested = scenarioCount(entry) > 0;
+  const off = !props.conformanceTests;
   // Built now: no more than what is being done - conforming or regenerating - by the loader.
   const working = state === "now";
   const [title, detail] = props.isNew
@@ -829,7 +862,7 @@ function SpecStatePop(props: { funcId: string; x: number; y: number; state: Stat
       : state === "conformed"
         ? ["regenerated and conformed", "its code is built from the ***plain as it is, and its conformance tests pass."]
         : state === "built"
-          ? ["regenerated", tested ? "its code is built from the ***plain as it is. its conformance tests do not pass yet." : "its code is built from the ***plain as it is."]
+          ? ["regenerated", tested ? (off ? "its code is built from the ***plain as it is. its scenarios are not tested: conformance tests are off." : "its code is built from the ***plain as it is. its conformance tests do not pass yet.") : "its code is built from the ***plain as it is."]
           : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];
   // Kept inside the window: below the line, or above it near the bottom.
   const left = Math.min(props.x + 12, window.innerWidth - 340);
@@ -841,27 +874,30 @@ function SpecStatePop(props: { funcId: string; x: number; y: number; state: Stat
         <strong>{title}</strong>
       </div>
       {detail !== null && <div className="spec-pop-detail">{withPlain(detail)}</div>}
-      {!props.isNew && !tested && entry?.advisor && <AdvisorSaid advisor={entry.advisor} />}
+      {!props.isNew && !tested && !off && entry?.advisor && <AdvisorSaid advisor={entry.advisor} />}
       {!props.isNew && (
         <div className="spec-pop-scenarios">
           {!tested ? (
             <span className="muted">no scenarios - not tested</span>
           ) : (
-            (["conformance", "acceptance"] as const).map(
-              (kind) =>
-                entry!.scenarios[kind].length > 0 && (
-                  <div key={kind}>
-                    <span className="muted">{kind}</span>
-                    <ul>
-                      {entry!.scenarios[kind].map((scenario) => (
-                        <li key={scenario.id}>
-                          <span className="plain-id">{scenario.id}</span> <span className="muted">{scenario.text.split("\n")[0]}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ),
-            )
+            <>
+              {off && <span className="muted">not tested - conformance tests are off</span>}
+              {(["conformance", "acceptance"] as const).map(
+                (kind) =>
+                  entry!.scenarios[kind].length > 0 && (
+                    <div key={kind}>
+                      <span className="muted">{kind}</span>
+                      <ul>
+                        {entry!.scenarios[kind].map((scenario) => (
+                          <li key={scenario.id}>
+                            <span className="plain-id">{scenario.id}</span> <span className="muted">{scenario.text.split("\n")[0]}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ),
+              )}
+            </>
           )}
         </div>
       )}

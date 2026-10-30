@@ -54,6 +54,8 @@ export interface Spec {
   /** How its codebase's base folder stands against what the codebase started from, when they do not agree: drift's line. */
   baseFolder?: string;
   conformanceTested?: number;
+  /** Whether its functional specs are conformance tested - conformance-tests:, its stack's over the project's. Off, their scenarios are kept and not tested. */
+  conformanceTests?: boolean;
   functionalSpecs: FunctionalSpec[];
 }
 

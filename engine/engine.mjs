@@ -53,6 +53,7 @@ const host = {
   onJobChange: (job) => {
     const ended = ENDED.has(job.status);
     jobChanged(job, ended);
+    spendingChanged();
     if (!ended || announced.has(job.id)) return;
     announced.add(job.id);
     if (job.replacedBy === undefined) emit("finished", { id: job.id, status: job.status, title: job.title ?? job.summary, module: job.module, kind: job.kind });
@@ -61,6 +62,33 @@ const host = {
   },
   onPlanChange: () => emit("status", statusNow()),
 };
+
+// ---------- what the project has spent since it opened ----------
+
+/** What turri's own agents outside any pulse have spent - the planner, the test advisor, skills, /btw - by role. */
+const otherSpent = new Map();
+
+/**
+ * What the project has spent since it opened, every model's call counted once: the chats' own - every one, closed ones
+ * too - the pulses' (regenerating and conformance testing, as regen sums them), the sentinel's, and turri's other agents',
+ * each by its role (null for a skill, which has none).
+ */
+function spending() {
+  const chats = session?.spending?.() ?? { chat: 0, sentinel: 0 };
+  const regeneration = (registryNow()?.list() ?? []).reduce((sum, job) => sum + (job.usage?.cost ?? 0), 0);
+  const other = [...otherSpent].map(([role, cost]) => ({ role, cost }));
+  return { chat: chats.chat, regeneration, sentinel: chats.sentinel, other };
+}
+
+let spendingTimer;
+/** Something spent: the window told, at most three times a second. */
+function spendingChanged() {
+  if (spendingTimer !== undefined) return;
+  spendingTimer = setTimeout(() => {
+    spendingTimer = undefined;
+    emit("spending", spending());
+  }, 300);
+}
 
 // ---------- signing in to the model providers ----------
 
@@ -90,6 +118,12 @@ async function open({ dir }) {
   turri.onModelEvent((event) => {
     const line = turri.describeTurnIncident(event);
     if (line !== undefined) emit("incident", { job: event.job, text: line });
+    // A call of one of turri's own agents outside any pulse - the planner, the test advisor, a skill, /btw: spent.
+    if (event.kind === "call" && event.job === undefined && event.usage?.cost > 0) {
+      const role = event.role ?? null;
+      otherSpent.set(role, (otherSpent.get(role) ?? 0) + event.usage.cost);
+      spendingChanged();
+    }
   });
   stopHearing();
   stopHearing = turri.onLedgerEvent?.(heard) ?? (() => {});
@@ -297,7 +331,8 @@ function inProject(path) {
 /**
  * What the tree shows: the project's ***plain - its .plain files and the templates of its own they import - and the
  * resources they link, as turri's graph has them, and nothing else: no config, no test scripts, nothing turri keeps
- * for itself. On a turri without the graph, the .plain files alone; without linked resources in it, no resources.
+ * for itself. On a turri without the graph, the .plain files alone; without linked resources in it, no resources. In
+ * debug mode, every file of the project instead (listFiles).
  */
 function shownInTree() {
   const files = new Set(everyPlainFile(projectDir));
@@ -311,14 +346,20 @@ function shownInTree() {
 }
 
 /**
+ * Whether turri keeps what it writes for debugging the project - debug:, or TURRI_DEBUG over it: the tree then shows
+ * every file, the code turri built and what it keeps for itself with them. A turri without a debug mode never does.
+ */
+const debugging = () => turri.debugMode?.(projectDir) === true;
+
+/**
  * One folder of the project, folders first: the tree lists a folder when it is opened - only what it shows of it, and
- * the folders on the way to that. Null for one not there (any more).
+ * the folders on the way to that, or, debugging, all of it but what UNLISTED names. Null for one not there (any more).
  */
 function listFiles({ dir }) {
   const at = inProject(dir ?? projectDir);
   if (!existsSync(at) || !statSync(at).isDirectory()) return null;
-  const shown = [...shownInTree()];
-  const wanted = (path, isDir) => (isDir ? shown.some((file) => file.startsWith(path + sep)) : shown.includes(path));
+  const shown = debugging() ? undefined : [...shownInTree()];
+  const wanted = (path, isDir) => shown === undefined || (isDir ? shown.some((file) => file.startsWith(path + sep)) : shown.includes(path));
   const entries = readdirSync(at, { withFileTypes: true })
     .filter((entry) => !UNLISTED.has(entry.name) && (entry.isDirectory() || entry.isFile()) && wanted(join(at, entry.name), entry.isDirectory()))
     .map((entry) => ({ name: entry.name, path: join(at, entry.name), dir: entry.isDirectory() }));
@@ -710,7 +751,8 @@ function summary() {
       // As turri has it - TURRI_DEBUG over the file's - where the turri running has a debug mode at all.
       ...(turri.debugMode !== undefined ? { debug: turri.debugMode(projectDir) } : {}),
     },
-    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL },
+    // A setting's values whole - every model signed in to - or, on a turri before its settingChoices, the first forty.
+    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined },
     specs: plainFiles(projectDir).map((file) => describeSpec(file)),
     testPlainFiles: testPlainFiles(),
     // The modules' test folders, by their paths in the project: a pulse's ***plain diff tells a test plain file by them.
@@ -730,7 +772,7 @@ function plainFiles(dir) {
 }
 
 /** The test folders of these modules, as turri has them (testDirOf) - each module's, its stack's or the project's. */
-const testDirsOf = (modules) => [...new Set(modules.map((file) => turri.testDirOf(file)))];
+const testDirsOf = (modules) => (turri.testDirOf === undefined ? [] : [...new Set(modules.map((file) => turri.testDirOf(file)))]);
 const inTestDir = (file, testDirs) => testDirs.some((testDir) => file.startsWith(`${testDir}${sep}`));
 
 /** Whether a .plain file of the project is a test plain file - in a module's test folder - and not a module. */
@@ -744,7 +786,7 @@ const isTestPlainFile = (file) => inTestDir(file, testDirsOf(plainFiles(projectD
 function testPlainFiles() {
   const graph = turri.plainGraph(projectDir);
   const fileOf = new Map(graph.modules.map((module) => [module.module, module.file]));
-  return graph.testPlainFiles.map(({ file, module, funcId, item, conformance, acceptance, error }) => {
+  return (graph.testPlainFiles ?? []).map(({ file, module, funcId, item, conformance, acceptance, error }) => {
     const at = item?.lastIndexOf(":") ?? -1;
     return {
       file,
@@ -789,7 +831,7 @@ function describeSpec(file) {
   const result = turri.checkPlainFile(file);
   const text = readFileSync(file, "utf8");
   const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
-  const base = { file, rel: relative(projectDir, file), ok: result.ok, module: result.moduleName ?? basename(file, ".plain"), description, requires: result.requiredModules ?? [] };
+  const base = { file, rel: relative(projectDir, file), ok: result.ok, module: result.moduleName ?? basename(file, ".plain"), description, requires: result.requiredModules ?? [], conformanceTests: conformanceTestsOn(file) };
   // Not read - and, for the old ***plain syntax, turri's next step: to have it converted.
   if (!result.ok) return { ...base, error: result.error, ...(result.nextStep !== undefined ? { nextStep: result.nextStep } : {}), functionalSpecs: [] };
   // A functional spec is completed when the codebase the chain delivers has it, as the spec has it now.
@@ -813,7 +855,8 @@ function describeSpec(file) {
   // Each functional spec's test plain file and its scenarios, as turri's graph binds them: none, and it is not tested.
   const graphed = new Map(turri.plainGraph(projectDir).items.filter((item) => item.file === file && item.funcId !== undefined).map((item) => [item.funcId, item]));
   // What the test advisor made of each, as it reads now: an entry of another text - its hash not this one's - is none.
-  const advised = turri.readAdvisor(projectDir, result.moduleName)?.entries ?? {};
+  // On a turri before its test advisor's records (readAdvisor, textHash), none: no functional spec looked at.
+  const advised = (turri.textHash !== undefined && turri.readAdvisor?.(projectDir, result.moduleName)?.entries) || {};
   const advisorOf = (funcId, item) => {
     const entry = advised[funcId];
     if (entry === undefined || item === undefined || entry.hash !== turri.textHash(item.text)) return null;
@@ -1002,6 +1045,41 @@ function commands() {
 /** Whether the turri running gives every setting of config.turri.yaml (after 0.1.12): else the window has summary's few. */
 const KNOWS_SETTINGS = typeof turri.configSettings === "function";
 
+/** Whether a module's functional specs are conformance tested: its stack's conformance-tests: over the project's, as turri reads it. */
+function conformanceTestsOn(file) {
+  try {
+    return turri.configForSpec(file).conformanceTests === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Conformance tests turned on from the window - beside a module, or the settings' switch: written where the module's
+ * value comes from and every chat's tools switched (turri's turnOnConformanceTests), or, on a turri before it,
+ * /turri-config, which writes config.turri.yaml alone. What it turns on is tested at once - turning them on is the
+ * person's yes: each module that was off, its functional specs with scenarios whose code is built and not tested yet
+ * sent to the chat as conform's words. Says the file written and what is being tested.
+ */
+async function turnOnConformance({ file } = {}) {
+  const plainFile = typeof file === "string" && file !== "" ? inProject(file) : undefined;
+  const modules = plainFiles(projectDir);
+  const before = new Set(modules.filter(conformanceTestsOn));
+  let written = "config.turri.yaml";
+  if (session.turnOnConformanceTests !== undefined) written = session.turnOnConformanceTests(plainFile);
+  else await chatOf().session.prompt("/turri-config conformance-tests true", { streamingBehavior: "followUp" });
+  const testing = [];
+  for (const module of modules) {
+    if (before.has(module) || !conformanceTestsOn(module)) continue;
+    const spec = describeSpec(module);
+    const funcIds = spec.functionalSpecs.filter((each) => each.built && !each.conformed && each.scenarios.conformance.length + each.scenarios.acceptance.length > 0).map((each) => each.funcId);
+    if (funcIds.length === 0) continue;
+    conform({ file: module, funcIds });
+    testing.push(...funcIds.map((funcId) => `${spec.module}:${funcId}`));
+  }
+  return { file: written, testing };
+}
+
 /** A setting's value as the window shows it and /turri-config takes it back: a list by commas, the rest as written. */
 const typedValue = (value) => (Array.isArray(value) ? value.join(", ") : typeof value === "object" && value !== null ? JSON.stringify(value) : String(value));
 
@@ -1035,6 +1113,9 @@ function projectSettings() {
  */
 async function configChoices({ typed }) {
   if (session === undefined) return [];
+  // A setting's values, whole, on a turri that gives them so; else what /turri-config completes, cut at forty.
+  const space = typed.indexOf(" ");
+  if (space !== -1 && session.settingChoices !== undefined) return session.settingChoices(typed.slice(0, space), typed.slice(space + 1));
   const items = await chatOf().completions("turri-config", typed);
   return items.map((item) => item.value.slice(item.value.indexOf(" ") + 1)).filter((value) => value !== "unset");
 }
@@ -1080,7 +1161,11 @@ async function startChats() {
     cwd: projectDir,
     harnessModel,
     host,
-    emit,
+    // A chat's cost read again - after each reply - is what the project has spent changing too.
+    emit: (event, data) => {
+      emit(event, data);
+      if (event === "chat:stats") spendingChanged();
+    },
     ask,
     browser,
     terminal,
@@ -1094,6 +1179,7 @@ async function startChats() {
         questions.delete(id);
       }
       emit("chats", now);
+      spendingChanged();
     },
   });
 }
@@ -1169,7 +1255,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, evaluateTests, investigate, glimpse, earlierPulses, sendChat, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, glimpse, earlierPulses, sendChat, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.

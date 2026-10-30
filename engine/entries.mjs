@@ -105,6 +105,8 @@ export function normalise(message) {
         isError: message.isError === true,
         ...(image !== undefined ? { image: `data:${image.mimeType};base64,${image.data}` } : {}),
         ...(background !== undefined ? { background } : {}),
+        // The file a tool wrote, as its result says it: turn_on_conformance_tests's config.
+        ...(typeof details.file === "string" ? { file: details.file } : {}),
       };
     }
     case "custom":

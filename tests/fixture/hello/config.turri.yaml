@@ -2,3 +2,5 @@
 harness-model: anthropic/claude-sonnet-5-5
 coding-model: anthropic/claude-sonnet-5-5
 review: false
+# Its conformance tests on, as most tests try them; those of a project with them off turn them off.
+conformance-tests: true

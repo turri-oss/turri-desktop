@@ -101,7 +101,7 @@ async function attachedFrom(file: File): Promise<Attached | null> {
 export type ChatItem =
   | { role: "user"; text: string; images?: string[] }
   | { role: "assistant"; text: string; thinking?: string; tools?: Array<{ id: string; name: string; args: unknown }>; error?: string }
-  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background }
+  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background; file?: string }
   | { role: "note"; customType?: string; text: string; level?: string }
   | { role: "command"; text: string }
   | { role: "job"; id: string; summary: string; status: string; duration?: string; spent?: string; text: string }
@@ -159,6 +159,12 @@ export type SkillProgress = {
 
 /** How full the conversation's context is, and what its own model has cost - the pulses' cost is the work view's. */
 export type ChatStats = { percent: number | null; tokens: number | null; contextWindow: number | null; cost: number; spent: number };
+
+/**
+ * What the project has spent since it opened, in dollars: the chats' own replies - every chat's - the pulses', regenerating
+ * and conformance testing, the sentinel's, and turri's other agents', each by its role - null for a skill's.
+ */
+export type Spending = { chat: number; regeneration: number; sentinel: number; other: Array<{ role: string | null; cost: number }> };
 
 export type Question = {
   id: number;
@@ -218,6 +224,8 @@ export function Chat(props: {
   onAnswer: (value: unknown) => void;
   progress: SkillProgress | null;
   stats: ChatStats | null;
+  /** What the project has spent since it opened - the meter's figure, each part on hover. */
+  spending: Spending | null;
   /** A concept said in the chat, clicked: opened where the ***plain defines it. */
   onShowConcept: (concept: string) => void;
   /** Whether any of the project's ***plain has changed since it was built: only then is regenerating what changed offered. */
@@ -629,7 +637,7 @@ export function Chat(props: {
         <div className="composer-bar">
           {/* How full, what it cost, and the model it is with - together at the foot's left. */}
           <span className="composer-meta">
-            {props.stats && <ChatMeter stats={props.stats} />}
+            {props.stats && <ChatMeter stats={props.stats} spending={props.spending} />}
             {props.model && <span className="chat-model" title={props.model}>{props.model.split("/").at(-1)}</span>}
           </span>
           <span className="muted small composer-status">{statusLine}</span>
@@ -893,7 +901,7 @@ export function NoticeCard({
 }
 
 /** What a tool call says it does, in words: the turri tools by what they mean, the rest by name. */
-function describeTool(name: string, args: any, background?: Background): string {
+function describeTool(name: string, args: any, background?: Background, wrote?: string): string {
   const file = args?.path ?? args?.file ?? args?.plain_file ?? args?.plainFile;
   switch (name) {
     case "read":
@@ -932,6 +940,12 @@ function describeTool(name: string, args: any, background?: Background): string 
       return `scrolled ${args?.direction ?? ""} in the terminal`;
     case "browser_type":
       return `typed "${args?.text ?? ""}" in the preview`;
+    // Conformance tests turned on, the person having asked for them or agreed: where it was written, once it is.
+    case "turn_on_conformance_tests":
+      return wrote !== undefined ? `conformance tests turned on - written in ${wrote}` : "turning on conformance tests";
+    // The functional specs named, or every one of the module's with scenarios.
+    case "conform":
+      return `conformance testing ${Array.isArray(args?.funcIds) && args.funcIds.length > 0 ? args.funcIds.join(", ") : (args?.plain_file ?? "the functional specs with scenarios")}`;
     case "evaluate_tests":
       return `evaluating testing scenarios for ${Array.isArray(args?.funcIds) ? args.funcIds.join(", ") : "functional specs"}, in the background`;
     case "cultivate": {
@@ -952,7 +966,7 @@ function ToolCall({ tool, result, running }: { tool: { id: string; name: string;
     <div className={`tool-call ${result?.isError ? "error" : ""}`}>
       <button onClick={() => setOpen(!open)}>
         {running ? <Spinner /> : result?.isError ? <Icon name="warn" size={13} /> : <Icon name="check" size={13} />}
-        <span>{describeTool(tool.name, tool.args, result?.background)}</span>
+        <span>{describeTool(tool.name, tool.args, result?.background, result?.file)}</span>
       </button>
       {open && (
         <div className="tool-detail">
@@ -1298,8 +1312,31 @@ function ChatTabs({ chats, chatId, asking, onShowChat, onCloseChat, onNewChat }:
   );
 }
 
-/** The context the conversation fills - a ring, and its percent - and what its model has cost so far. */
-function ChatMeter({ stats }: { stats: ChatStats }) {
+/** turri's other agents, by their role, as the meter names them: a skill's has none. */
+const OTHER_NAMES: Record<string, string> = { planner: "planner", advisor: "test advisor", chat: "/btw", diagnosis: "diagnosis", release: "release", "test-reviewer": "test review", reviewer: "review" };
+const dollars = (n: number) => `$${n.toFixed(2)}`;
+
+/** What the project has spent since it opened, by part - and, of turri's other agents, which, the most first. */
+function spendingParts(spending: Spending): { total: number; parts: Array<{ name: string; cost: number; about: string }> } {
+  const other = spending.other.reduce((sum, part) => sum + part.cost, 0);
+  const agents = [...spending.other].sort((a, b) => b.cost - a.cost).map((part) => `${part.role === null ? "skills" : (OTHER_NAMES[part.role] ?? part.role)} ${dollars(part.cost)}`);
+  return {
+    total: spending.chat + spending.regeneration + spending.sentinel + other,
+    parts: [
+      { name: "chat", cost: spending.chat, about: "the conversations' own replies" },
+      { name: "regeneration", cost: spending.regeneration, about: "the pulses, regenerating and conformance testing" },
+      { name: "sentinel", cost: spending.sentinel, about: "checking each pulse" },
+      { name: "other", cost: other, about: agents.length > 0 ? agents.join(" · ") : "turri's other agents - the planner, the test advisor, skills, /btw" },
+    ],
+  };
+}
+
+/**
+ * The context the conversation fills - a ring, and its percent - and what the project has spent since it opened: each
+ * part in a card above it while the pointer is on it, or the focus. On an engine that cannot say it, what this
+ * conversation's model has cost.
+ */
+function ChatMeter({ stats, spending }: { stats: ChatStats; spending: Spending | null }) {
   const percent = stats.percent === null ? null : Math.min(100, Math.max(0, stats.percent));
   const tone = percent === null ? "" : percent >= 85 ? "full" : percent >= 60 ? "filling" : "";
   const thousands = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
@@ -1307,17 +1344,44 @@ function ChatMeter({ stats }: { stats: ChatStats }) {
     percent === null
       ? "context: not known yet - it is measured at the next reply"
       : `context: ${stats.tokens !== null ? thousands(stats.tokens) : "?"} of ${stats.contextWindow !== null ? thousands(stats.contextWindow) : "?"} tokens (${Math.round(percent)}%)`;
-  const title = `${context}\nthis conversation has cost $${stats.cost.toFixed(2)} so far - its own model's calls; the pulses' cost is in the regen view.`;
+  const spent = spending === null ? null : spendingParts(spending);
+  // Where the card goes: above the meter, from its left - fixed, so no box around the chat cuts it.
+  const [at, setAt] = useState<{ left: number; bottom: number } | null>(null);
+  const show = (event: React.SyntheticEvent<HTMLElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setAt({ left: box.left, bottom: window.innerHeight - box.top + 8 });
+  };
   const r = 6;
   const around = 2 * Math.PI * r;
   return (
-    <span className={`chat-meter ${tone}`} title={title}>
+    <span className={`chat-meter ${tone}`} tabIndex={0} aria-label={`${context}; spent ${dollars(spent?.total ?? stats.cost)}`} onMouseEnter={show} onMouseLeave={() => setAt(null)} onFocus={show} onBlur={() => setAt(null)}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
         <circle cx="8" cy="8" r={r} className="chat-meter-track" />
         <circle cx="8" cy="8" r={r} className="chat-meter-fill" strokeDasharray={`${((percent ?? 0) / 100) * around} ${around}`} transform="rotate(-90 8 8)" />
       </svg>
       <span>{percent === null ? "–" : `${Math.round(percent)}%`}</span>
-      <span className="chat-meter-cost">${stats.cost.toFixed(2)}</span>
+      <span className="chat-meter-cost">{dollars(spent?.total ?? stats.cost)}</span>
+      {at !== null && (
+        <span className="meter-pop" role="tooltip" style={{ left: at.left, bottom: at.bottom }}>
+          <span className="muted">{context}</span>
+          {spent === null ? (
+            <span>this conversation has cost {dollars(stats.cost)} so far - its own model's calls</span>
+          ) : (
+            <>
+              <span className="meter-pop-total">
+                spent since the project opened <b>{dollars(spent.total)}</b>
+              </span>
+              {spent.parts.map((part) => (
+                <span key={part.name} className="meter-pop-part">
+                  <span>{part.name}</span>
+                  <b>{dollars(part.cost)}</b>
+                  <span className="muted">{part.about}</span>
+                </span>
+              ))}
+            </>
+          )}
+        </span>
+      )}
     </span>
   );
 }

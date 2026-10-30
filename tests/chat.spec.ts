@@ -499,3 +499,61 @@ test.describe("turri's parse", () => {
     await expect(window.locator(".tool-call")).toHaveText(["parsed hello.plain", "parsed the project", "parsed hello.plain"]);
   });
 });
+
+test.describe("what the project has spent", () => {
+  test.use({ stubModel: "replies" });
+
+  test("counts every chat's replies - a closed one's too - under the message box, since the project opened", async ({ launched: { window } }) => {
+    const box = window.locator(".composer textarea");
+    const spent = window.locator(".chat-meter-cost");
+    await expect(spent).toHaveText("$0.00");
+    await box.fill("hello");
+    await box.press("Enter");
+    await expect(window.locator(".chat-body .msg.assistant", { hasText: "reply 1" })).toBeVisible();
+    await expect(spent).toHaveText("$1.00");
+    await window.locator(".chat-meter").hover();
+    await expect(window.getByRole("tooltip").locator(".meter-pop-part").first()).toHaveText("chat$1.00the conversations' own replies");
+    await window.locator(".composer textarea").hover();
+    await expect(window.getByRole("tooltip")).toHaveCount(0);
+    // Another chat: the project's spending, not this chat's.
+    await window.locator(".chat-new").click();
+    await expect(window.locator(".chat-tabs [role=tab]")).toHaveCount(2);
+    await expect(spent).toHaveText("$1.00");
+    await box.fill("and you");
+    await box.press("Enter");
+    await expect(window.locator(".chat-body .msg.assistant", { hasText: "reply 2" })).toBeVisible();
+    await expect(spent).toHaveText("$2.00");
+    // Closed, what it spent stays spent.
+    await window.locator(".chat-tab.on .chat-tab-close").click();
+    await expect(window.locator(".chat-tabs [role=tab]")).toHaveCount(1);
+    await expect(spent).toHaveText("$2.00");
+  });
+});
+
+test.describe("the spending's parts", () => {
+  test("are each a line in a card above the meter, on hover or focus - chat, regeneration, sentinel, and turri's other agents by name", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-meter")).toBeVisible();
+    const spending = { chat: 0.18, regeneration: 0.04, sentinel: 0.13, other: [{ role: "planner", cost: 0.01 }, { role: null, cost: 0.43 }, { role: "advisor", cost: 0.4 }, { role: "chat", cost: 0.04 }] };
+    await app.evaluate(({ BrowserWindow }, data) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:spending", data), spending);
+    await expect(window.locator(".chat-meter-cost")).toHaveText("$1.23");
+    await window.locator(".chat-meter").hover();
+    const card = window.getByRole("tooltip");
+    await expect(card.locator(".meter-pop-total")).toHaveText("spent since the project opened $1.23");
+    await expect(card.locator(".meter-pop-part")).toHaveText([
+      "chat$0.18the conversations' own replies",
+      "regeneration$0.04the pulses, regenerating and conformance testing",
+      "sentinel$0.13checking each pulse",
+      "other$0.88skills $0.43 · test advisor $0.40 · /btw $0.04 · planner $0.01",
+    ]);
+    // Above the meter, and in the window.
+    const meter = (await window.locator(".chat-meter").boundingBox())!;
+    const box = (await card.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(meter.y);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    // The focus shows it too.
+    await window.locator(".composer textarea").hover();
+    await expect(card).toHaveCount(0);
+    await window.locator(".chat-meter").focus();
+    await expect(card).toBeVisible();
+  });
+});

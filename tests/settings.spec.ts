@@ -98,9 +98,9 @@ test.describe("a project's settings", () => {
     const sheet = page.getByRole("dialog", { name: "project settings" });
     // As config.turri.yaml has them, the models among turri's own choices.
     await expect(sheet.getByRole("combobox", { name: "harness-model", exact: true })).toHaveValue("anthropic/claude-sonnet-5-5");
-    // No switch for conformance tests: a functional spec's scenarios decide them. The test advisor's start and the test
-    // plain files' folder are settings instead.
-    await expect(sheet.getByRole("combobox", { name: "conformance-tests" })).toHaveCount(0);
+    // Conformance tests on or off, a switch - on, as the fixture has them - beside the test advisor's start and the test
+    // plain files' folder.
+    await expect(sheet.getByRole("switch", { name: "conformance-tests" })).toHaveAttribute("aria-checked", "true");
     await expect(sheet.getByRole("switch", { name: "test-advisor" })).toHaveAttribute("aria-checked", "true");
     await expect(sheet.getByLabel("test-dir", { exact: true })).toBeVisible();
     // Every setting of the file, as /turri-config knows them - not only the ones the sidebar used to show.
@@ -114,6 +114,27 @@ test.describe("a project's settings", () => {
     await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^review: true$/m);
     expect(readFileSync(join(project, "config.turri.yaml"), "utf8")).toContain("# The app's tests open this project");
     await expect(review).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+test.describe("a model setting", () => {
+  test.use({ env: { OPENAI_API_KEY: "sk-test" } });
+
+  test("offers every model of every provider signed in to - more than forty - grouped by provider", async ({ launched: { app, window: page } }) => {
+    test.skip(!(await offers(page)).settingChoices, "the turri running offers a setting's first forty values alone");
+    await expect(page.locator(".chat-model")).toBeVisible();
+    await choose(app, page, "project-settings");
+    const model = page.getByRole("dialog", { name: "project settings" }).getByRole("combobox", { name: "harness-model", exact: true });
+    await expect(model).toHaveValue("anthropic/claude-sonnet-5-5");
+    // Anthropic's, the project's, and OpenAI's, signed in to as well - and any this machine is signed in to - each model
+    // by its id under its provider.
+    await expect.poll(() => model.locator("optgroup").evaluateAll((groups) => groups.map((group) => group.getAttribute("label")))).toEqual(expect.arrayContaining(["anthropic", "openai"]));
+    expect(await model.locator("option").count()).toBeGreaterThan(40);
+    await expect(model.locator("optgroup[label=openai] option").first()).not.toContainText("openai/");
+    // Chosen across providers, sent as the person would type it.
+    const openai = await model.locator("optgroup[label=openai] option").first().getAttribute("value");
+    await model.selectOption(openai!);
+    await expect(page.locator(".chat-body")).toContainText(`harness-model: ${openai}`);
   });
 });
 
@@ -192,6 +213,29 @@ test.describe("the files' sidebar", () => {
     // Linked no more, it goes - and its folder with it.
     writeFileSync(spec, readFileSync(spec, "utf8").replace(", as [the greeting](resources/greeting.yaml) says.", "."));
     await expect.poll(names).toEqual(["hello.plain"]);
+  });
+
+  test.describe("in debug mode", () => {
+    test.use({ debug: true });
+
+    test("shows every file of the project - but version control's and installed packages - and only the ***plain again once it is off", async ({ launched: { window: page, project } }) => {
+      for (const dir of ["test_scripts", "plain_modules/hello", ".turri/debug", ".git", "node_modules"]) mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, "test_scripts", "run_unittests.sh"), "#!/bin/sh\n");
+      writeFileSync(join(project, "plain_modules", "hello", "main.py"), "print('hello')\n");
+      writeFileSync(join(project, ".turri", "debug", "coding-agent.log"), "…\n");
+      writeFileSync(join(project, ".git", "HEAD"), "ref: refs/heads/main\n");
+      writeFileSync(join(project, "node_modules", "left-pad.js"), "\n");
+      const names = () => page.locator(".tree-row .tree-name").allTextContents();
+      await expect.poll(names).toEqual([".turri", "plain_modules", "test_scripts", "config.turri.yaml", "hello.plain"]);
+      // What turri built, and what it keeps for debugging: each folder opened as any.
+      for (const path of ["plain_modules", "plain_modules/hello", ".turri", ".turri/debug"]) await page.locator(`.tree-row[title="${path}"]`).click();
+      await expect.poll(names).toEqual(expect.arrayContaining(["debug", "coding-agent.log", "hello", "main.py"]));
+      expect(await names()).not.toContain("HEAD");
+      // Off - /turri-config debug false writes it so: the ***plain alone, the folders open listed again.
+      const config = join(project, "config.turri.yaml");
+      writeFileSync(config, readFileSync(config, "utf8").replace("debug: true", "debug: false"));
+      await expect.poll(names).toEqual(["hello.plain"]);
+    });
   });
 
   test("hides and shows, by the toolbar's button and ⌘B, and stays as it was left", async ({ launched: { app, window: page } }) => {

@@ -107,7 +107,7 @@ export function RegenerateSheet({ spec, initial, onClose, onRegenerate }: { spec
                     <span className="regenerate-func-id">{entry.funcId}</span>
                     <span className="regenerate-text">{entry.text.split("\n")[0]}</span>
                   </span>
-                  <span className="muted small">{entry.conformed ? "tested" : "built"}</span>
+                  <span className="muted small">{entry.conformed && spec.conformanceTests !== false ? "tested" : "built"}</span>
                 </button>
               ))}
             </div>

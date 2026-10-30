@@ -32,13 +32,15 @@ interface Options {
    * The chat on a model of the test's own, on this machine - no model called: `silent` takes each request and never
    * answers, a turn that runs until it is stopped; `asks` answers each with an ask_user call, a question numbered by the
    * request, so each answer to one - or a decline - brings the next; `replies` answers each in words, after two seconds,
-   * "reply n".
+   * "reply n" - each costing $1.00, 1000 tokens read at the stub's price.
    */
   stubModel: false | "silent" | "asks" | "replies";
   /** More of the app's environment, as the person's shell would give it. */
   env: Record<string, string>;
   /** turri's debug mode on for the project: `debug: true` in its config.turri.yaml. */
   debug: boolean;
+  /** Its conformance tests on - `conformance-tests: true`, as the fixture has it - or off: unset, as a new project's are. */
+  conformance: boolean;
 }
 
 export const test = base.extend<Options & { launched: Launched; scratch: string }>({
@@ -47,6 +49,7 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
   stubModel: [false, { option: true }],
   env: [{}, { option: true }],
   debug: [false, { option: true }],
+  conformance: [true, { option: true }],
 
   scratch: async ({}, use) => {
     // Real paths: macOS's tmpdir is a link, and the app names a project by where it really is.
@@ -55,10 +58,11 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
     rmSync(scratch, { recursive: true, force: true });
   },
 
-  launched: async ({ scratch, open, recent, stubModel, env: more, debug }, use) => {
+  launched: async ({ scratch, open, recent, stubModel, env: more, debug, conformance }, use) => {
     const project = join(scratch, "hello");
     cpSync(FIXTURE, project, { recursive: true });
     if (debug) appendFileSync(join(project, "config.turri.yaml"), "debug: true\n");
+    if (!conformance) writeFileSync(join(project, "config.turri.yaml"), readFileSync(join(project, "config.turri.yaml"), "utf8").replace(/^conformance-tests: true\n/m, ""));
     const userData = join(scratch, "user-data");
     mkdirSync(userData);
     if (recent) writeFileSync(join(userData, "recent-projects.json"), JSON.stringify([project]));
@@ -100,10 +104,11 @@ async function modelStub(scratch: string, project: string, mode: "silent" | "ask
       response.writeHead(200, { "content-type": "text/event-stream" });
       if (mode === "silent") return void response.write(": thinking\n\n");
       const n = requests.length;
-      const chunk = (choice: object) => `data: ${JSON.stringify({ id: `stub-${n}`, object: "chat.completion.chunk", created: 0, model: "stub", choices: [{ index: 0, ...choice }] })}\n\n`;
+      const chunk = (choice: object, more: object = {}) => `data: ${JSON.stringify({ id: `stub-${n}`, object: "chat.completion.chunk", created: 0, model: "stub", choices: [{ index: 0, ...choice }], ...more })}\n\n`;
       if (mode === "replies") {
         response.write(": thinking\n\n");
-        return void setTimeout(() => response.end(chunk({ delta: { role: "assistant", content: `reply ${n}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }) + "data: [DONE]\n\n"), 2000);
+        const usage = { usage: { prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000 } };
+        return void setTimeout(() => response.end(chunk({ delta: { role: "assistant", content: `reply ${n}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }, usage) + "data: [DONE]\n\n"), 2000);
       }
       // An OpenAI-style stream of one tool call: ask_user, question n.
       const call = { index: 0, id: `call_${n}`, type: "function", function: { name: "ask_user", arguments: JSON.stringify({ question: `question ${n}?`, options: ["yes", "no"] }) } };
@@ -113,7 +118,9 @@ async function modelStub(scratch: string, project: string, mode: "silent" | "ask
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as { port: number };
   mkdirSync(join(scratch, "pi"), { recursive: true });
-  const provider = { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-completions", apiKey: "test", models: [{ id: "silent", input: ["text", "image"] }] };
+  // Priced so a reply's 1000 tokens read cost $1.00: what the chat has spent, in whole dollars.
+  const cost = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const provider = { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-completions", apiKey: "test", models: [{ id: "silent", input: ["text", "image"], cost }] };
   writeFileSync(join(scratch, "pi", "models.json"), JSON.stringify({ providers: { stub: provider } }));
   const config = join(project, "config.turri.yaml");
   writeFileSync(config, readFileSync(config, "utf8").replace(/^harness-model: .*$/m, "harness-model: stub/silent"));
@@ -123,10 +130,10 @@ async function modelStub(scratch: string, project: string, mode: "silent" | "ask
 export { expect } from "@playwright/test";
 
 /** What of ***plain the turri running gives the window - its standard library, the graph, concepts - once the project is open. */
-export async function offers(window: Page): Promise<{ stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean }> {
+export async function offers(window: Page): Promise<{ stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; settingChoices?: boolean }> {
   await window.locator(".tree-row").first().waitFor();
   return window.evaluate(() =>
-    (window as unknown as { turri: { call: (method: string) => Promise<{ offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean } }> } }).turri
+    (window as unknown as { turri: { call: (method: string) => Promise<{ offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; settingChoices?: boolean } }> } }).turri
       .call("summary")
       .then((summary) => summary.offers),
   );

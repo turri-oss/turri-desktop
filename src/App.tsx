@@ -23,7 +23,7 @@ import { StdlibView } from "./StdlibView.tsx";
 import { DiveScreen } from "./DiveScreen.tsx";
 import { ConceptUses, type Followed, type Link, type Place, type Use } from "./PlainLinks.tsx";
 import { Empty, Icon, Jellyfish, PlainName, Spinner, TurriVersionLine, withPlain } from "./ui.tsx";
-import { Chat, type Conclusion, pulseLine } from "./Chat.tsx";
+import { Chat, type Conclusion, pulseLine, type Spending } from "./Chat.tsx";
 import { StatusPanel, type Notification, type Problem } from "./StatusPanel.tsx";
 import { type Tone, useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
@@ -273,6 +273,9 @@ export function App() {
   const tests = project?.testPlainFiles.find((entry) => entry.file === selected) ?? null;
   const file = spec === null && tests === null && project !== null && selected !== null ? selected : null;
 
+  // What the project has spent since it opened - every chat, the pulses, the sentinel, turri's other agents.
+  const [spending, setSpending] = useState<Spending | null>(null);
+
   const refreshProject = useCallback(async () => {
     const summary = await window.turri.call<Omit<Project, never>>("summary");
     setProject(summary);
@@ -299,6 +302,8 @@ export function App() {
     setUnseenFailed([]);
     setEarlier([]);
     void window.turri.call<PastRun[]>("earlierPulses").then((runs) => setEarlier(newestRuns(runs)));
+    setSpending(null);
+    window.turri.call<Spending>("spending").then(setSpending, () => setSpending(null));
     setView("spec");
     setPane(null);
     setPanes([]);
@@ -328,6 +333,7 @@ export function App() {
   useEffect(() => {
     const off = [
       window.turri.on("engine:job", (job: Job) => setJobs((all) => new Map(all).set(job.id, job))),
+      window.turri.on("engine:spending", (next: Spending) => setSpending(next)),
       window.turri.on("engine:status", (next: Status) => {
         setStatus(next);
         setJobs(new Map(next.jobs.map((job) => [job.id, job])));
@@ -477,7 +483,24 @@ export function App() {
         ];
         say(said.join(" ") || `nothing was evaluated for ${of.module}:${funcId}.`, outcome.missing.length > 0 ? "error" : "info");
       } catch (error) {
-        say(String((error as Error).message ?? error), "error");
+        say(engineSaid(error), "error");
+      }
+    },
+    [say],
+  );
+
+  /**
+   * Conformance tests turned on from the window - beside a module, or by its menu: written where the module's value comes
+   * from, and what already has scenarios and code tested at once, the chat asked as conform's button asks it.
+   */
+  const turnOnConformance = useCallback(
+    async (file?: string) => {
+      try {
+        const { file: written, testing } = await window.turri.call<{ file: string; testing: string[] }>("turnOnConformance", { file });
+        if (testing.length > 0) setChatOpen(true);
+        say(`conformance tests turned on - written in ${written}${testing.length > 0 ? `. testing ${testing.join(", ")}` : ""}.`);
+      } catch (error) {
+        say(engineSaid(error), "error");
       }
     },
     [say],
@@ -486,14 +509,16 @@ export function App() {
   const conform = useCallback(
     async (funcIds?: string[]) => {
       if (spec === null) return;
+      // Off for the module: nothing to test with - said, with the way to turn them on.
+      if (spec.conformanceTests === false) return say(`conformance tests are off for ${spec.rel}.`, "info", { label: "turn them on", run: () => void turnOnConformance(spec.file) });
       setChatOpen(true);
       try {
         await window.turri.call("conform", { file: spec.file, funcIds });
       } catch (error) {
-        say(String((error as Error).message ?? error), "error");
+        say(engineSaid(error), "error");
       }
     },
-    [spec, say],
+    [spec, say, turnOnConformance],
   );
 
   /** A chat with turri beside the others, shown - ⌘T, as a browser opens a tab. */
@@ -803,6 +828,7 @@ export function App() {
       dir={project.dir}
       settings={project.settings}
       onClose={() => setProjectSettingsOpen(false)}
+      onTurnOnConformance={() => void turnOnConformance()}
       onOpenFile={() => {
         setProjectSettingsOpen(false);
         setSelected(`${project.dir}/config.turri.yaml`);
@@ -948,6 +974,7 @@ export function App() {
             question={shownChat.questions[0]}
             progress={shownChat.progress}
             stats={shownChat.stats}
+            spending={spending}
             onShowConcept={(concept) => void showConcept(concept)}
             onAnswer={(value) => {
               void window.turri.call("answer", { id: shownChat.questions[0]!.id, value });
@@ -1025,6 +1052,8 @@ export function App() {
                 saveRef={saveRef}
                 onRegenerate={() => {}}
                 onConform={() => {}}
+                conformanceTests={project.specs.find((each) => each.file === tests.moduleFile)?.conformanceTests !== false}
+                onTurnOnConformance={() => void turnOnConformance(tests.moduleFile ?? undefined)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(tests.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: tests.module ?? "", stdlib: false })}
@@ -1065,6 +1094,8 @@ export function App() {
                 saveRef={saveRef}
                 onRegenerate={(funcIds) => void regenerate(funcIds?.length ? { how: "again", funcIds } : undefined)}
                 onConform={(funcIds) => void conform(funcIds)}
+                conformanceTests={spec.conformanceTests !== false}
+                onTurnOnConformance={() => void turnOnConformance(spec.file)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(spec.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: spec.module, stdlib: false })}
@@ -1160,6 +1191,7 @@ export function App() {
               specs={project.specs}
               testPlainFiles={project.testPlainFiles}
               selected={selected}
+              debug={project.settings.debug === true}
               isRunning={(module) => runningFor(module) !== undefined}
               onSelect={(path) => {
                 setSelected(path);

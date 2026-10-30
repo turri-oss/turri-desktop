@@ -61,11 +61,26 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     } catch {
       /* let go with nothing left to read */
     }
+    if (before !== undefined) spentBefore[whose(id)] += before.spent();
     before?.stop();
     follow(id, fresh, earlier);
   };
+  /**
+   * What the chats let go of had spent - each closed, and the sentinel's conversations before its current one - by
+   * whose it was: still what the session has spent.
+   */
+  const spentBefore = { chat: 0, sentinel: 0 };
+  /** Each chat's role, as turri told of it: the sentinel's, or none - a chat the person talks in. */
+  const roles = new Map();
+  const whose = (id) => (roles.get(id) === "sentinel" ? "sentinel" : "chat");
+  /** What the chats have spent since the session started - their own models' calls - the person's and the sentinel's. */
+  const spending = () => {
+    const now = { ...spentBefore };
+    for (const chat of chats.values()) now[whose(chat.id)] += chat.spent();
+    return now;
+  };
 
-  if (!MANY_CHATS) return oneChat({ cwd, host, told, extensions, ask, says, follow, onChats });
+  if (!MANY_CHATS) return oneChat({ cwd, host, told, extensions, ask, says, follow, onChats, spending });
 
   const session = await turri.createTurri({
     ...told,
@@ -100,8 +115,13 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const followed = () => session.chats().filter((chat) => chats.has(chat.id));
   const tell = () => {
     const now = session.chats();
-    for (const id of chats.keys()) if (!now.some((chat) => chat.id === id)) chats.delete(id);
+    for (const [id, chat] of chats) {
+      if (now.some((each) => each.id === id)) continue;
+      spentBefore[whose(id)] += chat.spent();
+      chats.delete(id);
+    }
     for (const info of now) {
+      roles.set(info.id, info.role);
       const opened = chats.has(info.id) ? undefined : session.session?.(info.id);
       if (opened !== undefined) follow(info.id, opened);
     }
@@ -137,6 +157,13 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     // The test advisor asked about functional specs, as a host asks it: at once, the verdicts coming to the chat shown.
     evaluateTests: typeof session.evaluateTests === "function" ? (funcIds, options) => session.evaluateTests(funcIds, options) : undefined,
     answerNotice: (id, answer) => session.answer(id, answer),
+    // A setting's values whole - every model signed in to, not the forty a terminal's autocomplete shows - on a turri
+    // that gives them (its settingChoices).
+    settingChoices: typeof session.settingChoices === "function" ? (key, typed) => session.settingChoices(key, typed) : undefined,
+    // Conformance tests turned on, as the chat's turn_on_conformance_tests does - where the module's value comes from, every
+    // chat's tools switched - on a turri that can (its turnOnConformanceTests).
+    turnOnConformanceTests: typeof session.turnOnConformanceTests === "function" ? (plainFile) => session.turnOnConformanceTests(plainFile) : undefined,
+    spending,
     dispose: () => session.dispose(),
   };
 }
@@ -164,7 +191,7 @@ function loopOf(session) {
 }
 
 /** A turri of 0.1.16 and before: one chat, turri's extension loaded into it, its job registry and work loop handed over. */
-async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats }) {
+async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats, spending }) {
   const ID = "1";
   let registry;
   let loop;
@@ -212,6 +239,7 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
     interrupt: (id) => stopOnly(id === ID ? chat : undefined),
     canDecline: false,
     notices: () => [],
+    spending,
     dispose: async () => session.dispose(),
   };
 }
@@ -237,11 +265,23 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
   };
 
   let lastDelta = 0;
+  /** What it had cost when last read: what it spent, once its session is let go and can be read no more. */
+  let lastCost = 0;
   /** How full the conversation's context is, and what it has cost - its own model's calls, not the pulses'. */
   const stats = () => {
     const usage = session.getContextUsage();
     const { cost, tokens } = session.getSessionStats();
+    lastCost = cost;
     return { percent: usage?.percent ?? null, tokens: usage?.tokens ?? null, contextWindow: usage?.contextWindow ?? null, cost, spent: tokens.total };
+  };
+  /** What its model's calls have cost so far. */
+  const spent = () => {
+    try {
+      lastCost = session.getSessionStats().cost;
+    } catch {
+      /* let go: what it had spent when last read */
+    }
+    return lastCost;
   };
   const tellStats = () => emit("chat:stats", stats());
   /** What waited to be heard, when the turn is stopped: never heard, but put back in the message box, as pi's terminal puts it back in its editor. */
@@ -344,6 +384,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
     onHarnessModel,
     model: () => (session.model ? `${session.model.provider}/${session.model.id}` : null),
     stats,
+    spent,
   };
 }
 
