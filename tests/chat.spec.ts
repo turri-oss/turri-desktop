@@ -490,3 +490,12 @@ test.describe("what is attached to a message", () => {
     await expect.poll(() => requests.some((request) => request.includes("read this\\n\\nAttached file: /tmp/notes.txt"))).toBe(true);
   });
 });
+
+test.describe("turri's parse", () => {
+  test("says what it parsed - the project, for its folder - and so on a turri that named it validate", async ({ launched: { app, window } }) => {
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "p1", name: "parse", args: { target: "hello.plain" } }] });
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "p2", name: "parse", args: { target: "." } }] });
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "p3", name: "validate", args: { target: "hello.plain" } }] });
+    await expect(window.locator(".tool-call")).toHaveText(["parsed hello.plain", "parsed the project", "parsed hello.plain"]);
+  });
+});

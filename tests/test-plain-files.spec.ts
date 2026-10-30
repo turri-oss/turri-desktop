@@ -129,10 +129,10 @@ test.describe("test plain files", () => {
     };
     await expect(await hover()).toContainText("no scenarios - not tested");
     await window.mouse.move(0, 0);
-    // Its menu: nothing to validate, no scenarios to open.
+    // Its menu: nothing to conform, no scenarios to open.
     await window.locator(".editor-colours .mark").first().click();
-    await expect(window.getByRole("menuitem", { name: /validate/ })).toBeDisabled();
-    await expect(window.getByRole("menuitem", { name: /validate/ })).toContainText("it has no scenarios");
+    await expect(window.getByRole("menuitem", { name: /conform/ })).toBeDisabled();
+    await expect(window.getByRole("menuitem", { name: /conform/ })).toContainText("it has no scenarios");
     await expect(window.getByRole("menuitem", { name: "open its scenarios" })).toHaveCount(0);
     await window.keyboard.press("Escape");
 

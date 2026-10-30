@@ -439,7 +439,7 @@ export function App() {
                 ...(each.nextStep !== undefined ? { action: { label: "convert it", run: () => void ask(`Convert ${each.rel} to the new ***plain syntax.`) } } : {}),
               },
             ]),
-        // validate's warnings - a step of adding tests skipped, a base folder not there: said, not an error, in turri's
+        // parse's warnings - a step of adding tests skipped, a base folder not there: said, not an error, in turri's
         // words, each under the one heading - what each is about is turri's to say.
         ...(each.warnings ?? []).map((warning) => ({
           key: `${each.file}\n${warning}`,

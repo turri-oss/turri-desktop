@@ -308,12 +308,12 @@ function OpensInPlain({ read, stamp, lines, onShow, children }: { read: () => Pr
   );
 }
 
-/** What a pulse does to a ***plain file, as its line says: regenerating it, or validating it in a conformance run, and once done regenerated or validated - and, not done, what it was to do. */
+/** What a pulse does to a ***plain file, as its line says: regenerating it, or conforming it in a conformance run, and once done regenerated or conformed - and, not done, what it was to do. */
 function didTo(kind?: string, status?: string): string {
   const conformance = kind === "conformance";
-  if (status === "running") return conformance ? "validating" : "regenerating";
-  if (status === "succeeded") return conformance ? "validated" : "regenerated";
-  return conformance ? "validate" : "regenerate";
+  if (status === "running") return conformance ? "conforming" : "regenerating";
+  if (status === "succeeded") return conformance ? "conformed" : "regenerated";
+  return conformance ? "conform" : "regenerate";
 }
 
 /**

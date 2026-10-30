@@ -38,7 +38,7 @@ export const APP_SURFACE = [
   "  with no scenarios has none, and is not tested, which is no fault. While its testing scenarios are evaluated, it says",
   "  \"evaluating testing scenarios\" there, and \"needs testing scenarios\" on a yes until they are written; pointing at a",
   "  functional spec shows its scenarios, or whether it needs testing scenarios. Clicking a mark offers, for that",
-  "  functional spec alone: regenerate it; validate it - write and run its conformance tests, once it is built and has",
+  "  functional spec alone: regenerate it; conform it - write and run its conformance tests, once it is built and has",
   "  scenarios; open its scenarios; and, with none, evaluate testing scenarios - evaluate_tests, in the background, its verdict coming",
   "  to the chat the person looks at - or write testing scenarios, which sends you \"Write testing scenarios for",
   "  <module>:<func-id>.\" A test plain file opens in this view too,",

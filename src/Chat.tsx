@@ -753,9 +753,9 @@ export type PulseNamed = { module?: string | null; kind: string };
 /** How a pulse ended, in a word: what the person needs, nothing of its time or cost. */
 const ENDED_AS: Record<string, string> = { succeeded: "finished", failed: "failed", stopped: "stopped", incomplete: "did not finish" };
 
-/** A pulse's line in the chat, as plain as it gets: `server · regeneration finished`, `server · validation failed`. */
+/** A pulse's line in the chat, as plain as it gets: `server · regeneration finished`, `server · conformance failed`. */
 export function pulseLine(module: string | null | undefined, kind: "regenerate" | "conformance", status: string): string {
-  const what = `${kind === "conformance" ? "validation" : "regeneration"} ${ENDED_AS[status] ?? status}`;
+  const what = `${kind === "conformance" ? "conformance" : "regeneration"} ${ENDED_AS[status] ?? status}`;
   return module ? `${module} · ${what}` : what;
 }
 
@@ -908,6 +908,10 @@ function describeTool(name: string, args: any, background?: Background): string 
       return `asked you: ${args?.question ?? ""}`;
     case "doctor":
       return args?.models === true ? "checked this machine, and asked the models" : "checked this machine";
+    // turri's ***plain read alone - no code, no tests - named validate before parse.
+    case "parse":
+    case "validate":
+      return `parsed ${args?.target === undefined || args.target === "." || args.target === "./" ? "the project" : args.target}`;
     case "browser_navigate":
       return `opened ${args?.url ?? "the app"} in the preview`;
     case "browser_screenshot":

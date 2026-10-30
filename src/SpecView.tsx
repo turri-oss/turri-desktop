@@ -272,12 +272,12 @@ export function SpecView(props: {
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
   /**
-   * A functional spec's mark, clicked: its menu, under it - regenerate that functional spec, and only it, or validate it,
+   * A functional spec's mark, clicked: its menu, under it - regenerate that functional spec, and only it, or conform it,
    * its conformance tests written, which wait for its code.
    */
   const [markMenu, setMarkMenu] = useState<{ funcId: string; x: number; y: number } | null>(null);
   // What the pointer is on in that menu: the functional spec it would act on lit in the text, in that one's colour.
-  const [pointed, setPointed] = useState<"regenerate" | "validate" | null>(null);
+  const [pointed, setPointed] = useState<"regenerate" | "conform" | null>(null);
   const markerMenu = (funcId: string, mark: HTMLElement) => {
     leave();
     const box = mark.getBoundingClientRect();
@@ -646,8 +646,8 @@ export function SpecView(props: {
  * neither yet.
  */
 /**
- * What a functional spec's mark offers: regenerate it, or validate it once it is built and has scenarios - that
- * functional spec alone - and open its scenarios, when it has a test plain file. Regenerate and validate are lit as they
+ * What a functional spec's mark offers: regenerate it, or conform it once it is built and has scenarios - that
+ * functional spec alone - and open its scenarios, when it has a test plain file. Regenerate and conform are lit as they
  * are pointed at, or reached with the arrow keys, in their kind's colour - and the functional spec with them. Escape, a
  * click elsewhere or the window left closes it.
  */
@@ -660,7 +660,7 @@ function MarkMenu(props: {
   onOpenTests: (file: string, line: number) => void;
   onEvaluate: () => void;
   onWriteScenarios: () => void;
-  onPoint: (item: "regenerate" | "validate" | null) => void;
+  onPoint: (item: "regenerate" | "conform" | null) => void;
   onClose: () => void;
 }) {
   const built = props.entry?.built === true;
@@ -695,9 +695,9 @@ function MarkMenu(props: {
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
     next?.focus();
-    if (next) props.onPoint(next.classList.contains("validate") ? "validate" : next.classList.contains("regenerate") ? "regenerate" : null);
+    if (next) props.onPoint(next.classList.contains("conform") ? "conform" : next.classList.contains("regenerate") ? "regenerate" : null);
   };
-  const aim = (item: "regenerate" | "validate") => ({
+  const aim = (item: "regenerate" | "conform") => ({
     onMouseEnter: () => props.onPoint(item),
     onMouseLeave: () => props.onPoint(null),
   });
@@ -710,8 +710,8 @@ function MarkMenu(props: {
       <button role="menuitem" className="regenerate" onClick={choose(props.onRegenerate)} {...aim("regenerate")}>
         regenerate
       </button>
-      <button role="menuitem" className="validate" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("validate")}>
-        validate{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
+      <button role="menuitem" className="conform" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("conform")}>
+        conform{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
       </button>
       {props.entry?.testPlainFile && (
         <button role="menuitem" className="open-tests" onClick={choose(() => props.onOpenTests(props.entry!.testPlainFile!, firstScenarioLine(props.entry!)))}>
@@ -820,14 +820,14 @@ function AdvisorSaid({ advisor }: { advisor: Advisor }) {
 function SpecStatePop(props: { funcId: string; x: number; y: number; state: State; running?: Job; isNew: boolean; entry?: FunctionalSpec }) {
   const { state, running, entry } = props;
   const tested = scenarioCount(entry) > 0;
-  // Built now: no more than what is being done - validating or regenerating - by the loader.
+  // Built now: no more than what is being done - conforming or regenerating - by the loader.
   const working = state === "now";
   const [title, detail] = props.isNew
     ? ["new - not saved yet", "save the ***plain, then regenerate builds it."]
     : working
-      ? [running?.kind === "conformance" ? "validating" : "regenerating", null]
+      ? [running?.kind === "conformance" ? "conforming" : "regenerating", null]
       : state === "conformed"
-        ? ["regenerated and validated", "its code is built from the ***plain as it is, and its conformance tests pass."]
+        ? ["regenerated and conformed", "its code is built from the ***plain as it is, and its conformance tests pass."]
         : state === "built"
           ? ["regenerated", tested ? "its code is built from the ***plain as it is. its conformance tests do not pass yet." : "its code is built from the ***plain as it is."]
           : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];

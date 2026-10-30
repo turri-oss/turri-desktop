@@ -836,7 +836,7 @@ function describeSpec(file) {
   let drifted = false;
   // Its codebase's base folder against what the codebase started from, when they do not agree - changed since, named
   // differently now, or not there: drift's line, in turri's words. Not kept in step, so said, not done. Only once it has
-  // code: before, a base folder not there is validate's warning already.
+  // code: before, a base folder not there is parse's warning already.
   let baseFolder;
   try {
     const reports = looker.drift(file);

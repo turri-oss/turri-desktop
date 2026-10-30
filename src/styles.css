@@ -3723,7 +3723,7 @@ code {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  /* As wide as what it says - "validating" alone is narrow - up to a width that reads. */
+  /* As wide as what it says - "conforming" alone is narrow - up to a width that reads. */
   width: max-content;
   max-width: 320px;
   height: auto;
@@ -3811,13 +3811,13 @@ code {
   background: color-mix(in srgb, var(--built) 16%, transparent);
   box-shadow: -4px 0 0 color-mix(in srgb, var(--built) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--built) 16%, transparent);
 }
-.editor-colours > div.pointed.validate {
+.editor-colours > div.pointed.conform {
   background: color-mix(in srgb, var(--tested) 16%, transparent);
   box-shadow: -4px 0 0 color-mix(in srgb, var(--tested) 16%, transparent), 4px 0 0 color-mix(in srgb, var(--tested) 16%, transparent);
 }
 
-/* A functional spec's mark, clicked: regenerate it or validate it, each word lit in its kind's colour as it is pointed
-   at - regenerate pink, validate cyan. */
+/* A functional spec's mark, clicked: regenerate it or conform it, each word lit in its kind's colour as it is pointed
+   at - regenerate pink, conform cyan. */
 .mark-menu {
   position: fixed;
   z-index: 20;
@@ -3850,8 +3850,8 @@ code {
 .mark-menu .regenerate:focus-visible {
   color: var(--built);
 }
-.mark-menu .validate:not(:disabled):hover,
-.mark-menu .validate:not(:disabled):focus-visible {
+.mark-menu .conform:not(:disabled):hover,
+.mark-menu .conform:not(:disabled):focus-visible {
   color: var(--tested);
 }
 .mark-menu button:disabled {

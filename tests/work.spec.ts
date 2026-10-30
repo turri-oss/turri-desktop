@@ -237,11 +237,11 @@ test.describe("the regen view", () => {
     await expect(window.locator(".editor-colours > div.revealed")).toHaveText(["# print-hello", ':Greeter: prints "hello, world" and exits with 0.']);
   });
 
-  test("says a conformance run's end as validation", async ({ launched: { app, window } }) => {
+  test("says a conformance run's end as conformance", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), id: "c1", kind: "conformance" });
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:finished", { id: "c1", status: "succeeded", title: "conformance tests", module: "hello", kind: "conformance" }));
-    await expect(window.locator(".status-said")).toHaveText("hello · validation finished");
+    await expect(window.locator(".status-said")).toHaveText("hello · conformance finished");
   });
 
   test("opens a pulse that went wrong in regen from its notification, to see why", async ({ launched: { app, window } }) => {
