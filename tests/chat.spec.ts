@@ -534,22 +534,23 @@ test.describe("the spending's parts", () => {
   test("are each a line in a card above the meter, on hover or focus - chat, regeneration, sentinel, and turri's other agents by name", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-meter")).toBeVisible();
     const spending = { chat: 0.18, regeneration: 0.04, sentinel: 0.13, other: [{ role: "planner", cost: 0.01 }, { role: null, cost: 0.43 }, { role: "advisor", cost: 0.4 }, { role: "chat", cost: 0.04 }] };
-    // Sent until it shows: the engine says its own, $0.00, as the project opens - it may come after this one.
-    await expect
-      .poll(async () => {
-        await app.evaluate(({ BrowserWindow }, data) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:spending", data), spending);
-        return window.locator(".chat-meter-cost").textContent();
-      })
-      .toBe("$1.23");
-    await window.locator(".chat-meter").hover();
     const card = window.getByRole("tooltip");
-    await expect(card.locator(".meter-pop-total")).toHaveText("spent since the project opened $1.23");
-    await expect(card.locator(".meter-pop-part")).toHaveText([
-      "chat$0.18the conversations' own replies",
-      "regeneration$0.04the pulses, regenerating and conformance testing",
-      "sentinel$0.13checking each pulse",
-      "other$0.88skills $0.43 · test advisor $0.40 · /btw $0.04 · planner $0.01",
-    ]);
+    // Sent, and read, until it holds: the engine says its own, $0.00, as the project opens - and may again a moment later.
+    await expect(async () => {
+      await app.evaluate(({ BrowserWindow }, data) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:spending", data), spending);
+      await expect(window.locator(".chat-meter-cost")).toHaveText("$1.23", { timeout: 1_000 });
+      await window.locator(".chat-meter").hover();
+      await expect(card.locator(".meter-pop-total")).toHaveText("spent since the project opened $1.23", { timeout: 1_000 });
+      await expect(card.locator(".meter-pop-part")).toHaveText(
+        [
+          "chat$0.18the conversations' own replies",
+          "regeneration$0.04the pulses, regenerating and conformance testing",
+          "sentinel$0.13checking each pulse",
+          "other$0.88skills $0.43 · test advisor $0.40 · /btw $0.04 · planner $0.01",
+        ],
+        { timeout: 1_000 },
+      );
+    }).toPass();
     // Above the meter, and in the window.
     const meter = (await window.locator(".chat-meter").boundingBox())!;
     const box = (await card.boundingBox())!;
