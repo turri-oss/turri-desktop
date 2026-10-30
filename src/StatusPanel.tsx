@@ -15,8 +15,13 @@ export type Problem = {
   action?: { label: string; run: () => void };
 };
 
-/** Something the window was told or found - a pulse ended, an engine call refused: kept until dismissed. */
-export type Notification = { id: number; text: string; tone: Tone; at: number; action?: { label: string; run: () => void } };
+/**
+ * Something the window was told or found - a pulse ended, an engine call refused: kept until dismissed. The sentinel's -
+ * what it concluded of a pulse - are its tab's, with its notices.
+ */
+export type Notification = { id: number; text: string; tone: Tone; at: number; action?: { label: string; run: () => void }; source?: "sentinel" };
+
+type Tab = "problems" | "notifications" | "sentinel";
 
 /** How long the newest notification is said in the strip itself. */
 const SAID_FOR = 6000;
@@ -42,9 +47,10 @@ const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digi
 
 /**
  * The strip along the bottom of every view, as an IDE's: the project's problems counted, the newest notification said
- * for a moment, and the unread ones counted - and above it, opened from it, the panel listing either. Among the
- * notifications are turri's notices - the sentinel's, and turri's asking before the sentinel first opens - answered
- * there, the open ones first. A new error, or a notice to answer, opens it on its tab; nothing floats over the window.
+ * for a moment, and the unread ones counted - the window's, then the sentinel's - and above it, opened from it, the panel
+ * listing them in three tabs. The sentinel's tab holds what the sentinel says: its notices - and turri's asking before it
+ * first opens - answered there, the open ones first, and what it concluded of each pulse. A new error opens the panel on
+ * the notifications, a notice to answer on the sentinel's; nothing floats over the window.
  */
 export function StatusPanel(props: {
   problems: Problem[];
@@ -56,7 +62,13 @@ export function StatusPanel(props: {
   onAnswerNotice: (shown: NoticeShown, answer: NoticeAnswer) => Promise<string>;
   /** A notice that has ended, put away. */
   onPutAway: (id: string) => void;
-  onClear: () => void;
+  /** The pulse a notice is about, by its id: its title, when this session has it - and opened in regen. */
+  pulseOf: (job: string) => { title: string } | undefined;
+  onOpenPulse: (job: string) => void;
+  /** A notice to show - asked for from its pulse in regen: the panel opened on it, brought into view and marked a moment. */
+  focus?: { id: string; at: number };
+  /** A tab's notifications cleared - the sentinel's with its notices that have ended. */
+  onClear: (tab: "notifications" | "sentinel") => void;
 }) {
   const [open, setOpen] = useState(false);
   // Its height: dragged by its top edge, kept for next time.
@@ -70,16 +82,18 @@ export function StatusPanel(props: {
       /* not kept: it starts at 240 again */
     }
   }, [height]);
-  const [tab, setTab] = useState<"problems" | "notifications">("problems");
-  // Notifications up to this id have been seen in the panel.
-  const [seenUpTo, setSeenUpTo] = useState(0);
+  const [tab, setTab] = useState<Tab>("problems");
+  // Each tab's notifications up to this id have been seen in it.
+  const [seen, setSeen] = useState({ notifications: 0, sentinel: 0 });
   const [said, setSaid] = useState<Notification | null>(null);
   const errors = props.problems.filter((problem) => problem.tone === "error");
   const warnings = props.problems.length - errors.length;
-  const unread = props.notifications.filter((note) => note.id > seenUpTo);
+  const general = props.notifications.filter((note) => note.source !== "sentinel");
+  const sentinel = props.notifications.filter((note) => note.source === "sentinel");
+  const unread = general.filter((note) => note.id > seen.notifications);
+  const unheard = sentinel.filter((note) => note.id > seen.sentinel);
   const waiting = props.notices.filter((shown) => shown.ended === undefined);
   const ended = props.notices.filter((shown) => shown.ended !== undefined);
-  const listed = props.notifications.length + props.notices.length;
 
   // A notice put to the person - one not there before - opens the panel on it: it waits on their answer.
   const asked = useRef(new Set<string>());
@@ -89,7 +103,7 @@ export function StatusPanel(props: {
     const fresh = now.some((id) => !asked.current.has(id));
     asked.current = new Set([...asked.current, ...now]);
     if (fresh) {
-      setTab("notifications");
+      setTab("sentinel");
       setOpen(true);
     }
   }, [waitingIds]);
@@ -114,7 +128,7 @@ export function StatusPanel(props: {
     if (newest === undefined || newest.id <= handled.current) return;
     handled.current = newest.id;
     setSaid(newest);
-    if (newest.tone === "error") {
+    if (newest.tone === "error" && newest.source !== "sentinel") {
       setTab("notifications");
       setOpen(true);
     }
@@ -122,18 +136,69 @@ export function StatusPanel(props: {
     return () => clearTimeout(timer);
   }, [newest]);
 
-  // Shown, they are read.
-  const showing = open && tab === "notifications";
-  const last = newest?.id ?? 0;
+  // Shown, a tab's are read.
+  const last = { notifications: general.at(-1)?.id ?? 0, sentinel: sentinel.at(-1)?.id ?? 0 };
   useEffect(() => {
-    if (showing) setSeenUpTo((now) => Math.max(now, last));
-  }, [showing, last]);
+    if (open && tab !== "problems") setSeen((now) => (now[tab] >= last[tab] ? now : { ...now, [tab]: last[tab] }));
+  }, [open, tab, last.notifications, last.sentinel]);
 
-  const show = (which: "problems" | "notifications") => {
+  // A notice asked for: the panel open on the sentinel's, the notice brought into view and marked.
+  const list = useRef<HTMLUListElement>(null);
+  const [marked, setMarked] = useState<string | null>(null);
+  useEffect(() => {
+    if (props.focus === undefined) return;
+    setTab("sentinel");
+    setOpen(true);
+    setMarked(props.focus.id);
+    const timer = setTimeout(() => setMarked((now) => (now === props.focus?.id ? null : now)), 2000);
+    return () => clearTimeout(timer);
+  }, [props.focus?.at]);
+  useEffect(() => {
+    if (marked !== null) list.current?.querySelector(`[data-notice="${CSS.escape(marked)}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [marked, open, tab]);
+  /** A notice's pulse, as its card links it: named by its title, or as its pulse when this session does not have it. */
+  const pulseOf = (shown: NoticeShown) =>
+    shown.notice.job === undefined ? undefined : { title: props.pulseOf(shown.notice.job)?.title ?? "its pulse", onOpen: () => props.onOpenPulse(shown.notice.job!) };
+
+  const show = (which: Tab) => {
     if (open && tab === which) return setOpen(false);
     setTab(which);
     setOpen(true);
   };
+
+  /** A notification's row: its tone, its words, what it opens, when - and dismissed. */
+  const noteRow = (note: Notification) => (
+    <li key={note.id} className={`notification ${note.tone}`}>
+      <Icon name={note.tone === "error" ? "error" : note.tone === "warning" ? "warn" : note.source === "sentinel" ? "eye" : "bell"} size={14} />
+      <p>{withPlain(note.text)}</p>
+      {note.action !== undefined && (
+        <button className="link notification-action" onClick={note.action.run}>
+          {note.action.label}
+        </button>
+      )}
+      <span className="muted notification-at">{time(note.at)}</span>
+      <button className="icon-button" onClick={() => props.onDismiss(note.id)} title="dismiss" aria-label="dismiss">
+        <Icon name="x" size={12} />
+      </button>
+    </li>
+  );
+  /** A notice's card, marked while asked for. */
+  const noticeRow = (shown: NoticeShown) => (
+    <li key={shown.notice.id} className={`notice-item ${marked === shown.notice.id ? "marked" : ""}`} data-notice={shown.notice.id}>
+      <NoticeCard notice={shown.notice} open={shown.ended === undefined} ended={shown.ended} onAnswer={(answer) => props.onAnswerNotice(shown, answer)} pulse={pulseOf(shown)} />
+      {shown.ended !== undefined && (
+        <button className="icon-button" onClick={() => props.onPutAway(shown.notice.id)} title="put away" aria-label="put away">
+          <Icon name="x" size={12} />
+        </button>
+      )}
+    </li>
+  );
+  const tabButton = (which: Tab, count: number) => (
+    <button role="tab" aria-selected={tab === which} className={tab === which ? "on" : ""} onClick={() => setTab(which)}>
+      {which} {count > 0 && <span className="status-count">{count}</span>}
+    </button>
+  );
+  const clearable = tab === "notifications" ? general.length > 0 : tab === "sentinel" && sentinel.length + ended.length > 0;
 
   return (
     <div className="status-panel">
@@ -163,15 +228,12 @@ export function StatusPanel(props: {
             onDoubleClick={() => setHeight(PANEL_HEIGHT)}
           />
           <div className="status-tabs" role="tablist">
-            <button role="tab" aria-selected={tab === "problems"} className={tab === "problems" ? "on" : ""} onClick={() => setTab("problems")}>
-              problems {props.problems.length > 0 && <span className="status-count">{props.problems.length}</span>}
-            </button>
-            <button role="tab" aria-selected={tab === "notifications"} className={tab === "notifications" ? "on" : ""} onClick={() => setTab("notifications")}>
-              notifications {listed > 0 && <span className="status-count">{listed}</span>}
-            </button>
+            {tabButton("problems", props.problems.length)}
+            {tabButton("notifications", general.length)}
+            {tabButton("sentinel", sentinel.length + props.notices.length)}
             <span className="status-tabs-end">
-              {tab === "notifications" && props.notifications.length + ended.length > 0 && (
-                <button className="link" onClick={props.onClear}>
+              {clearable && (
+                <button className="link" onClick={() => props.onClear(tab as "notifications" | "sentinel")}>
                   clear all
                 </button>
               )}
@@ -203,44 +265,22 @@ export function StatusPanel(props: {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : tab === "notifications" ? (
             <ul className="status-list notifications" role="tabpanel" aria-label="notifications">
-              {listed === 0 && <li className="status-none muted">no notifications</li>}
+              {general.length === 0 && <li className="status-none muted">no notifications</li>}
+              {[...general].reverse().map(noteRow)}
+            </ul>
+          ) : (
+            <ul className="status-list sentinel" role="tabpanel" aria-label="sentinel" ref={list}>
+              {sentinel.length + props.notices.length === 0 && <li className="status-none muted">nothing from the sentinel</li>}
               {/* The notices waiting on an answer first, the oldest first; then the rest, the newest first. */}
-              {waiting.map((shown) => (
-                <li key={shown.notice.id} className="notice-item">
-                  <NoticeCard notice={shown.notice} open ended={undefined} onAnswer={(answer) => props.onAnswerNotice(shown, answer)} />
-                </li>
-              ))}
+              {waiting.map(noticeRow)}
               {[
-                ...props.notifications.map((note) => ({ at: note.at, item: { note } as const })),
-                ...ended.map((shown) => ({ at: Date.parse(shown.notice.at), item: { shown } as const })),
+                ...sentinel.map((note) => ({ at: note.at, row: () => noteRow(note) })),
+                ...ended.map((shown) => ({ at: Date.parse(shown.notice.at), row: () => noticeRow(shown) })),
               ]
                 .sort((a, b) => b.at - a.at)
-                .map(({ item }) =>
-                  "note" in item ? (
-                    <li key={item.note.id} className={`notification ${item.note.tone}`}>
-                      <Icon name={item.note.tone === "error" ? "error" : item.note.tone === "warning" ? "warn" : "bell"} size={14} />
-                      <p>{withPlain(item.note.text)}</p>
-                      {item.note.action !== undefined && (
-                        <button className="link notification-action" onClick={item.note.action.run}>
-                          {item.note.action.label}
-                        </button>
-                      )}
-                      <span className="muted notification-at">{time(item.note.at)}</span>
-                      <button className="icon-button" onClick={() => props.onDismiss(item.note.id)} title="dismiss" aria-label="dismiss">
-                        <Icon name="x" size={12} />
-                      </button>
-                    </li>
-                  ) : (
-                    <li key={item.shown.notice.id} className="notice-item">
-                      <NoticeCard notice={item.shown.notice} open={false} ended={item.shown.ended} onAnswer={(answer) => props.onAnswerNotice(item.shown, answer)} />
-                      <button className="icon-button" onClick={() => props.onPutAway(item.shown.notice.id)} title="put away" aria-label="put away">
-                        <Icon name="x" size={12} />
-                      </button>
-                    </li>
-                  ),
-                )}
+                .map(({ row }) => row())}
             </ul>
           )}
         </div>
@@ -261,11 +301,21 @@ export function StatusPanel(props: {
           className={`status-bell ${open && tab === "notifications" ? "on" : ""} ${unread.length > 0 ? "unread" : ""}`}
           onClick={() => show("notifications")}
           title="notifications"
-          aria-label={`notifications: ${unread.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}`}
+          aria-label={`notifications: ${unread.length} unread`}
         >
           <Icon name="bell" size={13} />
-          {unread.length + waiting.length > 0 && (
-            <span className={`status-count ${unread.some((note) => note.tone === "error") || waiting.some((shown) => shown.notice.severity === "error") ? "error" : ""}`}>{unread.length + waiting.length}</span>
+          {unread.length > 0 && <span className={`status-count ${unread.some((note) => note.tone === "error") ? "error" : ""}`}>{unread.length}</span>}
+        </button>
+        {/* The sentinel's, right of the window's: what it concluded not yet read, and its notices waiting on an answer. */}
+        <button
+          className={`status-sentinel ${open && tab === "sentinel" ? "on" : ""} ${unheard.length + waiting.length > 0 ? "unread" : ""}`}
+          onClick={() => show("sentinel")}
+          title="sentinel"
+          aria-label={`sentinel: ${unheard.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}`}
+        >
+          <Icon name="eye" size={13} />
+          {unheard.length + waiting.length > 0 && (
+            <span className={`status-count ${waiting.some((shown) => shown.notice.severity === "error") ? "error" : ""}`}>{unheard.length + waiting.length}</span>
           )}
         </button>
       </div>

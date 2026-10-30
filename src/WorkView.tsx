@@ -3,6 +3,7 @@ import type { Failure, Job, PastPulse, PastRun, Renamed, Spec, Status } from "./
 import { cost, elapsed, Empty, Fold, type Folded, Icon, PlainName, Spinner, StartedFrom, tokens, useTick, withPlain } from "./ui.tsx";
 import { type PlainTests, PulseSpec, type ReadPlain, type ShowInSpec, turriSays } from "./PulseSpec.tsx";
 import { type ChatItem, type Conclusion, Prose, Transcript } from "./Chat.tsx";
+import type { NoticeShown } from "./chats.ts";
 
 /** Earlier sessions' runs shown at first: the last few, and more on asking. */
 const RUNS_SHOWN = 3;
@@ -122,6 +123,8 @@ export function WorkView({
   onRevealed,
   sentinel,
   sentinelRunning,
+  notices,
+  onShowNotice,
 }: {
   status: Status;
   jobs: Job[];
@@ -150,6 +153,9 @@ export function WorkView({
   sentinel: ReadonlyMap<string, SentinelWork>;
   /** The sentinel's tools running now, by their call. */
   sentinelRunning: Map<string, boolean>;
+  /** turri's notices - open, or ended this session - each of the pulse it names: listed on its card, shown in the notifications. */
+  notices: NoticeShown[];
+  onShowNotice: (id: string) => void;
 }) {
   const toggle = onToggle;
   const partOf = (id: string) => (name: string) => ({ open: opened.has(`${id}/${name}`), onToggle: () => toggle(`${id}/${name}`) });
@@ -225,7 +231,7 @@ export function WorkView({
           </div>
         )}
         {jobs.map((job) => (
-          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} />
+          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} notices={notices.filter((shown) => shown.notice.job === job.id)} onShowNotice={onShowNotice} />
         ))}
 
         {earlier.length > 0 && <div className="sidebar-section inline">earlier sessions</div>}
@@ -318,7 +324,21 @@ function JobCard({
   onInvestigate,
   sentinel,
   sentinelRunning,
-}: Shown & { job: Job; debug: boolean; specs: Spec[]; tests: PlainTests; onShowInSpec: ShowInSpec; readPlain: ReadPlain; onInvestigate: (failed: Failed) => void; sentinel?: SentinelWork; sentinelRunning: Map<string, boolean> }) {
+  notices,
+  onShowNotice,
+}: Shown & {
+  job: Job;
+  debug: boolean;
+  specs: Spec[];
+  tests: PlainTests;
+  onShowInSpec: ShowInSpec;
+  readPlain: ReadPlain;
+  onInvestigate: (failed: Failed) => void;
+  sentinel?: SentinelWork;
+  sentinelRunning: Map<string, boolean>;
+  notices: NoticeShown[];
+  onShowNotice: (id: string) => void;
+}) {
   // Open, what a pulse that ended reports, and what it found the ***plain does not say - closed, its head says how it
   // went without them. A failed one's report is not read here: investigate hands it to a chat.
   const gaps = job.specGaps.length;
@@ -411,6 +431,21 @@ function JobCard({
           )}
           <Failures diagnosis={job.diagnosis} failures={job.failures} folded={part("failure")} />
           {sentinel !== undefined && <SentinelPart work={sentinel} running={sentinelRunning} folded={part("sentinel")} />}
+          {/* What the sentinel put to the person of it: each notice, shown in the notifications - where it is answered. */}
+          {notices.length > 0 && (
+            <ul className="job-notices">
+              {notices.map(({ notice, ended }) => (
+                <li key={notice.id} className={`${notice.severity} ${ended === undefined ? "open" : "over"}`}>
+                  <Icon name="eye" size={13} />
+                  <span className="job-notice-summary">{withPlain(notice.summary)}</span>
+                  <span className="muted">{ended === undefined ? "to answer" : ended}</span>
+                  <button className="link" onClick={() => onShowNotice(notice.id)} title="show it in the notifications">
+                    show
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

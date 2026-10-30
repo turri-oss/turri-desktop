@@ -120,6 +120,8 @@ export function App() {
   const showSentinel = useRef<(id: string) => void>(() => {});
   // turri's notices that have ended, put away from the status panel.
   const [putAway, setPutAway] = useState<Set<string>>(new Set());
+  // A notice asked for from its pulse in regen: the status panel opens on it.
+  const [focusNotice, setFocusNotice] = useState<{ id: string; at: number } | undefined>(undefined);
   // The engine stopped under the window - crashed, say: said until it is started again, with the button that does it.
   const [stopped, setStopped] = useState<"stopped" | "starting" | null>(null);
   const [plan, setPlan] = useState<Plan | "loading" | null>(null);
@@ -220,9 +222,9 @@ export function App() {
       /* not kept: it is 400 again next time */
     }
   }, [chatWidth]);
-  const say = useCallback((text: string, tone: Tone = "info", action?: Notification["action"]) => {
+  const say = useCallback((text: string, tone: Tone = "info", action?: Notification["action"], source?: Notification["source"]) => {
     noticed.current += 1;
-    const note = { id: noticed.current, text, tone, at: Date.now(), ...(action !== undefined ? { action } : {}) };
+    const note = { id: noticed.current, text, tone, at: Date.now(), ...(action !== undefined ? { action } : {}), ...(source !== undefined ? { source } : {}) };
     setNotifications((now) => [...now, note]);
   }, []);
   // turri's chats - tabs of the chat, each its own conversation on the project's one work loop - and the one shown. A
@@ -232,7 +234,7 @@ export function App() {
     (conclusion: Conclusion) => {
       const pulse = conclusion.module || "the pulse";
       const holds = conclusion.verdict === "holds";
-      say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", { label: "see what it did", run: () => showSentinel.current(conclusion.job) });
+      say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", { label: "see what it did", run: () => showSentinel.current(conclusion.job) }, "sentinel");
     },
     [say],
   );
@@ -1095,14 +1097,21 @@ export function App() {
               )
             }
             onPutAway={(id) => setPutAway((now) => new Set(now).add(id))}
+            pulseOf={(id) => {
+              const pulse = jobs.get(id) ?? earlier.flatMap((run) => run.pulses).find((each) => each.id === id);
+              return pulse === undefined ? undefined : { title: pulse.title ?? pulse.summary };
+            }}
+            onOpenPulse={(id) => showSentinel.current(id)}
+            focus={focusNotice}
             onOpenFile={(path) => {
               setSelected(path);
               setView("spec");
             }}
             onDismiss={(id) => setNotifications((now) => now.filter((note) => note.id !== id))}
-            onClear={() => {
-              setNotifications([]);
-              setPutAway((now) => new Set([...now, ...chats.notices.filter((shown) => shown.ended !== undefined).map((shown) => shown.notice.id)]));
+            onClear={(tab) => {
+              // A tab's own: the sentinel's notifications with its notices that have ended, or the window's.
+              setNotifications((now) => now.filter((note) => (note.source === "sentinel") !== (tab === "sentinel")));
+              if (tab === "sentinel") setPutAway((now) => new Set([...now, ...chats.notices.filter((shown) => shown.ended !== undefined).map((shown) => shown.notice.id)]));
             }}
           />
           {uses !== null && (
@@ -1224,6 +1233,11 @@ export function App() {
             onRevealed={() => setFocusPulse((now) => now && { ...now, reveal: false })}
             sentinel={sentinelWork}
             sentinelRunning={chats.sentinel?.tools ?? NO_TOOLS}
+            notices={chats.notices.filter((shown) => !putAway.has(shown.notice.id))}
+            onShowNotice={(id) => {
+              setDive(false);
+              setFocusNotice({ id, at: Date.now() });
+            }}
             onInvestigate={(failed) => {
               setDive(false);
               setChatOpen(true);

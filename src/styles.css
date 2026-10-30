@@ -1312,6 +1312,14 @@ code {
 .status-bell .status-count.error {
   background: var(--red);
 }
+/* The sentinel's, right of the bell: in its indigo, red while a notice of an error waits on an answer. */
+.status-sentinel .status-count {
+  color: var(--bg);
+  background: var(--sentinel);
+}
+.status-sentinel .status-count.error {
+  background: var(--red);
+}
 .status-body {
   position: relative;
   height: 240px;
@@ -1443,6 +1451,14 @@ code {
   font-size: 11px;
 }
 /* turri's notices among them: the sentinel's card, as wide as the panel. */
+/* One asked for from its pulse in regen: marked a moment, in a neon glow that eases away. */
+.status-list > li.notice-item.marked .notice-card {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: box-shadow 0.6s ease;
+}
+.status-list > li.notice-item .notice-card {
+  transition: box-shadow 0.6s ease;
+}
 .status-list > li.notice-item {
   align-items: flex-start;
 }
@@ -2209,6 +2225,14 @@ code {
 }
 .notice-card.over .notice-mark {
   color: var(--fg-3);
+}
+/* The pulse it is about, at the head's right: opened in regen on what the sentinel did of it. */
+.notice-pulse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11.5px;
 }
 .notice-summary {
   margin: 4px 0 2px;
@@ -4004,6 +4028,39 @@ code {
 .prose th {
   background: var(--hover);
   font-weight: 600;
+}
+
+/* What the sentinel put to the person of a pulse: each notice, shown in the notifications, where it is answered. */
+.job-notices {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+.job-notices li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--sentinel);
+}
+.job-notices li.error.open {
+  border-left-color: var(--red);
+}
+.job-notices li.warning.open {
+  border-left-color: var(--amber);
+}
+.job-notices li.over {
+  border-left-color: var(--fg-3);
+  color: var(--fg-2);
+}
+.job-notices li > .icon {
+  flex: none;
+  color: var(--sentinel);
+}
+.job-notice-summary {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Why a pulse failed, when turri has no diagnosis of it - one stopped before it started: its reason, whole. */

@@ -109,18 +109,21 @@ test.describe("the sentinel", () => {
     expect(SENTINEL_SURFACE).toContain("preview");
   });
 
-  test("puts a notice among the notifications - not in the chat - its actions as buttons that answer it", async ({ launched: { app, window } }) => {
+  test("puts a notice in the sentinel's tab - not in the chat, nor the notifications - its actions as buttons that answer it", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     const chat = await shownChat(window);
     const answers = await answersTaken(app);
     await transcript(app, window, [{ customType: "turri_notice", data: notice(chat) }]);
     await tellChat(app, window, "chat:notice", notice(chat));
 
-    // The panel opens on it, as it waits on an answer - and the chat draws nothing of it.
-    const card = window.getByRole("tabpanel", { name: "notifications" }).getByRole("region", { name: "notice: the guestbook does not save a message" });
+    // The panel opens on it, in the sentinel's tab, as it waits on an answer - and the chat draws nothing of it.
+    const card = window.getByRole("tabpanel", { name: "sentinel" }).getByRole("region", { name: "notice: the guestbook does not save a message" });
     await expect(card.locator(".notice-about")).toHaveText("sentinel · backend");
     await expect(window.locator(".chat-body .notice-card")).toHaveCount(0);
-    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread, 1 to answer");
+    // Its tab right of the notifications, which have none of it.
+    await expect(window.locator(".status-tabs").getByRole("tab")).toHaveText([/^problems/, /^notifications/, /^sentinel/]);
+    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread");
+    await expect(window.getByRole("button", { name: /^sentinel:/ })).toHaveAccessibleName("sentinel: 0 unread, 1 to answer");
     await expect(card.locator(".notice-mark")).toHaveAttribute("aria-label", "error");
     await expect(card.locator(".notice-evidence li")).toHaveText(["POST /messages answered 500", "sqlite3.OperationalError: no such table: messages"]);
     // It blocks nothing: the message box is there beside it.
@@ -132,11 +135,35 @@ test.describe("the sentinel", () => {
     await expect(card.getByRole("button", { name: "regenerate the backend" })).toBeDisabled();
     await tellChat(app, window, "chat:noticeOver", notice(chat, { state: "accepted" }));
     await expect(card.locator(".notice-ended")).toHaveText("accepted");
-    await expect(card.getByRole("button")).toHaveCount(0);
+    // Nothing to answer with - its pulse still a link.
+    await expect(card.locator(".notice-actions")).toHaveCount(0);
+    await expect(card.getByRole("button")).toHaveText(["its pulse"]);
     // Ended, it stays until it is put away.
-    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread");
+    await expect(window.getByRole("button", { name: /^sentinel:/ })).toHaveAccessibleName("sentinel: 0 unread");
     await window.getByRole("button", { name: "put away" }).click();
     await expect(card).toHaveCount(0);
+  });
+
+  test("links a notice to its pulse, opened in regen - and its pulse's card to the notice, shown in the sentinel's tab", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), pulse("j1", "the greeting by name", 1));
+    await tellChat(app, window, "chat:notice", notice(chat, { job: "j1" }));
+    const card = window.getByRole("tabpanel", { name: "sentinel" }).getByRole("region", { name: "notice: the guestbook does not save a message" });
+    // Its pulse, by its title: opened in regen, its card open on what the sentinel did.
+    await card.getByRole("button", { name: "the greeting by name" }).click();
+    const job = window.locator(".dive .job", { hasText: "the greeting by name" });
+    await expect(job.locator(".job-head")).toHaveAttribute("aria-expanded", "true");
+    // The card says what the sentinel put to the person of it - and shows it in the sentinel's tab, marked.
+    const listed = job.locator(".job-notices li");
+    await expect(listed).toContainText("the guestbook does not save a message");
+    await expect(listed).toContainText("to answer");
+    await listed.getByRole("button", { name: "show" }).click();
+    await expect(window.locator(".dive")).toHaveCount(0);
+    await expect(window.locator(".notice-item.marked")).toContainText("the guestbook does not save a message");
+    // A notice of a pulse this session does not have: linked all the same, as its pulse.
+    await tellChat(app, window, "chat:notice", notice(chat, { id: "n2", job: "j-gone", summary: "the list is not newest first" }));
+    await expect(window.getByRole("region", { name: "notice: the list is not newest first" }).getByRole("button", { name: "its pulse" })).toBeVisible();
   });
 
   test("answers a notice in the person's words, or dismisses it", async ({ launched: { app, window } }) => {
@@ -204,10 +231,10 @@ test.describe("the sentinel", () => {
     ]);
     await expect(window.locator(".chat-body .notice-card")).toHaveCount(0);
     await expect(window.getByRole("region", { name: /^notice:/ })).toHaveCount(0);
-    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 0 unread");
+    await expect(window.getByRole("button", { name: /^sentinel:/ })).toHaveAccessibleName("sentinel: 0 unread");
   });
 
-  test("says the sentinel's conclusions as notifications - not in the chat - what it found only when something is wrong, linking what it did", async ({ launched: { app, window } }) => {
+  test("says the sentinel's conclusions in its own tab - not in the chat - what it found only when something is wrong, linking what it did", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     const chat = await shownChat(window);
     await app.evaluate(({ BrowserWindow }, chats) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:chats", chats), [
@@ -219,8 +246,8 @@ test.describe("the sentinel", () => {
       { customType: "turri_sentinel_concluded", data: { job: "j-frontend-2", verdict: "wrong", summary: "the send button does nothing", module: "frontend", pulse: 2 } },
     ]);
     await expect(window.locator(".chat-body")).not.toContainText("sentinel · ");
-    await window.getByRole("button", { name: /^notifications:/ }).click();
-    const notes = window.getByRole("tabpanel", { name: "notifications" }).locator(".notification");
+    await window.getByRole("button", { name: /^sentinel:/ }).click();
+    const notes = window.getByRole("tabpanel", { name: "sentinel" }).locator(".notification");
     // The newest first: what it found when something is wrong, a warning; that it holds, and nothing more.
     await expect(notes.nth(0)).toHaveClass(/warning/);
     await expect(notes.nth(0).locator("p")).toHaveText("sentinel · frontend · found something wrong - the send button does nothing");
@@ -254,8 +281,8 @@ test.describe("the sentinel", () => {
     for (const item of said) await tell("chat:message", "s", item);
     await tell("chat:busy", "s", { busy: true });
     await transcript(app, window, [{ customType: "turri_sentinel_concluded", data: { job: "j1", verdict: "holds", summary: "it greets by name", module: "hello", pulse: 1 } }]);
-    await window.getByRole("button", { name: /^notifications:/ }).click();
-    await window.getByRole("tabpanel", { name: "notifications" }).locator(".notification", { hasText: "sentinel · hello · it holds" }).getByRole("button", { name: "see what it did" }).click();
+    await window.getByRole("button", { name: /^sentinel:/ }).click();
+    await window.getByRole("tabpanel", { name: "sentinel" }).locator(".notification", { hasText: "sentinel · hello · it holds" }).getByRole("button", { name: "see what it did" }).click();
 
     // The dive, the pulse's card open on what the sentinel did of it - and only of it.
     const card = window.locator(".dive .job", { hasText: "the greeting by name" });

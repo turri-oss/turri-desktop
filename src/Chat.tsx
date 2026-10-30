@@ -774,7 +774,20 @@ const ENDED: Record<Exclude<NoticeState, "open">, string> = {
  * nowhere and blocks nothing: the person can go on talking. Its buttons are live while it is open; then it says how it
  * ended.
  */
-export function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; open: boolean; ended: NoticeState | undefined; onAnswer: (answer: NoticeAnswer) => Promise<string> }) {
+export function NoticeCard({
+  notice,
+  open,
+  ended,
+  onAnswer,
+  pulse,
+}: {
+  notice: Notice;
+  open: boolean;
+  ended: NoticeState | undefined;
+  onAnswer: (answer: NoticeAnswer) => Promise<string>;
+  /** The pulse it is about - a sentinel is always of one - named, and opened in regen on what the sentinel did. */
+  pulse?: { title: string; onOpen: () => void };
+}) {
   const [steering, setSteering] = useState(false);
   const [words, setWords] = useState("");
   // Answered here, and turri not yet saying it is over: its buttons rest.
@@ -805,6 +818,11 @@ export function NoticeCard({ notice, open, ended, onAnswer }: { notice: Notice; 
           <Icon name="eye" size={13} />
           {about}
         </span>
+        {pulse !== undefined && (
+          <button className="link notice-pulse" onClick={pulse.onOpen} title="open the pulse in regen, on what the sentinel did of it">
+            {withPlain(pulse.title)} <Icon name="chevron" size={11} />
+          </button>
+        )}
       </div>
       <div className="notice-summary">
         <Prose text={notice.summary} />
