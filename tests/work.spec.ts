@@ -520,6 +520,8 @@ test.describe("the regen view", () => {
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), pulse());
     const mod = process.platform === "darwin" ? "Meta" : "Control";
     const box = window.locator(".composer textarea");
+    // The ***plain read into its editor first: ⌥⌘→ moves the focus to it once it is there.
+    await expect(window.locator(".editor-pane textarea").first()).toHaveValue(/print-hello/);
     await box.click();
     await window.keyboard.press(`${mod}+Alt+ArrowRight`);
     await expect(window.locator(".editor-pane textarea").first()).toBeFocused();
@@ -859,9 +861,9 @@ test.describe("a failed pulse", () => {
     const why = "Stopped before building hello: its codebase is to start from the base folder assets (base-folder: in config.turri.yaml), and there is no such folder - /tmp/hello/assets.";
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: why });
     await showRegen(window);
-    // A failed pulse's card may be open already: opened, if not.
+    // A failed pulse's card opens by itself, once regen is shown - waited for, never clicked: a click would close it.
     const card = window.locator(".job", { hasText: "the greeting by name" });
-    if ((await card.locator(".job-head").getAttribute("aria-expanded")) !== "true") await opened(card);
+    await expect(card.locator(".job-head")).toHaveAttribute("aria-expanded", "true");
     await expect(card.locator(".job-why")).toHaveText(why);
     // One with a diagnosis says that instead, in its failure.
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), status: "failed", error: why, diagnosis: "the tests kept failing" });

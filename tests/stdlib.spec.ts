@@ -170,9 +170,12 @@ test.describe("the stdlib view", () => {
     await click(":Greeting:", 1);
     await expect(window.locator(".editor-colours .revealed")).toContainText("is what :Store: keeps");
 
-    // Defined in the template it imports: that opened, the definition lit.
-    await click(":Store:", 0);
-    await expect(area).toHaveValue(/Where things are kept/);
+    // Defined in the template it imports: that opened, the definition lit - clicked again until the engine has read the
+    // ***plain just written, and knows where :Store: is defined.
+    await expect(async () => {
+      await click(":Store:", 0);
+      await expect(area).toHaveValue(/Where things are kept/, { timeout: 2_000 });
+    }).toPass();
     await expect(window.locator(".editor-colours .revealed")).toContainText("is where the greetings are kept");
 
     // And back: where it is defined, where it is used - and there.
