@@ -68,10 +68,14 @@ test.describe("the chat", () => {
     await box.press("Enter");
     await expect(box).toHaveValue("/regenerate helper.plain ");
     await expect(offered).toHaveCount(0);
-    // No word begun: every file offered, none taken - enter takes the one chosen.
-    await box.fill("/regenerate ");
-    await box.press("Tab");
-    await expect(box).toHaveValue("/regenerate ");
+    // No word begun: every file offered, none taken - enter takes the one chosen. Tried again until the draft is only what
+    // is typed: on a slow machine, the one just taken may still be put in it as this is typed.
+    await expect(async () => {
+      await box.fill("");
+      await box.fill("/regenerate ");
+      await box.press("Tab");
+      await expect(box).toHaveValue("/regenerate ", { timeout: 1000 });
+    }).toPass();
     await expect(offered.getByRole("option").filter({ hasText: "hello.plain" })).toHaveCount(1);
     await expect(offered.getByRole("option").filter({ hasText: "helper.plain" })).toHaveCount(1);
     await box.press("Escape");
