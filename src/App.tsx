@@ -82,12 +82,14 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<View>("spec");
-  // The preview's browser and terminal in use - neither as a project opens, each once turri uses it or the person opens
-  // it - and the one shown.
-  const [pane, setPane] = useState<Pane | null>(null);
-  const [panes, setPanes] = useState<Pane[]>([]);
+  // What the preview shows - its home as a project opens, or its browser or terminal.
+  const [pane, setPane] = useState<Pane>("home");
+  // Asked from the home to try something: the preview goes with turri to the browser or terminal it opens.
+  const following = useRef(false);
+  // The preview in view: its home stays as turri uses the browser or terminal - out of view, the preview goes to that one.
+  const inPreview = useRef(false);
   const openPane = useCallback((name: Pane) => {
-    setPanes((all) => (all.includes(name) ? all : [...all, name]));
+    following.current = false;
     setPane(name);
   }, []);
   /** turri at work in the preview, with its browser or terminal tools: the pane edged in blue, and said in its bar. */
@@ -96,8 +98,7 @@ export function App() {
   // coming to watch, is shown that one.
   const [testingIn, setTestingIn] = useState<Pane | null>(null);
   const usedBy = useCallback((name: Pane) => {
-    setPanes((all) => (all.includes(name) ? all : [...all, name]));
-    setPane((now) => now ?? name);
+    if (following.current || !inPreview.current) (following.current = false), setPane(name);
     setTestingIn(name);
   }, []);
   /** Come to watch turri test: the preview, on what it works in. */
@@ -230,11 +231,28 @@ export function App() {
   // turri's chats - tabs of the chat, each its own conversation on the project's one work loop - and the one shown. A
   // question asked in any of them brings the chat out.
   // The sentinel done with a pulse: a notification - what it found when something is wrong - with the way to what it did.
+  // A check asked of it from the preview's home has no pulse to open: the notification alone.
   const concluded = useCallback(
     (conclusion: Conclusion) => {
-      const pulse = conclusion.module || "the pulse";
+      const pulse = conclusion.module || (conclusion.job !== undefined ? "the pulse" : "the check");
+      const job = conclusion.job;
+      const action = job !== undefined ? { label: "see what it did", run: () => showSentinel.current(job) } : undefined;
+      if (conclusion.verdict === "unchecked") return say(`sentinel · ${pulse} · not checked - ${conclusion.summary}`, "info", action, "sentinel");
       const holds = conclusion.verdict === "holds";
-      say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", { label: "see what it did", run: () => showSentinel.current(conclusion.job) }, "sentinel");
+      say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", action, "sentinel");
+    },
+    [say],
+  );
+  // Asked of the sentinel from the preview's home: said as it is queued - or why turri refused it.
+  const checkBySentinel = useCallback(
+    async (module: string, funcIds: string[]) => {
+      try {
+        const asked = await window.turri.call<{ check: string } | { refused: string }>("sentinelCheck", { module, funcIds });
+        if ("refused" in asked) say(`sentinel · ${module} · ${asked.refused}`, "warning", undefined, "sentinel");
+        else say(`sentinel · ${module} · checking ${funcIds.join(", ")}`, "info", undefined, "sentinel");
+      } catch (error) {
+        say(engineSaid(error), "error");
+      }
     },
     [say],
   );
@@ -305,8 +323,8 @@ export function App() {
     setSpending(null);
     window.turri.call<Spending>("spending").then(setSpending, () => setSpending(null));
     setView("spec");
-    setPane(null);
-    setPanes([]);
+    setPane("home");
+    following.current = false;
     // A project just started opens on what turri said of its config: its models, and how to sign in to them.
     // Its base folder, chosen as it was made: written as the person would type it - /turri-config - once its chats are read,
     // so turri says so there.
@@ -655,6 +673,7 @@ export function App() {
   // What the person is looking at, for turri to know: the view, and the file open in it - or the preview's browser or
   // terminal - or regen, in the dive.
   useEffect(() => {
+    inPreview.current = view === "preview" && !dive;
     if (project === null) return;
     if (dive) return void window.turri.call("look", { view: "work", file: null, pane: null }).catch(() => {});
     void window.turri.call("look", { view, file: view === "spec" ? selected : view === "stdlib" ? template : null, pane: view === "preview" ? pane : null }).catch(() => {});
@@ -1025,7 +1044,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} panes={panes} onPane={openPane} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(text) => ((following.current = true), void ask(text))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}

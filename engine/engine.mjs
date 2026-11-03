@@ -752,8 +752,9 @@ function summary() {
       ...(turri.debugMode !== undefined ? { debug: turri.debugMode(projectDir) } : {}),
     },
     // A setting's values whole - every model signed in to - or, on a turri before its settingChoices, the first forty.
-    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined },
-    specs: plainFiles(projectDir).map((file) => describeSpec(file)),
+    // And whether the sentinel can be asked to check something, beside the pulses it checks: on a turri with its check.
+    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined, check: session?.check !== undefined },
+    specs: inBuildOrder(plainFiles(projectDir)).map((file) => describeSpec(file)),
     testPlainFiles: testPlainFiles(),
     // The modules' test folders, by their paths in the project: a pulse's ***plain diff tells a test plain file by them.
     testDirs: testDirsOf(plainFiles(projectDir)).map((dir) => relative(projectDir, dir)),
@@ -769,6 +770,16 @@ function plainFiles(dir) {
   const found = everyPlainFile(dir);
   const testDirs = testDirsOf(found);
   return found.filter((file) => !inTestDir(file, testDirs));
+}
+
+/** Modules in the order they are built - each after every module it requires, as turri orders them - or, on a turri before its requiresOrder, as found. */
+function inBuildOrder(files) {
+  if (turri.requiresOrder === undefined) return files;
+  try {
+    return turri.requiresOrder(projectDir, { files });
+  } catch {
+    return files;
+  }
 }
 
 /** The test folders of these modules, as turri has them (testDirOf) - each module's, its stack's or the project's. */
@@ -1001,6 +1012,16 @@ async function investigate({ id, module, pulse, kind, why }) {
   const said = typeof why === "string" && why.trim() !== "" ? `\n\nWhy it failed, as the pulse reported it:\n\n${why.trim()}` : "";
   chatOf(chat).send(`Investigate the pulse that failed (${which}): find out why it failed, explain it to me, and fix what needs fixing so it can succeed.${said}`);
   return true;
+}
+
+/**
+ * Functional specs checked by the sentinel in a module's release - released first when what runs is behind - as it
+ * checks a pulse: what it finds comes as notices and a conclusion. Each by its module:func-id, of that module or one it
+ * is built on. On a turri with its check.
+ */
+function sentinelCheck({ module, funcIds }) {
+  if (session?.check === undefined) throw new Error("This turri's sentinel checks only the pulses that finish.");
+  return session.check({ module, funcIds });
 }
 
 /**
@@ -1255,7 +1276,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, glimpse, earlierPulses, sendChat, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, sentinelCheck, glimpse, earlierPulses, sendChat, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.

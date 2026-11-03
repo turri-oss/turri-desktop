@@ -144,8 +144,8 @@ export type NoticeState = "open" | "accepted" | "steered" | "dismissed" | "ignor
  */
 export type NoticeAnswer = { action: number } | { steer: string } | { dismiss: true } | { ignore: true };
 
-/** The sentinel done with a pulse: whether what it checked holds, and what it checked and found. */
-export type Conclusion = { job: string; verdict: "holds" | "wrong"; summary: string; module?: string; pulse?: number };
+/** The sentinel done with a pulse (`job`) or a check asked of it (`check`) - unchecked: a check that never ran, turri's word. */
+export type Conclusion = { job?: string; check?: string; verdict: "holds" | "wrong" | "unchecked"; summary: string; module?: string; pulse?: number };
 
 /** A skill running in the chat, where it is in its phases: what turri's terminal draws above its input. */
 export type SkillProgress = {

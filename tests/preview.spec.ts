@@ -5,24 +5,59 @@ import { expect, showRegen, test } from "./app.ts";
 // turri's browser and terminal tools tell the window which they use ("preview:reveal", "terminal:reveal") - never bringing
 // it there: sent here as they would be.
 test.describe("the preview", () => {
-  test("opens on neither, then on each as it is used, with a switch once both are", async ({ launched: { app, window } }) => {
+  test("opens on its home: the built functional specs to choose, turri asked to try them, and the preview going with it", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await window.getByRole("tab", { name: "preview" }).click();
-    await expect(window.locator(".preview .empty h3")).toHaveText("nothing to try yet");
-    await expect(window.locator(".preview-bar")).toHaveCount(0);
+    await expect(window.getByRole("tab", { name: "home", selected: true })).toBeVisible();
+    // The fixture is not built: nothing to choose.
+    await expect(window.locator(".preview-home .empty h3")).toHaveText("nothing built yet");
 
-    const reveal = (channel: string) => app.evaluate(({ BrowserWindow }, channel) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel, null), channel);
-    await reveal("terminal:reveal");
-    await expect(window.locator(".preview-terminal")).toHaveCount(1);
-    await expect(window.locator(".preview-bar .segmented")).toHaveCount(0);
+    // Built, as the engine would say it after a regeneration: its functional spec to choose.
+    type Summary = { specs: Array<{ functionalSpecs: object[] }> };
+    const summary = (await window.evaluate(() => (globalThis as unknown as { turri: { call: (method: string) => Promise<unknown> } }).turri.call("summary"))) as Summary;
+    const built = { ...summary, specs: summary.specs.map((spec) => ({ ...spec, built: true, drifted: false, functionalSpecs: spec.functionalSpecs.map((entry) => ({ ...entry, built: true })) })) };
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    await send("project:opened", built);
+    // A project opened is on its ***plain: back to the preview.
+    await window.getByRole("tab", { name: "preview" }).click();
+    const row = window.getByRole("checkbox", { name: "print-hello" });
+    await expect(window.locator(".preview-home-module h3")).toHaveText("hello");
+    const watch = window.getByRole("button", { name: "try it" });
+    // What is tried: the newest built module's release, said once, as far as it is built.
+    await expect(window.locator(".preview-home-release")).toHaveText("latest release: hello:print-hello - the codebase as built up to it");
+    // A turri whose sentinel cannot be asked: no use sentinel.
+    await expect(window.getByRole("button", { name: "use sentinel" })).toHaveCount(0);
+    await expect(watch).toBeDisabled();
 
-    // The browser too: a switch between the two - the terminal staying in front, as the person had it.
-    await reveal("preview:reveal");
+    // turri using a pane meanwhile does not take the person from the home.
+    await send("preview:reveal", null);
+    await expect(window.locator(".preview-home")).toHaveCount(1);
+
+    await row.click();
+    await expect(row).toHaveAttribute("aria-checked", "true");
+    await watch.click();
+    // Asked in the chat, as the person would say it - and chosen no longer.
+    await expect(window.locator(".chat-body .msg.user", { hasText: "Try hello:print-hello in the release of hello while I watch - its last commit, released first if what runs is not - and tell me what you find." })).toBeVisible();
+    await expect(row).toHaveAttribute("aria-checked", "false");
+    // turri opens the terminal for it: the preview goes there.
+    await send("terminal:reveal", null);
     await expect(window.locator(".preview-terminal")).toHaveCount(1);
+
+    // A turri whose sentinel can be asked: use sentinel, asking the engine for a check of what is chosen - this one, the
+    // pinned turri, saying it cannot.
+    await send("project:opened", { ...built, offers: { ...(built as unknown as { offers: object }).offers, check: true } });
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("tab", { name: "home" }).click();
+    await window.getByRole("checkbox", { name: "print-hello" }).click();
+    await window.getByRole("button", { name: "use sentinel" }).click();
+    // An error opens the status panel on itself.
+    await expect(window.locator(".notification.error")).toContainText("This turri's sentinel checks only the pulses that finish.");
+
+    // The switch goes between the three.
     await window.getByRole("tab", { name: "browser" }).click();
     await expect(window.locator(".preview-address")).toHaveCount(1);
-    await window.getByRole("tab", { name: "terminal" }).click();
-    await expect(window.locator(".preview-terminal")).toHaveCount(1);
+    await window.getByRole("tab", { name: "home" }).click();
+    await expect(window.locator(".preview-home")).toHaveCount(1);
   });
 
   test("never takes the person there while turri tests: the preview glows, and they come to watch if they like", async ({ launched: { app, window } }) => {
@@ -68,7 +103,7 @@ test.describe("the preview, while turri tests in it", () => {
   test("edges the browser in blue, draws the page inside the edge, and says so in its bar", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await window.getByRole("tab", { name: "preview" }).click();
-    await window.getByRole("button", { name: "open a browser" }).click();
+    await window.getByRole("tab", { name: "browser" }).click();
     await window.locator(".preview-address input").fill(address);
     await window.locator(".preview-address input").press("Enter");
     const page = window.locator(".preview-page");
@@ -91,7 +126,7 @@ test.describe("the preview, while turri tests in it", () => {
   test("edges the terminal too", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     await window.getByRole("tab", { name: "preview" }).click();
-    await window.getByRole("button", { name: "open a terminal" }).click();
+    await window.getByRole("tab", { name: "terminal" }).click();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("preview:testing", true));
     await expect(window.locator(".preview-bar .preview-testing")).toHaveText("turri is testing");
     await expect(window.locator(".preview.testing .preview-terminal")).toHaveCount(1);
@@ -180,7 +215,7 @@ test.describe("terminal_screenshot", () => {
     const request = tool(app);
     await expect(request("terminal", "screenshot", {})).rejects.toThrow("Nothing has run in the terminal yet");
     await window.getByRole("tab", { name: "preview" }).click();
-    await window.getByRole("button", { name: "open a terminal" }).click();
+    await window.getByRole("tab", { name: "terminal" }).click();
     await expect(window.locator(".preview-terminal .xterm-screen")).toBeVisible();
     const shot = await request<{ data: string; mimeType: string; rows: number; cols: number }>("terminal", "screenshot", {});
     expect(shot.mimeType).toBe("image/jpeg");

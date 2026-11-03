@@ -12,6 +12,8 @@ import { retriedWithoutImages } from "./browser.mjs";
  */
 function customItem(message) {
   if (message.customType === "turri_sentinel_pulse") return { role: "sentinelPulse", job: message.details?.jobId ?? null };
+  // A check the person asked of it: where its work on a pulse ends - what follows is no pulse's.
+  if (message.customType === "turri_sentinel_check") return { role: "sentinelPulse", job: null };
   if (message.customType === "turri_advisor_verdict") return { role: "advisorVerdict", specs: Array.isArray(message.details?.specs) ? message.details.specs : [] };
   if (message.customType === "turri_skill_run") {
     const details = message.details ?? {};

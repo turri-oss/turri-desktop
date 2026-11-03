@@ -96,7 +96,7 @@ export interface Project {
   /** What of ***plain the turri it runs gives the window: the stdlib view, what a ***plain links, its concepts, its linked resources. */
   /** What the turri running gives the window - several chats among it. */
   /** What the turri running gives the window: its standard library, the graph, concepts, several chats, a sentinel. */
-  offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; sentinel?: boolean };
+  offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; sentinel?: boolean; check?: boolean };
   /** A project just started: what turri said of the config it wrote for it - its models, and how to sign in. */
   setup?: string;
   /** A project just made: the base folder chosen for it, by its path from the project's folder - written once it opens. */
@@ -268,5 +268,5 @@ export interface StdlibModule {
   usedBy: Array<{ file: string; rel: string }>;
   text: string;
 }
-/** What the preview tries the app in: a browser pane, or a terminal. */
-export type Pane = "browser" | "terminal";
+/** What the preview shows: its home - what there is to try - or what the app is tried in, a browser pane or a terminal. */
+export type Pane = "home" | "browser" | "terminal";

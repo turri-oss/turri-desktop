@@ -163,7 +163,7 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
     [states],
   );
   const concluded = useMemo(
-    () => new Map([...states.values()].flatMap((state) => state.items.flatMap((item): Array<[string, Conclusion]> => (item.role === "concluded" ? [[item.conclusion.job, item.conclusion]] : [])))),
+    () => new Map([...states.values()].flatMap((state) => state.items.flatMap((item): Array<[string, Conclusion]> => (item.role === "concluded" && item.conclusion.job !== undefined ? [[item.conclusion.job, item.conclusion]] : [])))),
     [states],
   );
   // The person's chats, as tabs: the sentinel is never one - it is followed, and what it did of a pulse is in regen.

@@ -163,6 +163,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     // Conformance tests turned on, as the chat's turn_on_conformance_tests does - where the module's value comes from, every
     // chat's tools switched - on a turri that can (its turnOnConformanceTests).
     turnOnConformanceTests: typeof session.turnOnConformanceTests === "function" ? (plainFile) => session.turnOnConformanceTests(plainFile) : undefined,
+    // The sentinel asked to check functional specs in a module's release - on a turri that can (its check).
+    check: typeof session.check === "function" ? (request) => session.check(request) : undefined,
     spending,
     dispose: () => session.dispose(),
   };

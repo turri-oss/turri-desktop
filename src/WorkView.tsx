@@ -66,13 +66,15 @@ export function sentinelByPulse(items: ChatItem[], streaming: ChatItem | null, b
   }
   if (now !== null && streaming !== null) parts.get(now)!.push(streaming);
   const work = new Map<string, SentinelWork>();
+  // Unchecked is a check's alone, never a pulse's: read as left off.
+  const stateOf = (conclusion: Conclusion) => (conclusion.verdict === "unchecked" ? "unconcluded" : conclusion.verdict);
   for (const [job, part] of parts) {
     const conclusion = concluded.get(job);
-    const state = conclusion !== undefined ? conclusion.verdict : busy && job === now ? "checking" : "unconcluded";
+    const state = conclusion !== undefined ? stateOf(conclusion) : busy && job === now ? "checking" : "unconcluded";
     work.set(job, { items: part, state, ...(conclusion !== undefined ? { summary: conclusion.summary } : {}) });
   }
   // Concluded with nothing of its conversation here - its chat read before turri marked its briefs: the conclusion alone.
-  for (const [job, conclusion] of concluded) if (!work.has(job)) work.set(job, { items: [], state: conclusion.verdict, summary: conclusion.summary });
+  for (const [job, conclusion] of concluded) if (!work.has(job)) work.set(job, { items: [], state: stateOf(conclusion), summary: conclusion.summary });
   return work;
 }
 

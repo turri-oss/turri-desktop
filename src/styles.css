@@ -3209,6 +3209,91 @@ code {
 .preview-retry .button + .button {
   margin-left: 8px;
 }
+/* The preview's home: each module's functional specs, the built ones to choose, and below them what to do with them. */
+.preview-home {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.preview-home-list {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.preview-home-module h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-home-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+}
+.preview-home-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.preview-home-row.on {
+  background: var(--selected);
+}
+.preview-home-row.on .checkbox {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.preview-home-row:disabled {
+  color: var(--fg-3);
+}
+.preview-home-row:disabled .checkbox {
+  border-style: dashed;
+}
+.preview-home-id {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.preview-home-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+.preview-home-release {
+  margin-right: auto;
+  font-size: 12px;
+}
+.preview-home-release code {
+  font-family: var(--mono);
+}
+/* Asking the sentinel: in its indigo, beside try it's pink. */
+.button.sentinel {
+  background: var(--sentinel);
+  color: var(--on-action);
+  border-color: transparent;
+  box-shadow: var(--bevel);
+}
+.button.sentinel:hover:not(:disabled) {
+  border-color: transparent;
+  transform: translateY(-2px);
+  transition: none;
+}
 .tool-image {
   display: block;
   max-width: 100%;
