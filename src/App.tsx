@@ -27,6 +27,7 @@ import { Chat, type Conclusion, pulseLine, type Spending } from "./Chat.tsx";
 import { StatusPanel, type Notification, type Problem } from "./StatusPanel.tsx";
 import { type Tone, useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
+import type { Action } from "./actions.ts";
 
 /** The views, as the toolbar has them, left to right: ctrl+tab goes along them. regen is the dive's. */
 const VIEWS: View[] = ["spec", "preview"];
@@ -267,7 +268,8 @@ export function App() {
     read();
     const offFiles = window.turri.on("engine:files", ({ paths }: { paths: string[] }) => paths.some((path) => path.endsWith(".plain")) && read());
     const offSpec = window.turri.on("engine:spec", read);
-    return () => (offFiles(), offSpec());
+    const offGraph = window.turri.on("engine:graph", read);
+    return () => (offFiles(), offSpec(), offGraph());
   }, [project?.dir]);
 
   /** The files the tree shows, relative to the project, for tab to complete in the chat: read again as files change. */
@@ -278,7 +280,8 @@ export function App() {
     read();
     const offFiles = window.turri.on("engine:files", read);
     const offSpec = window.turri.on("engine:spec", read);
-    return () => (offFiles(), offSpec());
+    const offGraph = window.turri.on("engine:graph", read);
+    return () => (offFiles(), offSpec(), offGraph());
   }, [project?.dir]);
 
   // What is selected in the tree: one of the project's specs, or any other file of it.
@@ -296,7 +299,15 @@ export function App() {
 
   const refreshProject = useCallback(async () => {
     const summary = await window.turri.call<Omit<Project, never>>("summary");
-    setProject(summary);
+    // A module the summary has not read yet, which the window has since been told of, is kept as it was told.
+    setProject((now) => {
+      const told = new Map((now?.dir === summary.dir ? now.specs : []).map((entry) => [entry.file, entry]));
+      const kept = (entry: Spec) => {
+        const was = told.get(entry.file);
+        return entry.unread && was !== undefined && (!was.unread || entry.functionalSpecs.length === 0) ? was : entry;
+      };
+      return { ...summary, specs: summary.specs.map(kept) };
+    });
   }, []);
 
   const opened = useCallback((summary: Project | null) => {
@@ -389,6 +400,12 @@ export function App() {
           return { ...now, specs: now.specs.map((entry) => (entry.file === next.file ? next : entry)) };
         }),
       ),
+      // turri's graph read, once the project is open: the test plain files, and what the project offers by it.
+      window.turri.on("engine:graph", () => void refreshProject()),
+      // What a module says, and how it stands - built, conformance tested, drifted - read apart, after it opens.
+      window.turri.on("engine:standing", (next: Spec) =>
+        setProject((now) => (now === null || !now.specs.some((entry) => entry.file === next.file) ? now : { ...now, specs: now.specs.map((entry) => (entry.file === next.file ? next : entry)) })),
+      ),
       // The config changed - /turri-config, say: its settings in the sidebar, and the model the chat runs on now.
       window.turri.on("engine:config", () => void refreshProject()),
       // turri works in the preview with its browser or terminal tools: the preview glows, inviting the person to watch -
@@ -425,12 +442,15 @@ export function App() {
     [spec, dirty, say],
   );
 
-  /** Said to the chat shown, as the person would type it - a next step turri named, from a button: the chat opened on it. */
-  const ask = useCallback(
-    async (text: string) => {
+  /**
+   * What a button asks turri in the person's place, in the chat shown - the chat opened on it: its prompt heard as their
+   * words, and the chat showing the button's own message (src/actions.ts), not the prompt as if they had typed it.
+   */
+  const act = useCallback(
+    async (action: Action) => {
       setChatOpen(true);
       try {
-        await window.turri.call("sendChat", { text });
+        await window.turri.call("sendAction", { action });
       } catch (error) {
         say(String((error as Error).message ?? error), "error");
       }
@@ -460,7 +480,7 @@ export function App() {
                   </>
                 ),
                 text: each.nextStep !== undefined ? `${each.error ?? ""} ${each.nextStep}` : (each.error ?? ""),
-                ...(each.nextStep !== undefined ? { action: { label: "convert it", run: () => void ask(`Convert ${each.rel} to the new ***plain syntax.`) } } : {}),
+                ...(each.nextStep !== undefined ? { action: { label: "convert it", run: () => void act({ kind: "convert", title: each.rel, detail: "to the new ***plain syntax", prompt: `Convert ${each.rel} to the new ***plain syntax.` }) } } : {}),
               },
             ]),
         // parse's warnings - a step of adding tests skipped, a base folder not there: said, not an error, in turri's
@@ -483,7 +503,7 @@ export function App() {
         .map((each) => ({ key: `${each.file}\nerror`, tone: "error" as const, file: each.file, rel: each.rel, title: "turri does not read this test plain file", text: each.error ?? "" })),
     ];
     return [...found.filter((problem) => problem.file === selected), ...found.filter((problem) => problem.file !== selected)];
-  }, [project, selected, ask]);
+  }, [project, selected, act]);
 
   /**
    * The test advisor asked whether a functional spec needs testing scenarios: it says at once what it took up - each
@@ -962,6 +982,8 @@ export function App() {
             onCloseChat={closeChat}
             items={shownChat.items}
             queued={shownChat.queued}
+            actionsWaiting={shownChat.actionsWaiting}
+            onAct={(action) => void act(action)}
             restored={shownChat.restored}
             streaming={shownChat.streaming}
             busy={shownChat.busy}
@@ -1044,7 +1066,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(text) => ((following.current = true), void ask(text))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}
@@ -1119,7 +1141,7 @@ export function App() {
                 onFollow={(followed, point) => void follow(spec.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: spec.module, stdlib: false })}
                 onEvaluate={(funcId) => void evaluate(spec, funcId)}
-                onWriteScenarios={(funcId) => void ask(`Write testing scenarios for ${spec.module}:${funcId}.`)}
+                onWriteScenarios={(funcId) => void act({ kind: "scenarios", title: `${spec.module}:${funcId}`, prompt: `Write testing scenarios for ${spec.module}:${funcId}.` })}
                 say={say}
               />
             )}

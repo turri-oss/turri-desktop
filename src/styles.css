@@ -533,6 +533,11 @@ code {
 .state-dot.error {
   background: var(--red);
 }
+/* How it stands not read yet: an outline, fainter than not built's, until it is. */
+.state-dot.unread {
+  border: 1.5px dotted var(--fg-3);
+  opacity: 0.6;
+}
 /* A test plain file's header: the functional spec its scenarios are of, in the colour of what is conformance tested. */
 .tests-of {
   white-space: nowrap;
@@ -1057,6 +1062,11 @@ code {
 .gutter.built .mark {
   border-color: var(--built);
   background: var(--built);
+}
+/* What is built of it not read yet: the mark faint, until it is. */
+.gutter.unread .mark {
+  border-style: dotted;
+  opacity: 0.5;
 }
 /* Built now, the mark is the building loader itself, in place of its box - whole, at 2px a pixel, so none of it is
    cut off or blurred. */
@@ -2146,6 +2156,48 @@ code {
 /* Said while turri answers: its own at once, faded, until turri hears it after its turn. */
 .msg.user.queued {
   opacity: 0.6;
+}
+/* What a button asked turri in the person's place: on their side, but a box of its kind's colour - never their words -
+   its kind named over what it asked, and the prompt turri heard behind a link, closed. */
+.msg.action {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--action-tone) 45%, transparent);
+  border-left: 3px solid var(--action-tone);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--action-tone) 10%, transparent);
+  color: var(--fg);
+}
+.msg.action.queued {
+  opacity: 0.6;
+}
+.action-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--action-tone);
+  font-size: 12px;
+}
+.action-title {
+  margin-top: 4px;
+}
+.action-detail {
+  font-size: 12px;
+}
+.msg.action .action-asked {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.action-prompt {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--action-tone) 45%, transparent);
+  color: var(--fg-3);
+  font-size: 12px;
+  white-space: pre-wrap;
 }
 .queued-note {
   display: block;

@@ -1,10 +1,11 @@
 import MarkdownIt from "markdown-it";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Icon, Jellyfish, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
 import { keys, MAC } from "./platform.ts";
 import type { Concept } from "./types.ts";
 import type { ChatInfo } from "./chats.ts";
 import type { Attached } from "../electron/preload.ts";
+import { lookOf, type Action } from "./actions.ts";
 
 /** The concepts the project's ***plain can name, as turri reads them - longest first - to colour where they are said. */
 let conceptNames: string[] = [];
@@ -113,7 +114,9 @@ export type ChatItem =
   /** The test advisor's yes, which starts the turn that writes their testing scenarios: the functional specs, `module:func-id`. */
   | { role: "advisorVerdict"; specs: string[] }
   /** Background runs that did not do their work, which start the turn that says so: each its skill, and what it was to write. */
-  | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> };
+  | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> }
+  /** What a button asked turri in the person's place: its kind and what it asked - the prompt turri heard, hidden. */
+  | { role: "action"; kind: string; title: string; detail?: string; prompt: string };
 
 /** A skill cultivate started in the background: the testing script it writes and the module it is for - or, running already, nothing new. */
 type Background = { kind?: "unit" | "conformance"; plainFile?: string; already?: true };
@@ -196,6 +199,8 @@ export function Chat(props: {
   items: ChatItem[];
   /** What was said while turri answered, waiting for its turn to end: shown at once, after it. */
   queued: string[];
+  /** What buttons asked while turri answered, waiting for its turn to end. */
+  actionsWaiting: Array<{ kind: string; title: string; detail?: string }>;
   /** What waited when its turn was stopped: put back in the message box, before what is typed there. */
   restored: { text: string; at: number } | null;
   streaming: ChatItem | null;
@@ -213,6 +218,8 @@ export function Chat(props: {
   /** What tab completes: the files the tree shows, relative to the project. */
   files: string[];
   onSend: (text: string, attached?: Attached[]) => void;
+  /** What a button of the chat asks turri in the person's place: shown as its own message, its prompt hidden. */
+  onAct: (action: Action) => void;
   onAbort: () => void;
   /** ctrl+c: what the chat does stopped - or, doing nothing, its draft cleared (`cleared`), or turri's session ended. */
   onInterrupt: (draft: boolean) => Promise<string>;
@@ -449,7 +456,7 @@ export function Chat(props: {
         }}
       >
         {/* Nothing said yet - notes aside, such as a new project's config - so how to begin is shown. */}
-        {props.items.every((item) => item.role === "note") && !props.streaming && props.queued.length === 0 && (
+        {props.items.every((item) => item.role === "note") && !props.streaming && props.queued.length === 0 && props.actionsWaiting.length === 0 && (
           <div className="chat-empty">
             <Jellyfish size={110} lifecycle />
             <p>tell turri what you want to build, or what to change. it writes the <PlainName /> with you, then regenerates the code from it.</p>
@@ -464,7 +471,10 @@ export function Chat(props: {
                 >
                   i want to build…
                 </button>
-                <button className="hint" onClick={() => props.onSend("Help me work out what to build: ask me what you need to know, then write the first ***plain.")}>
+                <button
+                  className="hint"
+                  onClick={() => props.onAct({ kind: "start", title: "what to build, asked first, then its first ***plain", prompt: "Help me work out what to build: ask me what you need to know, then write the first ***plain." })}
+                >
                   help me work out what to build
                 </button>
               </>
@@ -484,11 +494,16 @@ export function Chat(props: {
           ),
         )}
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
-        {props.busy && !props.streaming && (
+        {/* turri at work: said all the turn, but while a reply's words are coming in - they show it. A tool's call being
+            written, or the tool running, shows nothing moving, so it is said then too: thinking, or working while a tool runs. */}
+        {props.busy && !(props.streaming?.role === "assistant" && props.streaming.text && !props.streaming.tools?.length) && (
           <div className="chat-working">
-            <Jellyfish size={21} /> {props.working ?? "thinking"}
+            <Jellyfish size={21} /> {props.working ?? ([...props.running.values()].includes(true) ? "working" : "thinking")}
           </div>
         )}
+        {props.actionsWaiting.map((action, index) => (
+          <ActionAsked key={`action-${index}`} item={{ role: "action", ...action, prompt: "" }} waiting />
+        ))}
         {props.queued.map((text, index) => (
           <div key={index} className="msg user queued">
             {withConcepts(text)}
@@ -688,6 +703,7 @@ function Message({
       </div>
     );
   if (item.role === "command") return <div className="msg user command">{item.text}</div>;
+  if (item.role === "action") return <ActionAsked item={item} />;
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
   // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
   // ***plain, its card in regen: the chat stays a conversation.
@@ -732,7 +748,8 @@ function Message({
       {thinking && item.thinking && <div className="thinking">{item.thinking}</div>}
       {item.text && <Prose text={item.text} />}
       {item.tools?.map((tool) => (
-        <ToolCall key={tool.id} tool={tool} result={results.get(tool.id)} running={running.get(tool.id) === true} />
+        // A call still being written is not done either.
+        <ToolCall key={tool.id} tool={tool} result={results.get(tool.id)} running={running.get(tool.id) === true || (live === true && !results.has(tool.id))} />
       ))}
       {item.error && <div className="msg-error">{item.error}</div>}
     </div>
@@ -958,6 +975,36 @@ function describeTool(name: string, args: any, background?: Background, wrote?: 
     default:
       return `${name.replace(/_/g, " ")}${file ? ` · ${file}` : ""}`;
   }
+}
+
+/**
+ * What a button asked turri in the person's place: a box of its kind's colour, its icon and name, and what it asked -
+ * the prompt turri heard behind "what turri was asked", closed. Waiting, while turri answers something else.
+ */
+function ActionAsked({ item, waiting }: { item: Extract<ChatItem, { role: "action" }>; waiting?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const look = lookOf(item.kind);
+  return (
+    <div className={`msg action ${waiting ? "queued" : ""}`} style={{ "--action-tone": look.tone } as CSSProperties} data-kind={item.kind}>
+      <div className="action-head">
+        <Icon name={look.icon} size={13} /> <span className="action-name">{look.name}</span>
+      </div>
+      <div className="action-title">{withConcepts(item.title)}</div>
+      {item.detail !== undefined && <div className="action-detail muted">{item.detail}</div>}
+      {waiting ? (
+        <span className="queued-note">waiting - turri has not read this yet</span>
+      ) : (
+        item.prompt !== "" && (
+          <>
+            <button className="link action-asked" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {open ? "hide what turri was asked" : "what turri was asked"}
+            </button>
+            {open && <div className="action-prompt">{withPlain(item.prompt)}</div>}
+          </>
+        )
+      )}
+    </div>
+  );
 }
 
 function ToolCall({ tool, result, running }: { tool: { id: string; name: string; args: unknown }; result?: Extract<ChatItem, { role: "toolResult" }>; running: boolean }) {

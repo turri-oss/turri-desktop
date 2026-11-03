@@ -12,7 +12,7 @@ function scenarios(project: string) {
 test.describe("conformance tests off", () => {
   test.use({ conformance: false });
 
-  test("show a module's scenarios as not tested, and offer nothing that tests - but turning them on", async ({ launched: { window: page, project } }) => {
+  test("show a module's scenarios as not tested, and offer nothing that tests on its marks", async ({ launched: { window: page, project } }) => {
     scenarios(project);
     const header = page.locator(".editor-pane .pane-header");
     await expect(header.locator(".conformed-count.off")).toContainText("conformance tests off");
@@ -21,10 +21,10 @@ test.describe("conformance tests off", () => {
     await expect(chip).toHaveClass(/untested/);
     await expect(chip).toHaveAttribute("title", /not tested: conformance tests are off/);
     await expect(header).not.toContainText("conformed ·");
-    // Its mark offers no conformance testing, nor the test advisor: turning them on instead.
+    // Its mark offers no conformance testing, nor the test advisor - nor turning them on, which is more than its own.
     await page.locator('.editor-colours .mark[aria-label^="functional spec print-hello,"]').click();
     const menu = page.getByRole("menu");
-    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "open its scenarios", "turn on conformance tests"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "open its scenarios"]);
     await page.keyboard.press("Escape");
     // The test plain file's mark in the files, grey too.
     await page.locator('.tree-row[title="tests"]').click();

@@ -49,6 +49,8 @@ export interface Spec {
   nextStep?: string;
   /** A step of adding tests it skipped, and the next step, as turri says it: its conformance tests wait on it. */
   warnings?: string[];
+  /** How it stands - built, conformance tested, drifted - not read yet: it is read once the project is open, and follows. */
+  unread?: boolean;
   built?: boolean;
   drifted?: boolean;
   /** How its codebase's base folder stands against what the codebase started from, when they do not agree: drift's line. */

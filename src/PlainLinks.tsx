@@ -24,6 +24,8 @@ export function usePlainLinks(file: string, plain = true): Links | null {
     [],
   );
   useEffect(() => window.turri.on("engine:spec", () => setChanged((count) => count + 1)), []);
+  // turri's graph read, once the project is open: the links are there.
+  useEffect(() => window.turri.on("engine:graph", () => setChanged((count) => count + 1)), []);
   useEffect(() => {
     if (!plain) return;
     let alive = true;

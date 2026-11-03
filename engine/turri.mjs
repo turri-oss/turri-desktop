@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 const clone = process.env.TURRI_DEV === "npm" ? undefined : process.env.TURRI_DEV;
 const sources = clone ? resolve(clone, "src", "host.ts") : undefined;
 if (sources !== undefined && !existsSync(sources)) throw new Error(`TURRI_DEV=${clone} is not a turri clone: there is no ${sources}.`);
+// Where it is, whatever folder the engine is in by then: its threads (describe-worker.mjs) import it too.
+if (clone) process.env.TURRI_DEV = resolve(clone);
 
 /** Where turri comes from: the clone's sources, or the package installed from npm. */
 export const turriFrom = sources ?? "@turri-dev/cli";

@@ -21,6 +21,8 @@ export type ChatState = {
   items: ChatItem[];
   /** What the person said while turri answered, waiting for its turn to end. */
   queued: string[];
+  /** What buttons asked in the person's place while turri answered, waiting for its turn to end. */
+  actionsWaiting: Array<{ kind: string; title: string; detail?: string }>;
   /** What waited, its turn stopped: back in the message box - `at` tells one from the next. */
   restored: { text: string; at: number } | null;
   streaming: ChatItem | null;
@@ -41,7 +43,7 @@ export type ChatState = {
 /** A notice of turri's, as the status panel lists it: open, to answer, or how it ended while the window was there. */
 export type NoticeShown = { notice: Notice; ended?: NoticeState };
 
-const EMPTY: ChatState = { items: [], queued: [], restored: null, streaming: null, busy: false, working: null, tools: new Map(), statuses: {}, questions: [], progress: null, model: null, stats: null, notices: new Map(), over: new Map() };
+const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, tools: new Map(), statuses: {}, questions: [], progress: null, model: null, stats: null, notices: new Map(), over: new Map() };
 
 /**
  * What turri says in a chat that is the status panel's notifications, not the conversation: the test advisor's no and a
@@ -127,6 +129,7 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
         update(id, (state) => ({ items: [...state.items, item] }));
       }),
       on<{ texts: string[] }>("chat:queued", (id, { texts }) => update(id, () => ({ queued: texts }))),
+      on<Array<{ kind: string; title: string; detail?: string }>>("chat:actionsWaiting", (id, actions) => update(id, () => ({ actionsWaiting: actions }))),
       on<{ text: string }>("chat:restore", (id, { text }) => update(id, () => ({ restored: { text, at: Date.now() } }))),
       on<ChatItem | null>("chat:streaming", (id, item) => update(id, () => ({ streaming: item }))),
       on<{ busy: boolean }>("chat:busy", (id, { busy }) => update(id, (state) => ({ busy, working: busy ? state.working : null }))),

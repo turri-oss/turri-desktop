@@ -94,6 +94,8 @@ export function FileTree(props: {
       }),
     [list],
   );
+  // turri's graph read, once the project is open: what the .plain files import and link is listed with them.
+  useEffect(() => window.turri.on("engine:graph", () => listedRef.current.forEach((_, dir) => void list(dir))), [list]);
 
   const toggle = (dir: string) => {
     const next = new Set(open);
@@ -144,7 +146,7 @@ export function FileTree(props: {
             <span className="tree-name">{entry.name}</span>
             {/* Its state at the right, with how much of it is built: the icon's place is ***plain's mark. */}
             {spec && <SpecState spec={spec} running={props.isRunning(spec.module)} />}
-            {spec && <span className="spec-row-count">{spec.ok ? `${spec.functionalSpecs.filter((entry) => entry.built).length}/${spec.functionalSpecs.length}` : "!"}</span>}
+            {spec && !(spec.ok && spec.unread) && <span className="spec-row-count">{spec.ok ? `${spec.functionalSpecs.filter((entry) => entry.built).length}/${spec.functionalSpecs.length}` : "!"}</span>}
             {tests && <TestsState tests={tests} tested={props.specs.find((candidate) => candidate.file === tests.moduleFile)?.conformanceTests !== false} />}
           </button>
           {isOpen && <div role="group">{rows(entry.path, depth + 1)}</div>}
@@ -189,8 +191,8 @@ function SpecState({ spec, running }: { spec: Spec; running: boolean }) {
   const testable = spec.functionalSpecs.filter((entry) => entry.scenarios.conformance.length + entry.scenarios.acceptance.length > 0);
   // Never with conformance tests off: what was tested once is not tested now.
   const conformed = spec.conformanceTests !== false && done && testable.length > 0 && testable.every((entry) => entry.conformed);
-  const state = !spec.ok ? "error" : running ? "running" : conformed ? "conformed" : done ? "done" : built > 0 ? "partial" : "new";
-  const label = { error: "does not parse", running: "regenerating", conformed: "up to date and conformance tested", done: "up to date", partial: "to regenerate", new: "not built" }[state];
+  const state = !spec.ok ? "error" : running ? "running" : spec.unread ? "unread" : conformed ? "conformed" : done ? "done" : built > 0 ? "partial" : "new";
+  const label = { error: "does not parse", running: "regenerating", unread: "reading how it stands", conformed: "up to date and conformance tested", done: "up to date", partial: "to regenerate", new: "not built" }[state];
   const off = spec.ok && spec.conformanceTests === false && testable.length > 0 ? " - its scenarios not tested: conformance tests are off" : "";
   return (
     <span className="tree-state" title={`${label}${off}`}>

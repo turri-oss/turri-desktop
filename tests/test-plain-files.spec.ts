@@ -224,6 +224,15 @@ test.describe("the steps of adding tests, and the old ***plain", () => {
     await window.locator(".editor-colours .mark").first().click();
     await window.getByRole("menuitem", { name: "write testing scenarios" }).click();
     await expect.poll(() => requests.at(-1) ?? "").toContain("Write testing scenarios for hello:print-hello.");
+    // In the chat, the button's own message - its kind, what it asked - never its prompt as if the person had typed it.
+    const asked = window.locator(".chat-body .msg.action");
+    await expect(asked.locator(".action-name")).toHaveText("write testing scenarios");
+    await expect(asked.locator(".action-title")).toHaveText("hello:print-hello");
+    await expect(window.locator(".chat-body .msg.user")).toHaveCount(0);
+    await expect(asked.locator(".action-prompt")).toHaveCount(0);
+    // What turri heard, there to read on asking.
+    await asked.getByRole("button", { name: "what turri was asked" }).click();
+    await expect(asked.locator(".action-prompt")).toHaveText("Write testing scenarios for hello:print-hello.");
   });
 
   test("say a module in the old ***plain syntax does not parse, with turri's next step - and ask the chat to convert it", async ({ launched: { window, spec, requests } }) => {

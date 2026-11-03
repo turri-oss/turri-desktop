@@ -5,7 +5,10 @@
 // `turri`.
 import turri, { turriFrom } from "./turri.mjs";
 import { busy, MANY_CHATS, SENTINEL, startSession } from "./chat.mjs";
+import { ACTION_KINDS } from "./entries.mjs";
 import { createAuth } from "./auth.mjs";
+import { conformanceTestsOn as conformanceOf, said, standing } from "./describe.mjs";
+import { Worker } from "node:worker_threads";
 import { existsSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -29,8 +32,9 @@ let projectDir;
 let session;
 const registryNow = () => session?.jobs();
 const loopNow = () => session?.loop();
-/** A loop of the engine's own that starts nothing: what is left to regenerate, read without the session's. */
+/** A loop of the engine's own that starts nothing: what is left to regenerate, read without the session's - made when first asked. */
 let looker;
+const lookerNow = () => (looker ??= turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir, dryRun: true }));
 /** A chat by its id - the one shown, when none is named. */
 function chatOf(id) {
   const chat = id === undefined ? session.shown() : session.chat(id);
@@ -114,7 +118,6 @@ async function open({ dir }) {
   projectDir = resolve(dir);
   process.chdir(projectDir);
   const orphans = turri.sweepOrphanedGroups();
-  looker = turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir, dryRun: true });
   turri.onModelEvent((event) => {
     const line = turri.describeTurnIncident(event);
     if (line !== undefined) emit("incident", { job: event.job, text: line });
@@ -130,6 +133,8 @@ async function open({ dir }) {
   await startChats();
   watchSpecs();
   readEarlier();
+  // What the modules say and how they stand is read apart, and follows: the window has the files at once.
+  readStanding();
   return { ...summary(), orphans };
 }
 
@@ -264,16 +269,15 @@ function watchSpecs() {
   watch(projectDir, { recursive: true }, (_type, name) => {
     if (name === null) return;
     const parts = name.split(sep);
+    if (shapesGraph(parts)) forgetGraph();
     if (parts[0] === turri.MODULES_DIR && parts.includes(".plaingit") && (parts.at(-1) === "HEAD" || parts.includes("refs"))) {
       clearTimeout(historyTimer);
-      historyTimer = setTimeout(() => {
-        for (const file of plainFiles(projectDir)) emit("spec", { file, text: readFileSync(file, "utf8"), spec: describeSpec(file) });
-      }, 300);
+      historyTimer = setTimeout(readStanding, 300);
     }
     // The project's config - /turri-config writes it from the chat: the window shows its settings again.
     if (CONFIG_FILE.test(name)) {
       clearTimeout(configTimer);
-      configTimer = setTimeout(() => emit("config", null), 250);
+      configTimer = setTimeout(() => (emit("config", null), readStanding()), 250);
     }
     if (!parts.some((part) => UNLISTED.has(part))) {
       changed.add(join(projectDir, name));
@@ -306,6 +310,8 @@ function watchSpecs() {
         pending.delete(file);
         if (!existsSync(file)) return;
         emit("spec", { file, text: readFileSync(file, "utf8"), spec: describePlain(file) });
+        // What it changed of how the modules stand - its own, and every module above it - follows.
+        readStanding();
       }, 150),
     );
   });
@@ -337,8 +343,8 @@ function inProject(path) {
 function shownInTree() {
   const files = new Set(everyPlainFile(projectDir));
   const ours = (file) => file !== null && file !== undefined && file.startsWith(projectDir + sep) && !relative(projectDir, file).split(sep).includes(turri.MODULES_DIR);
-  if (turri.plainGraph !== undefined) {
-    const graph = turri.plainGraph(projectDir);
+  const graph = turri.plainGraph !== undefined ? graphSoon() : undefined;
+  if (graph !== undefined) {
     for (const module of graph.modules) if (ours(module.file) && existsSync(module.file)) files.add(module.file);
     for (const item of graph.items) for (const resource of item.resources ?? []) if (ours(resource.file) && existsSync(resource.file)) files.add(resource.file);
   }
@@ -396,7 +402,7 @@ const offers = () => ({
   stdlib: turri.stdlibTemplates !== undefined,
   links: turri.plainGraph !== undefined,
   concepts: turri.conceptsOf !== undefined,
-  resources: turri.plainGraph !== undefined && turri.plainGraph(projectDir).items[0]?.resources !== undefined,
+  resources: turri.plainGraph !== undefined && graphSoon()?.items[0]?.resources !== undefined,
 });
 
 /** The standard library's import names, to tell a link to one of its templates from a module of the project's. */
@@ -410,8 +416,9 @@ const stdlibNames = () => new Set(turri.stdlibTemplates?.().map((template) => te
 function plainLinks({ file }) {
   const full = inProject(file);
   if (turri.plainGraph === undefined) return null;
-  const graph = turri.plainGraph(projectDir);
-  const node = graph.modules.find((module) => module.file === full);
+  // The graph still being read: none yet - the window asks again once it is there.
+  const graph = graphSoon();
+  const node = graph?.modules.find((module) => module.file === full);
   if (node === undefined) return { imports: [], requires: [], requiredBy: [], importedBy: [] };
   const stdlib = stdlibNames();
   const down = (link) => ({ ...link, stdlib: stdlib.has(link.name) });
@@ -425,10 +432,11 @@ function plainLinks({ file }) {
  */
 function concepts() {
   if (turri.conceptsOf === undefined) return [];
+  if (derived.concepts !== undefined) return derived.concepts;
   const seen = new Map();
   for (const file of plainFiles(projectDir))
     for (const { concept, definition, module } of turri.conceptsOf(file)) if (!seen.has(concept)) seen.set(concept, { name: concept, about: definition, from: module ?? "***plain" });
-  return [...seen.values()];
+  return (derived.concepts = [...seen.values()]);
 }
 
 /** The item of a .plain file a line of it is in, from turri's graph - the last to start at or before it - or undefined. */
@@ -462,7 +470,7 @@ function excerpt(text) {
  */
 function conceptDefinition({ concept, file, line }) {
   if (turri.plainGraph === undefined) return null;
-  const graph = turri.plainGraph(projectDir);
+  const graph = graphNow();
   const nodes = graph.concepts.filter((node) => node.concept === concept);
   const items = new Map(graph.items.map((item) => [item.id, item]));
   const stdlib = stdlibNames();
@@ -495,7 +503,7 @@ function conceptDefinition({ concept, file, line }) {
  */
 function linkedResource({ file, line, index }) {
   if (turri.plainGraph === undefined) return null;
-  const graph = turri.plainGraph(projectDir);
+  const graph = graphNow();
   const item = itemAt(graph, inProject(file), line);
   if (item?.resources === undefined) return null;
   const resource = item.resources.filter((each) => each.line === line)[index];
@@ -515,7 +523,7 @@ function conceptBeingTyped({ text }) {
  * import each, from turri's graph.
  */
 function stdlib() {
-  const graph = turri.plainGraph(projectDir);
+  const graph = graphNow();
   const project = graph.modules.filter((module) => !relative(projectDir, module.file).startsWith(".."));
   return turri.stdlibTemplates().map(({ name, kind, description, imports, conformance, text, tests }) => ({
     name,
@@ -754,8 +762,9 @@ function summary() {
     // A setting's values whole - every model signed in to - or, on a turri before its settingChoices, the first forty.
     // And whether the sentinel can be asked to check something, beside the pulses it checks: on a turri with its check.
     offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined, check: session?.check !== undefined },
-    specs: inBuildOrder(plainFiles(projectDir)).map((file) => describeSpec(file)),
-    testPlainFiles: testPlainFiles(),
+    // Each module as last read - or, not read yet, only its file: what it says follows, and how it stands.
+    specs: inBuildOrder(plainFiles(projectDir)).map((file) => known.get(file) ?? unread(file)),
+    testPlainFiles: graphSoon() !== undefined ? testPlainFiles() : [],
     // The modules' test folders, by their paths in the project: a pulse's ***plain diff tells a test plain file by them.
     testDirs: testDirsOf(plainFiles(projectDir)).map((dir) => relative(projectDir, dir)),
   };
@@ -795,7 +804,7 @@ const isTestPlainFile = (file) => inTestDir(file, testDirsOf(plainFiles(projectD
  * none, what is wrong with it.
  */
 function testPlainFiles() {
-  const graph = turri.plainGraph(projectDir);
+  const graph = graphNow();
   const fileOf = new Map(graph.modules.map((module) => [module.module, module.file]));
   return (graph.testPlainFiles ?? []).map(({ file, module, funcId, item, conformance, acceptance, error }) => {
     const at = item?.lastIndexOf(":") ?? -1;
@@ -838,70 +847,138 @@ function everyPlainFile(dir) {
   return found.sort();
 }
 
+/**
+ * A module as the window shows it: what it says, read now, with how it stands - built, conformance tested, drifted - as
+ * last read (knownAs). Kept as the module last read.
+ */
 function describeSpec(file) {
-  const result = turri.checkPlainFile(file);
-  const text = readFileSync(file, "utf8");
-  const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
-  const base = { file, rel: relative(projectDir, file), ok: result.ok, module: result.moduleName ?? basename(file, ".plain"), description, requires: result.requiredModules ?? [], conformanceTests: conformanceTestsOn(file) };
-  // Not read - and, for the old ***plain syntax, turri's next step: to have it converted.
-  if (!result.ok) return { ...base, error: result.error, ...(result.nextStep !== undefined ? { nextStep: result.nextStep } : {}), functionalSpecs: [] };
-  // A functional spec is completed when the codebase the chain delivers has it, as the spec has it now.
-  let incomplete;
-  let conformanceTested = 0;
-  // The functional specs whose conformance tests are written and pass, as the ***plain has them now, by func-id.
-  let tested = new Set();
-  let built = false;
-  try {
-    for (const chain of turri.functionalityCompletion(file)) {
-      const own = chain.modules.find((entry) => entry.module === result.moduleName);
-      if (own === undefined) continue;
-      incomplete = new Set(own.incomplete);
-      built = own.completed > 0;
-      conformanceTested = own.conformanceTested;
-      tested = new Set(own.tested);
-    }
-  } catch {
-    /* nothing built, or a chain that does not resolve: every spec is still to build */
-  }
-  // Each functional spec's test plain file and its scenarios, as turri's graph binds them: none, and it is not tested.
-  const graphed = new Map(turri.plainGraph(projectDir).items.filter((item) => item.file === file && item.funcId !== undefined).map((item) => [item.funcId, item]));
-  // What the test advisor made of each, as it reads now: an entry of another text - its hash not this one's - is none.
-  // On a turri before its test advisor's records (readAdvisor, textHash), none: no functional spec looked at.
-  const advised = (turri.textHash !== undefined && turri.readAdvisor?.(projectDir, result.moduleName)?.entries) || {};
-  const advisorOf = (funcId, item) => {
-    const entry = advised[funcId];
-    if (entry === undefined || item === undefined || entry.hash !== turri.textHash(item.text)) return null;
-    return { state: entry.state, ...(entry.report !== undefined ? { report: entry.report } : {}), ...(entry.undelivered === true ? { undelivered: true } : {}), ...(entry.reason !== undefined ? { reason: entry.reason } : {}) };
+  return remember(knownAs(said(turri, projectDir, file, graphNow())));
+}
+
+/**
+ * What a module says, with how it stood when last read: the same functional specs as they were, one new not built -
+ * and, nothing read yet of how it stands, none built and `unread`: that follows, as `standing` events.
+ */
+function knownAs(spec) {
+  const was = known.get(spec.file);
+  if (!spec.ok) return spec;
+  if (was === undefined || !was.ok || was.unread) return { ...spec, unread: true };
+  const before = new Map(was.functionalSpecs.map((entry) => [entry.funcId, entry]));
+  return {
+    ...spec,
+    built: was.built,
+    drifted: was.drifted,
+    conformanceTested: was.conformanceTested,
+    ...(was.baseFolder !== undefined ? { baseFolder: was.baseFolder } : {}),
+    functionalSpecs: spec.functionalSpecs.map((entry) => ({ ...entry, built: before.get(entry.funcId)?.built === true, conformed: before.get(entry.funcId)?.conformed === true })),
   };
-  const functionalSpecs = [];
-  try {
-    const [, tree] = turri.plainFileParser(basename(file), turri.resolveTemplateDirs(file), { allowNoFunctionalities: true });
-    for (const { funcId, specifications } of turri.iterateFunctionalSpecs(tree, false)) {
-      const text = specifications[turri.FUNCTIONAL_REQUIREMENTS]?.at(-1) ?? "";
-      const built = incomplete !== undefined ? !incomplete.has(funcId) : false;
-      const item = graphed.get(funcId);
-      const scenarios = { conformance: item?.scenarios?.conformance ?? [], acceptance: item?.scenarios?.acceptance ?? [] };
-      functionalSpecs.push({ funcId, text, built, conformed: built && tested.has(funcId), testPlainFile: item?.testPlainFile ?? null, scenarios, advisor: advisorOf(funcId, item) });
+}
+
+/** A module before anything of it is read: its file alone, nothing of what it says or how it stands. */
+const unread = (file) => ({ file, rel: relative(projectDir, file), ok: true, module: basename(file, ".plain"), requires: [], functionalSpecs: [], unread: true });
+
+// ---------- reading the modules ----------
+
+/** Each module as last read, by its file: what the window is sent of it, until it is read again. */
+const known = new Map();
+const remember = (spec) => (known.set(spec.file, spec), spec);
+let reader;
+/** The read under way, and whether another is wanted once it is done: a change while one runs is read after it. */
+let reading = null;
+let readAgain = false;
+let reads = 0;
+
+/**
+ * Every module read again - turri's graph of the project, what each module says, how each stands: built, conformance
+ * tested, drifted - in a thread of its own (describe-worker.mjs), and each sent to the window as it is known: the
+ * graph, which the engine keeps; what a module says, with how it stood (`standing`), then how it stands (`standing`).
+ * A module changed changes how every module above it stands, and a pulse that lands changes them all. One read at a
+ * time; asked meanwhile, it reads once more after.
+ */
+function readStanding() {
+  if (reading !== null) return void (readAgain = true);
+  reading = ++reads;
+  const files = plainFiles(projectDir);
+  if (reader === undefined) {
+    try {
+      reader = new Worker(new URL("./describe-worker.mjs", import.meta.url), { workerData: { projectDir } });
+      reader.unref();
+      reader.on("message", heardStanding);
+      reader.on("error", (error) => {
+        emit("log", { level: "error", text: `Reading the modules: ${error instanceof Error ? error.message : String(error)}` });
+        reader = null;
+        graphComing = false;
+        if (reading !== null) (reading = null, readStanding());
+      });
+    } catch (error) {
+      emit("log", { level: "error", text: `Reading the modules: ${error instanceof Error ? error.message : String(error)}` });
+      reader = null;
     }
-  } catch (error) {
-    return { ...base, ok: false, error: error instanceof Error ? error.message : String(error), functionalSpecs: [] };
   }
-  // Whether its code is regenerated from the spec as it is now: what regenerating what changed would have to do.
-  let drifted = false;
-  // Its codebase's base folder against what the codebase started from, when they do not agree - changed since, named
-  // differently now, or not there: drift's line, in turri's words. Not kept in step, so said, not done. Only once it has
-  // code: before, a base folder not there is parse's warning already.
-  let baseFolder;
-  try {
-    const reports = looker.drift(file);
-    drifted = reports.some((report) => report.code !== null);
-    if (built) baseFolder = reports.find((report) => report.plainFile === file && typeof report.baseFolder === "string")?.baseFolder;
-  } catch {
-    drifted = true;
+  if (reader !== null) {
+    // Its graph taken as the engine's own, unless a file changes meanwhile.
+    graphComing = derived.graph === undefined;
+    askedOf = graphs;
+    return reader.postMessage({ run: reading, files });
   }
-  // A step of adding tests skipped - scenarios, but no test reqs or no conformance testing script: turri says which, and
-  // writes no conformance tests there until it is taken.
-  return { ...base, built, drifted, conformanceTested, functionalSpecs, warnings: result.warnings ?? [], ...(baseFolder !== undefined ? { baseFolder } : {}) };
+  // No thread for it: read here, a module at a time, the window's calls answered between them.
+  const run = reading;
+  const left = [...files];
+  const next = () => {
+    const file = left.shift();
+    if (file === undefined) return heardStanding({ run, done: true });
+    const spec = said(turri, projectDir, file, graphNow());
+    let reports;
+    try {
+      reports = lookerNow().drift(file);
+    } catch {
+      reports = undefined;
+    }
+    heardStanding({ run, spec: standing(turri, spec, reports) });
+    setImmediate(next);
+  };
+  setImmediate(next);
+}
+
+function heardStanding({ run, graph, said: told, spec, done, error, log }) {
+  if (log !== undefined) return emit("log", log);
+  if (graph !== undefined && graphComing && askedOf === graphs) {
+    derived.graph = graph;
+    graphComing = false;
+    emit("graph", null);
+  }
+  if (told !== undefined) emit("standing", remember(knownAs(told)));
+  if (spec !== undefined) emit("standing", remember(spec));
+  if (done && run === reading) {
+    if (error !== undefined) emit("log", { level: "error", text: `Reading the modules: ${error}` });
+    reading = null;
+    graphComing = false;
+    if (readAgain) (readAgain = false, readStanding());
+  }
+}
+
+// ---------- turri's graph of the project ----------
+
+/** What is read of the whole project's ***plain - turri's graph, the concepts - kept until a file it could read changes. */
+let derived = {};
+/** How many times it has been let go: a graph read before the last time is of files as they were. */
+let graphs = 0;
+let askedOf = -1;
+/** Whether the read under way is to bring the graph: until it does, what wants it does without (graphSoon). */
+let graphComing = false;
+const forgetGraph = () => ((derived = {}), graphs++, (graphComing = false));
+const graphNow = () => (derived.graph ??= turri.plainGraph(projectDir));
+/** The graph, or - while the read under way brings it - none yet: what shows it is told once it is there (`graph`). */
+const graphSoon = () => derived.graph ?? (graphComing ? undefined : graphNow());
+
+/**
+ * Whether a change could change the graph: anything of the project's but version control's own, installed packages,
+ * what turri keeps for itself, and the code turri builds - a .plain file anywhere does.
+ */
+function shapesGraph(parts) {
+  if (parts.at(-1)?.endsWith(".plain")) return true;
+  if (parts[0] === ".turri" || parts[0] === turri.MODULES_DIR) return false;
+  return !parts.some((part) => UNLISTED.has(part));
 }
 
 function readSpec({ file }) {
@@ -910,6 +987,7 @@ function readSpec({ file }) {
 
 function writeSpec({ file, text }) {
   writeFileSync(file, text);
+  forgetGraph();
   const described = describePlain(file);
   // A ***plain that changes while the session's loop looks after its module is work: the loop is told, as a chat's watch
   // does - of the module a test plain file's scenarios are of, for a test plain file.
@@ -998,7 +1076,8 @@ function evaluateTests({ file, funcIds }) {
 
 function conform({ file, funcIds }) {
   const module = basename(file, ".plain");
-  chatOf().send(funcIds?.length ? `Write and run the conformance tests for ${funcIds.map((funcId) => `${module}:${funcId}`).join(", ")}.` : `Write and run the conformance tests for ${module}.`);
+  const names = funcIds?.length ? funcIds.map((funcId) => `${module}:${funcId}`).join(", ") : module;
+  chatOf().act({ kind: "conform", title: names, prompt: `Write and run the conformance tests for ${names}.` });
   return true;
 }
 
@@ -1010,7 +1089,7 @@ async function investigate({ id, module, pulse, kind, why }) {
   const chat = session.canOpen ? await openChat() : undefined;
   const which = [module, pulse !== undefined && pulse !== null ? `pulse ${pulse}` : null, kind, id].filter(Boolean).join(" · ");
   const said = typeof why === "string" && why.trim() !== "" ? `\n\nWhy it failed, as the pulse reported it:\n\n${why.trim()}` : "";
-  chatOf(chat).send(`Investigate the pulse that failed (${which}): find out why it failed, explain it to me, and fix what needs fixing so it can succeed.${said}`);
+  chatOf(chat).act({ kind: "investigate", title: which, prompt: `Investigate the pulse that failed (${which}): find out why it failed, explain it to me, and fix what needs fixing so it can succeed.${said}` });
   return true;
 }
 
@@ -1054,6 +1133,17 @@ async function sendChat({ chat, text, images = [], files = [] }) {
   return true;
 }
 
+/**
+ * What a button of the window's asks turri, in the person's place - its kind, what the chat shows of it, and the prompt
+ * turri hears: in the chat shown, or the one named.
+ */
+function sendAction({ chat, action }) {
+  const { kind, title, detail, prompt } = action ?? {};
+  if (!ACTION_KINDS.has(kind) || typeof title !== "string" || title === "" || typeof prompt !== "string" || prompt === "" || (detail !== undefined && typeof detail !== "string")) throw new Error("Not a button's action.");
+  chatOf(chat).act({ kind, title, detail, prompt });
+  return true;
+}
+
 function abortChat({ chat }) {
   void chatOf(chat).abort();
   return true;
@@ -1067,13 +1157,7 @@ function commands() {
 const KNOWS_SETTINGS = typeof turri.configSettings === "function";
 
 /** Whether a module's functional specs are conformance tested: its stack's conformance-tests: over the project's, as turri reads it. */
-function conformanceTestsOn(file) {
-  try {
-    return turri.configForSpec(file).conformanceTests === true;
-  } catch {
-    return false;
-  }
-}
+const conformanceTestsOn = (file) => conformanceOf(turri, file);
 
 /**
  * Conformance tests turned on from the window - beside a module, or the settings' switch: written where the module's
@@ -1092,7 +1176,8 @@ async function turnOnConformance({ file } = {}) {
   const testing = [];
   for (const module of modules) {
     if (before.has(module) || !conformanceTestsOn(module)) continue;
-    const spec = describeSpec(module);
+    // Which are built and not tested, read now - what drift says is not wanted here.
+    const spec = standing(turri, said(turri, projectDir, module, graphNow()), []);
     const funcIds = spec.functionalSpecs.filter((each) => each.built && !each.conformed && each.scenarios.conformance.length + each.scenarios.acceptance.length > 0).map((each) => each.funcId);
     if (funcIds.length === 0) continue;
     conform({ file: module, funcIds });
@@ -1276,7 +1361,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, sentinelCheck, glimpse, earlierPulses, sendChat, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, sentinelCheck, glimpse, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.

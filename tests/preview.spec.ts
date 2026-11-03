@@ -11,6 +11,8 @@ test.describe("the preview", () => {
     await expect(window.getByRole("tab", { name: "home", selected: true })).toBeVisible();
     // The fixture is not built: nothing to choose.
     await expect(window.locator(".preview-home .empty h3")).toHaveText("nothing built yet");
+    // How the module stands read, after the project opens: what the engine would say after a regeneration is sent over it.
+    await expect(window.locator(".tree-row", { hasText: "hello.plain" }).locator(".spec-row-count")).toHaveText("0/1");
 
     // Built, as the engine would say it after a regeneration: its functional spec to choose.
     type Summary = { specs: Array<{ functionalSpecs: object[] }> };
@@ -36,8 +38,12 @@ test.describe("the preview", () => {
     await row.click();
     await expect(row).toHaveAttribute("aria-checked", "true");
     await watch.click();
-    // Asked in the chat, as the person would say it - and chosen no longer.
-    await expect(window.locator(".chat-body .msg.user", { hasText: "Try hello:print-hello in the release of hello while I watch - its last commit, released first if what runs is not - and tell me what you find." })).toBeVisible();
+    // Asked in the chat - the button's own message: try it, and what, the prompt turri heard behind it - and chosen no longer.
+    const asked = window.locator(".chat-body .msg.action");
+    await expect(asked.locator(".action-name")).toHaveText("try it");
+    await expect(asked.locator(".action-title")).toHaveText("hello:print-hello in the release of hello");
+    await asked.getByRole("button", { name: "what turri was asked" }).click();
+    await expect(asked.locator(".action-prompt")).toHaveText("Open the release of hello for me to try hello:print-hello - its last commit, released first only if what runs is not - then tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.");
     await expect(row).toHaveAttribute("aria-checked", "false");
     // turri opens the terminal for it: the preview goes there.
     await send("terminal:reveal", null);
@@ -314,3 +320,62 @@ function jpegWidth(jpeg: Buffer): number {
   }
   return 0;
 }
+
+// The page has the keyboard once the person is there, as a browser's tab does: a game's start button, focused by the
+// game, hears enter and space with no click to take the focus from it - but not over what they type elsewhere. A
+// hidden window's page has the focus whatever is asked, so what is heard here is the window asking for it.
+test.describe("the preview's page and the keyboard", () => {
+  let server: Server;
+  let address: string;
+  test.beforeAll(async () => {
+    server = createServer((_request, response) => response.end(`<!doctype html><title>dive</title><button id="dive">dive</button><script>dive.focus()</script>`));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    address = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  });
+  test.afterAll(() => server.close());
+
+  /** How many times the window has asked for the page to have the keyboard since this was called (preview:go "focus"). */
+  const focusAsked = async (app: import("@playwright/test").ElectronApplication) => {
+    await app.evaluate(({ ipcMain }) => {
+      const heard = ((globalThis as unknown as { focusAsked: number }).focusAsked = 0);
+      void heard;
+      ipcMain.removeHandler("preview:go");
+      ipcMain.handle("preview:go", (_event, action: string) => {
+        if (action === "focus") (globalThis as unknown as { focusAsked: number }).focusAsked++;
+      });
+    });
+    return () => app.evaluate(() => (globalThis as unknown as { focusAsked: number }).focusAsked);
+  };
+
+  test("is the page's once it opens from the address bar, and again once the person comes back to it", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const asked = await focusAsked(app);
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("tab", { name: "browser" }).click();
+    await window.locator(".preview-address input").fill(address);
+    await window.locator(".preview-address input").press("Enter");
+    await expect.poll(asked).toBeGreaterThan(0);
+    const once = await asked();
+    // Away to the ***plain, and back: the page's again.
+    await window.locator(".toolbar").getByRole("tab", { name: "***plain" }).click();
+    await window.locator(".toolbar").getByRole("tab", { name: "preview" }).click();
+    await expect.poll(asked).toBeGreaterThan(once);
+  });
+
+  test("stays where the person types when turri opens a page meanwhile", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("tab", { name: "browser" }).click();
+    await window.locator(".preview-address input").fill(`${address}?first`);
+    await window.locator(".preview-address input").press("Enter");
+    await expect(window.locator(".preview-address input")).toHaveValue(/\?first/);
+    // Typing in the chat: turri going to another page leaves the keyboard there.
+    await window.locator(".composer textarea").focus();
+    const asked = await focusAsked(app);
+    await tool(app)("browser", "navigate", { url: `${address}?second` });
+    await expect(window.locator(".preview-address input")).toHaveValue(/\?second/);
+    await window.waitForTimeout(300);
+    expect(await asked()).toBe(0);
+    await expect(window.locator(".composer textarea")).toBeFocused();
+  });
+});

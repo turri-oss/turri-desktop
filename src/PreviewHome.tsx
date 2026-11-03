@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Spec } from "./types.ts";
 import { Empty, Icon, PlainMark } from "./ui.tsx";
+import type { Action } from "./actions.ts";
 
 /** A functional spec as turri names it outside its module. */
 const nameOf = (module: string, funcId: string) => `${module}:${funcId}`;
@@ -30,7 +31,7 @@ const upTo = (spec: Spec) => spec.functionalSpecs.filter((entry) => entry.built)
  * module's that holds it, released first when what runs is behind. turri tries it in the chat, as the person watches;
  * the sentinel checks it in the background, on a turri whose sentinel can be asked.
  */
-export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spec[]; sentinel: boolean; onAsk: (text: string) => void; onSentinel: (module: string, names: string[]) => void }) {
+export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spec[]; sentinel: boolean; onAsk: (action: Action) => void; onSentinel: (module: string, names: string[]) => void }) {
   const modules = specs.filter((spec) => spec.ok && spec.functionalSpecs.length > 0);
   const [chosen, setChosen] = useState<Array<{ module: string; funcId: string }>>([]);
   // What is chosen and still there to try - not gone from the ***plain since, nor regenerated away.
@@ -61,8 +62,14 @@ export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spe
   const toggle = (module: string, funcId: string) =>
     setChosen((now) => (isChosen(module, funcId) ? now.filter((each) => each.module !== module || each.funcId !== funcId) : [...now, { module, funcId }]));
   const tryIt = () => {
-    const each = [...releases.values()].map(({ release, chosen }) => `${listOf(chosen.map((one) => nameOf(one.module, one.funcId)))} in the release of ${release.module}`);
-    onAsk(`Try ${listOf(each)} while I watch - its last commit, released first if what runs is not - and tell me what you find.`);
+    // Theirs to try: turri opens the release - released first only if what runs is behind - and says how, testing none of it.
+    const tried = [...releases.values()].map(({ release, chosen }) => ({ release: release.module, names: listOf(chosen.map((one) => nameOf(one.module, one.funcId))) }));
+    const each = tried.map(({ release, names }) => `the release of ${release} for me to try ${names}`);
+    onAsk({
+      kind: "try",
+      title: listOf(tried.map(({ release, names }) => `${names} in the release of ${release}`)),
+      prompt: `Open ${listOf(each)} - its last commit, released first only if what runs is not - then tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.`,
+    });
     setChosen([]);
   };
   const check = () => {

@@ -6,7 +6,7 @@ import { followAt, PlainLinks, useModHeld, usePlainLinks, type Followed, type Op
 import { keys, withMod } from "./platform.ts";
 
 type Token = { text: string; role: string | null };
-type State = "conformed" | "built" | "now" | "todo";
+type State = "conformed" | "built" | "now" | "todo" | "unread";
 /** A line of a functional spec: its func-id, whether it is its heading, and which line that is. */
 type SpecLine = { funcId: string; first: boolean; line: number };
 
@@ -77,7 +77,7 @@ function savedCollapsed() {
   }
 }
 
-const STATE_LABEL: Record<State, string> = { conformed: "built and conformance tested", built: "built", now: "building now", todo: "to build" };
+const STATE_LABEL: Record<State, string> = { conformed: "built and conformance tested", built: "built", now: "building now", todo: "to build", unread: "reading what is built" };
 
 /**
  * The functional specs of a module the running work builds now, by func-id: those its pulse covers, as its cases say -
@@ -248,6 +248,7 @@ export function SpecView(props: {
   const stateOf = (funcId: string): State => {
     if (renderingFuncIds.has(funcId)) return "now";
     const entry = entryFor(funcId);
+    if (spec.unread) return "unread";
     if (entry === undefined) return "todo";
     return entry.conformed && props.conformanceTests ? "conformed" : entry.built ? "built" : "todo";
   };
@@ -443,7 +444,6 @@ export function SpecView(props: {
           onRegenerate={() => props.onRegenerate([markMenu.funcId])}
           onConform={() => props.onConform([markMenu.funcId])}
           conformanceTests={props.conformanceTests}
-          onTurnOnConformance={props.onTurnOnConformance}
           onOpenTests={(file, line) => props.onOpenTests(file, line)}
           onEvaluate={() => props.onEvaluate(markMenu.funcId)}
           onWriteScenarios={() => props.onWriteScenarios(markMenu.funcId)}
@@ -480,7 +480,12 @@ export function SpecView(props: {
                 <StartedFrom base={props.base} /> <span className="muted">·</span>
               </>
             )}
-            {spec.ok && total > 0 && (
+            {spec.ok && total > 0 && spec.unread && (
+              <span className="built-count unread muted" title="what is built of it is read once the project is open">
+                reading what is regenerated <span className="muted">·</span>
+              </span>
+            )}
+            {spec.ok && total > 0 && !spec.unread && (
               <span className="built-count" title="functional specs whose code is regenerated from the ***plain">
                 <Icon name="check" size={12} /> {built} of {total} regenerated <span className="muted">·</span>
               </span>
@@ -495,6 +500,7 @@ export function SpecView(props: {
               </span>
             ) : (
               spec.ok &&
+              !spec.unread &&
               testable > 0 && (
                 <span className="conformed-count" title="of the functional specs with scenarios, those built with their conformance tests written and passing">
                   <Icon name="checks" size={12} /> {conformedCount} of {testable} conformed ·
@@ -668,7 +674,7 @@ export function SpecView(props: {
 /**
  * What a functional spec's mark offers: regenerate it, or conform it once it is built and has scenarios - that
  * functional spec alone - and open its scenarios, when it has a test plain file. With conformance tests off, nothing that
- * tests or evaluates - but turning them on. Regenerate and conform are lit as they are pointed at, or reached with the
+ * tests or evaluates - turning them on is the header's, as it is more than this functional spec's. Regenerate and conform are lit as they are pointed at, or reached with the
  * arrow keys, in their kind's colour - and the functional spec with them. Escape, a click elsewhere or the window left
  * closes it.
  */
@@ -679,7 +685,6 @@ function MarkMenu(props: {
   onRegenerate: () => void;
   onConform: () => void;
   conformanceTests: boolean;
-  onTurnOnConformance: () => void;
   onOpenTests: (file: string, line: number) => void;
   onEvaluate: () => void;
   onWriteScenarios: () => void;
@@ -741,11 +746,6 @@ function MarkMenu(props: {
       {props.entry?.testPlainFile && (
         <button role="menuitem" className="open-tests" onClick={choose(() => props.onOpenTests(props.entry!.testPlainFile!, firstScenarioLine(props.entry!)))}>
           open its scenarios
-        </button>
-      )}
-      {!props.conformanceTests && (
-        <button role="menuitem" className="turn-on" onClick={choose(props.onTurnOnConformance)}>
-          turn on conformance tests
         </button>
       )}
       {props.conformanceTests && props.entry !== undefined && !tested && (
@@ -861,7 +861,9 @@ function SpecStatePop(props: { funcId: string; x: number; y: number; state: Stat
       ? [running?.kind === "conformance" ? "conforming" : "regenerating", null]
       : state === "conformed"
         ? ["regenerated and conformed", "its code is built from the ***plain as it is, and its conformance tests pass."]
-        : state === "built"
+        : state === "unread"
+          ? ["reading what is regenerated", "what is built of it is read once the project is open: its mark follows."]
+          : state === "built"
           ? ["regenerated", tested ? (off ? "its code is built from the ***plain as it is. its scenarios are not tested: conformance tests are off." : "its code is built from the ***plain as it is. its conformance tests do not pass yet.") : "its code is built from the ***plain as it is."]
           : ["not regenerated yet", "regenerate builds it - or click its mark to build it alone."];
   // Kept inside the window: below the line, or above it near the bottom.

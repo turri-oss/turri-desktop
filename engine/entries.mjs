@@ -4,6 +4,15 @@
 import { retriedWithoutImages } from "./browser.mjs";
 
 /**
+ * A turn a button of the window's asks for in the person's place - try it, write testing scenarios, investigate: its
+ * prompt goes to turri as the person's words, and the chat shows what was asked, by its kind, never the prompt as if
+ * they had typed it.
+ */
+export const APP_ACTION = "turri_app_action";
+/** The kinds of such buttons: each drawn its own way in the chat (src/actions.ts). */
+export const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform"]);
+
+/**
  * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
  * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it - and the
  * test advisor's yes, which starts the turn that writes the scenarios: a mark of where it came from, `module:func-id`s - and
@@ -11,6 +20,10 @@ import { retriedWithoutImages } from "./browser.mjs";
  * testing script it was to write and the module it was for (on a turri before `runs`, its skill alone).
  */
 function customItem(message) {
+  if (message.customType === APP_ACTION) {
+    const details = message.details ?? {};
+    return { role: "action", kind: typeof details.kind === "string" ? details.kind : "start", title: String(details.title ?? ""), ...(typeof details.detail === "string" ? { detail: details.detail } : {}), prompt: textOf(message.content) };
+  }
   if (message.customType === "turri_sentinel_pulse") return { role: "sentinelPulse", job: message.details?.jobId ?? null };
   // A check the person asked of it: where its work on a pulse ends - what follows is no pulse's.
   if (message.customType === "turri_sentinel_check") return { role: "sentinelPulse", job: null };

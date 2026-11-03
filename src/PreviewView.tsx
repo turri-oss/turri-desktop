@@ -5,6 +5,7 @@ import { TerminalPane } from "./Terminal.tsx";
 import { PreviewHome } from "./PreviewHome.tsx";
 import type { Pane, Spec } from "./types.ts";
 import { Empty, Icon, Jellyfish } from "./ui.tsx";
+import type { Action } from "./actions.ts";
 
 /** The blue edge round the pane while turri tests in it, in CSS pixels: as wide as `.preview.testing`'s in styles.css. */
 const EDGE = 3;
@@ -57,8 +58,8 @@ export function PreviewView({
   onPane: (pane: Pane) => void;
   /** The project's modules, for the home to say what there is to try. */
   specs: Spec[];
-  /** Something chosen on the home to try, asked of turri in the chat. */
-  onTry: (text: string) => void;
+  /** try it, from the home: what it asks turri, as a button's action. */
+  onTry: (action: Action) => void;
   /** Something chosen on the home for the sentinel to check, in a module's release - none on a turri whose sentinel cannot be asked. */
   onSentinel?: (module: string, names: string[]) => void;
   /** turri testing in the pane shown: edged in blue. */
@@ -126,6 +127,15 @@ export function PreviewView({
   }, [showing, testing]);
   // Gone from the window - another view, another file - the pane goes too.
   useEffect(() => () => void window.turri.preview.place(null), []);
+  // Shown, and each page it goes to while it is: the page has the keyboard, as a browser's tab does - its focused control
+  // (a game's start button) hears enter and space with no click to take the focus from it - unless the person is typing
+  // somewhere else in the window, the chat say, which keeps it. The preview's own address bar and terminal give it up.
+  useEffect(() => {
+    if (!showing) return;
+    const active = document.activeElement as HTMLElement | null;
+    const typing = active !== null && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable) && active.closest(".preview") === null;
+    if (!typing) void window.turri.preview.go("focus");
+  }, [showing, state.url]);
 
   const open = (typed: string) => {
     if (!typed.trim()) return;

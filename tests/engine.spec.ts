@@ -33,16 +33,30 @@ test.describe("the engine", () => {
   });
 });
 
+test.describe("a project opening", () => {
+  test("shows its files at once, and how each module stands once it is read - in a thread of its own", async ({ launched: { window: page } }) => {
+    const row = page.locator(".tree-row", { hasText: "hello.plain" });
+    await expect(row).toBeVisible();
+    // Read: its mark and count in the tree, and what is regenerated of it in the ***plain view's header.
+    await expect(row.locator(".state-dot.unread")).toHaveCount(0, { timeout: 15_000 });
+    await expect(row.locator(".spec-row-count")).toHaveText("0/1");
+    await expect(page.locator(".editor-pane .pane-header")).toContainText("0 of 1 regenerated");
+    const spec = (await page.evaluate(() => window.turri.call<{ specs: Array<{ unread?: boolean; drifted?: boolean }> }>("summary"))).specs[0]!;
+    expect(spec.unread).toBeUndefined();
+    expect(spec.drifted).toBe(true);
+  });
+});
+
 test.describe("the project's modules", () => {
   test("are its .plain files but its test plain files, each functional spec by its func-id", async ({ launched: { window: page, project } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
     // A test plain file of hello's, in turri's test folder: a functional spec's scenarios, not a module.
     mkdirSync(join(project, "tests", "hello"), { recursive: true });
     writeFileSync(join(project, "tests", "hello", "print-hello.plain"), "---\nmodule: hello\nfunc_id: print-hello\n---\n\n***conformance tests***\n\n# prints-hello\nRunning :Greeter: prints \"hello, world\".\n");
-    const summary = await page.evaluate(() => window.turri.call<{ specs: Array<{ rel: string; functionalSpecs: Array<{ funcId: string; text: string }> }> }>("summary"));
-    expect(summary.specs.map((spec) => spec.rel)).toEqual(["hello.plain"]);
-    // Its scenarios, from its test plain file.
-    expect(summary.specs[0]!.functionalSpecs).toEqual([
+    const summary = () => page.evaluate(() => window.turri.call<{ specs: Array<{ rel: string; functionalSpecs: Array<{ funcId: string; text: string }> }> }>("summary"));
+    expect((await summary()).specs.map((spec) => spec.rel)).toEqual(["hello.plain"]);
+    // Its scenarios, from its test plain file - once the modules are read again, after it is written.
+    await expect.poll(async () => (await summary()).specs[0]!.functionalSpecs, { timeout: 15_000 }).toEqual([
       {
         funcId: "print-hello",
         text: ':Greeter: prints "hello, world" and exits with 0.',

@@ -6,6 +6,8 @@ test.describe("regenerating what changed", () => {
   test("is offered only when the ***plain has changed since it was built", async ({ launched: { app, window: page } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
     await expect(page.locator(".hint", { hasText: "regenerate what changed" })).toBeVisible();
+    // How the module stands read, after the project opens: what the engine would say after a regeneration is sent over it.
+    await expect(page.locator(".editor-pane .pane-header")).toContainText("0 of 1 regenerated");
 
     type Summary = { specs: Array<{ functionalSpecs: object[] }> };
     const summary = (await page.evaluate(() => window.turri.call("summary"))) as Summary;

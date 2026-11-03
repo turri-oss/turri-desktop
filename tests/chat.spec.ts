@@ -293,6 +293,22 @@ test.describe("the chat", () => {
 test.describe("a turn at work", () => {
   test.use({ stubModel: "silent" });
 
+  test("shows a button's ask as waiting while turri answers - its own box, never the person's words - and lets it go with the turn stopped", async ({ launched: { window } }) => {
+    const box = window.locator(".composer textarea");
+    await box.fill("hello");
+    await box.press("Enter");
+    const stop = window.locator(".composer-bar button", { hasText: "stop" });
+    await expect(stop).toBeVisible();
+    await window.locator(".editor-colours .mark").first().click();
+    await window.getByRole("menuitem", { name: "write testing scenarios" }).click();
+    const waiting = window.locator(".chat-body .msg.action.queued");
+    await expect(waiting.locator(".action-title")).toHaveText("hello:print-hello");
+    await expect(waiting).toContainText("waiting - turri has not read this yet");
+    await expect(window.locator(".chat-body .msg.user")).toHaveCount(1);
+    await stop.click();
+    await expect(waiting).toHaveCount(0);
+  });
+
   test("is stopped by ctrl+c wherever the focus is, and the window stays", async ({ launched: { app, window } }) => {
     const box = window.getByPlaceholder("talk to turri - or / for a command");
     const stop = window.locator(".composer-bar button", { hasText: "stop" });
@@ -392,6 +408,29 @@ test.describe("a turn at work", () => {
     await window.locator(".composer-bar button", { hasText: "stop" }).click();
     await expect(waiting).toHaveCount(0);
     await expect(box).toHaveValue("and then this\n\nstill typing");
+  });
+});
+
+test.describe("a tool that takes its time", () => {
+  test.use({ stubModel: "runs" });
+
+  test("says turri is at work while it writes a tool's call and while the tool runs, until its reply", async ({ launched: { window } }) => {
+    const box = window.locator(".composer textarea");
+    await box.fill("run something slow");
+    await box.press("Enter");
+    const tool = window.locator(".tool-call");
+    const working = window.locator(".chat-working");
+    // Its call still being written: not done, and turri still thinking.
+    await expect(window.locator(".msg.assistant.live .tool-call")).toBeVisible();
+    await expect(tool.locator(".spinner")).toBeVisible();
+    await expect(working).toHaveText("thinking");
+    // Run: working, until it is done.
+    await expect(window.locator(".msg.assistant:not(.live) .tool-call")).toBeVisible({ timeout: 10_000 });
+    await expect(tool.locator(".spinner")).toBeVisible();
+    await expect(working).toHaveText("working");
+    await expect(window.locator(".msg.assistant").last()).toContainText("done", { timeout: 15_000 });
+    await expect(tool.locator(".spinner")).toHaveCount(0);
+    await expect(working).toHaveCount(0);
   });
 });
 

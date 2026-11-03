@@ -7,7 +7,7 @@ import turri from "./turri.mjs";
 import { browserExtension, browserTools } from "./browser.mjs";
 import { terminalExtension, terminalTools } from "./terminal.mjs";
 import { APP_SURFACE, SENTINEL, SENTINEL_SURFACE, withWhere } from "./app.mjs";
-import { entryItem, normalise, transcript } from "./entries.mjs";
+import { APP_ACTION, entryItem, normalise, transcript } from "./entries.mjs";
 
 const { pi } = turri;
 
@@ -102,6 +102,9 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
           onNotice: (notice) => emit("chat:notice", { chat: notice.chat, data: notice }),
           onNoticeOver: (notice) => emit("chat:noticeOver", { chat: notice.chat, data: notice }),
           onConcluded: (conclusion) => emit("chat:concluded", { chat: conclusion.chat, data: conclusion }),
+          // A pulse that landed and the sentinel's conclusions are the window's to say - its notifications: the person's
+          // chat is told, for when they ask, but starts no turn to say it again. A turri before pulseEndsShown says it there.
+          pulseEndsShown: true,
           // The sentinel starting a pulse in a fresh conversation: its new session followed (a turri before it keeps one).
           onChatSession: renewed,
         }
@@ -267,6 +270,9 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
   };
 
   let lastDelta = 0;
+  /** The turns buttons asked for while it answered, not heard yet: shown waiting, as what is typed meanwhile is. */
+  let waiting = [];
+  const tellWaiting = () => emit("chat:actionsWaiting", waiting.map(({ kind, title, detail }) => ({ kind, title, ...(detail !== undefined ? { detail } : {}) })));
   /** What it had cost when last read: what it spent, once its session is let go and can be read no more. */
   let lastCost = 0;
   /** How full the conversation's context is, and what it has cost - its own model's calls, not the pulses'. */
@@ -299,6 +305,8 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
         break;
       case "agent_settled":
         emit("chat:busy", { busy: false });
+        // A button's turn still waiting once the chat is done was let go with what it was doing - stopped.
+        if (waiting.length > 0) (waiting = []), tellWaiting();
         onStep?.();
         tellStats();
         break;
@@ -312,6 +320,8 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
         break;
       }
       case "message_end":
+        // A button's turn heard: no longer waiting.
+        if (event.message?.role === "custom" && event.message.customType === APP_ACTION && waiting.length > 0) (waiting = waiting.slice(1)), tellWaiting();
         tellStats();
         emit("chat:streaming", null);
         for (const item of [normalise(event.message)].flat()) if (item) emit("chat:message", item);
@@ -358,6 +368,17 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       if (text.trim() === "/pulses") return sendWhole("regen:open", null);
       const run = session.prompt(text, { streamingBehavior: "followUp", ...(images.length > 0 ? { images } : {}) });
       Promise.resolve(run).catch((error) => emit("chat:notify", { level: "error", text: error instanceof Error ? error.message : String(error) }));
+    },
+    /**
+     * Ask turri what a button of the window's asks, in the person's place: its prompt goes as their words - heard after
+     * the turn, said while it answers - and the chat shows the button's kind and what it asked (`APP_ACTION`), not the
+     * prompt. A chat it begins is named by what it asked, as one the person begins is by their first words.
+     */
+    act: ({ kind, title, detail, prompt }) => {
+      if (session.messages.length === 0 && !session.sessionManager.getSessionName?.()) session.setSessionName?.(title);
+      if (session.isStreaming) (waiting = [...waiting, { kind, title, detail }]), tellWaiting();
+      const message = { customType: APP_ACTION, content: prompt, display: true, details: { kind, title, ...(detail !== undefined ? { detail } : {}) } };
+      Promise.resolve(session.sendCustomMessage(message, { triggerTurn: true, deliverAs: "followUp" })).catch((error) => emit("chat:notify", { level: "error", text: error instanceof Error ? error.message : String(error) }));
     },
     /**
      * The commands typing / offers, as pi has them: the extension's - /turri-config, /regenerate, /stack - its prompt

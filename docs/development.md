@@ -13,6 +13,8 @@ electron/preload.ts  what the window may ask of the app (window.turri)
 electron/settings.ts the app's settings beyond its look: settings.json in its userData
 scripts/notices.mjs  the third-party notices About lists, written to dist-electron/ as the app is built
 engine/engine.mjs    a Node process per open project that imports turri's src/: the chats, the ***plain, the work
+engine/describe.mjs  a module as the window shows it: what it says (turri's parse and graph), and how it stands (built, conformance tested, drifted)
+engine/describe-worker.mjs  a thread that reads every module - the graph, what each says, how each stands - as a project opens and as it changes, so the engine answers the window meanwhile: in one call where turri has projectStanding, module by module where it does not
 engine/chat.mjs      turri's session (createTurri) and its chats, each pi's agent session; their dialogs and notices become window events
 engine/browser.mjs   the browser tools, a pi extension of the app's own beside turri's
 engine/terminal.mjs  the terminal tools, another

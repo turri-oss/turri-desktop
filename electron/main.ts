@@ -859,6 +859,9 @@ function noticeAnswer(answer: unknown): { action: number } | { steer: string } |
   throw new Error("A notice is answered with one of its actions, the person's words, dismissed, or ignored.");
 }
 
+/** The kinds of a button's action, as the engine knows them (engine/entries.mjs) and the window draws them (src/actions.ts). */
+const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform"]);
+
 /** What the window asks of its engine, checked where a method takes more than the engine can check itself. */
 function engineParams(method: string, params: unknown): unknown {
   // A sentinel check: the module whose release is checked, by name, and functional specs, each by its module:func-id.
@@ -867,6 +870,15 @@ function engineParams(method: string, params: unknown): unknown {
     if (typeof module !== "string" || module === "") throw new Error("Which module does the sentinel check?");
     if (!Array.isArray(funcIds) || funcIds.length === 0 || !funcIds.every((id) => typeof id === "string" && id !== "")) throw new Error("Which functional specs does the sentinel check?");
     return { module, funcIds };
+  }
+  // A button's action: one of its kinds, what the chat shows of it, and the prompt turri hears - text, and not a book.
+  if (method === "sendAction") {
+    const { chat, action } = (params ?? {}) as { chat?: unknown; action?: Record<string, unknown> };
+    const { kind, title, detail, prompt } = action ?? {};
+    const text = (value: unknown, most: number) => typeof value === "string" && value !== "" && value.length <= most;
+    if (!ACTION_KINDS.has(kind as string) || !text(title, 300) || !text(prompt, 20_000) || (detail !== undefined && !text(detail, 1000))) throw new Error("Not a button's action.");
+    if (chat !== undefined && chat !== null && typeof chat !== "string") throw new Error("Which chat?");
+    return { chat: chat ?? undefined, action: { kind, title, prompt, ...(detail !== undefined ? { detail } : {}) } };
   }
   if (method !== "answerNotice") return params;
   const { id, answer } = (params ?? {}) as { id?: unknown; answer?: unknown };

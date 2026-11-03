@@ -34,7 +34,7 @@ interface Options {
    * request, so each answer to one - or a decline - brings the next; `replies` answers each in words, after two seconds,
    * "reply n" - each costing $1.00, 1000 tokens read at the stub's price.
    */
-  stubModel: false | "silent" | "asks" | "replies";
+  stubModel: false | "silent" | "asks" | "replies" | "runs";
   /** More of the app's environment, as the person's shell would give it. */
   env: Record<string, string>;
   /** turri's debug mode on for the project: `debug: true` in its config.turri.yaml. */
@@ -94,7 +94,7 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
 });
 
 /** A model provider of the test's own, in pi's models.json - the project's harness-model (see `stubModel`). */
-async function modelStub(scratch: string, project: string, mode: "silent" | "asks" | "replies") {
+async function modelStub(scratch: string, project: string, mode: "silent" | "asks" | "replies" | "runs") {
   const requests: string[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -109,6 +109,16 @@ async function modelStub(scratch: string, project: string, mode: "silent" | "ask
         response.write(": thinking\n\n");
         const usage = { usage: { prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000 } };
         return void setTimeout(() => response.end(chunk({ delta: { role: "assistant", content: `reply ${n}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }, usage) + "data: [DONE]\n\n"), 2000);
+      }
+      // A tool call written slowly, a piece of its arguments at a time, and a command that takes its time - then, told
+      // what it said, a reply.
+      if (mode === "runs") {
+        if (n > 1) return void response.end(chunk({ delta: { role: "assistant", content: "done" }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }) + "data: [DONE]\n\n");
+        const args = JSON.stringify({ command: "sleep 4; echo slept" });
+        const pieces = [args.slice(0, 12), args.slice(12, 24), args.slice(24)];
+        response.write(chunk({ delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_run", type: "function", function: { name: "bash", arguments: "" } }] }, finish_reason: null }));
+        pieces.forEach((piece, at) => setTimeout(() => response.write(chunk({ delta: { tool_calls: [{ index: 0, function: { arguments: piece } }] }, finish_reason: null })), 1000 * (at + 1)));
+        return void setTimeout(() => response.end(chunk({ delta: {}, finish_reason: "tool_calls" }) + "data: [DONE]\n\n"), 4000);
       }
       // An OpenAI-style stream of one tool call: ask_user, question n.
       const call = { index: 0, id: `call_${n}`, type: "function", function: { name: "ask_user", arguments: JSON.stringify({ question: `question ${n}?`, options: ["yes", "no"] }) } };
