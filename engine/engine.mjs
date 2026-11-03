@@ -35,9 +35,9 @@ const loopNow = () => session?.loop();
 /** A loop of the engine's own that starts nothing: what is left to regenerate, read without the session's - made when first asked. */
 let looker;
 const lookerNow = () => (looker ??= turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir, dryRun: true }));
-/** A chat by its id - the one shown, when none is named. */
+/** A chat by its id - the one shown, when none is named: so is a message sent before the window has read its chats. */
 function chatOf(id) {
-  const chat = id === undefined ? session.shown() : session.chat(id);
+  const chat = id === undefined || id === null ? session.shown() : session.chat(id);
   if (chat === undefined) throw new Error("That chat is closed.");
   return chat;
 }

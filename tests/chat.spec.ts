@@ -97,7 +97,8 @@ test.describe("the chat", () => {
     await box.press("Enter");
     // ***plain written as its name is: its mark, then plain.
     await expect(window.locator(".chat-body .plain-name", { hasText: "plain" }).first()).toBeVisible();
-    await expect(window.locator(".chat-body")).toContainText("The plain standard library");
+    // As the engine's tests wait for it: slow while the project's modules are read beside it, many apps at once.
+    await expect(window.locator(".chat-body")).toContainText("The plain standard library", { timeout: 15_000 });
     await expect(window.locator(".chat-body")).toContainText("stdlib/backend/python-fastapi");
     // Nothing went to the model: no turn started, nothing spent.
     await expect(window.locator(".chat-body .msg.assistant")).toHaveCount(0);

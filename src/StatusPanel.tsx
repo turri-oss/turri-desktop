@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NoticeCard, type NoticeAnswer } from "./Chat.tsx";
 import type { NoticeShown, Tone } from "./chats.ts";
-import { Icon, withPlain } from "./ui.tsx";
+import { Icon, Spinner, withPlain } from "./ui.tsx";
 
 /** What is wrong with a file of the project, as turri says it: there until it is put right - nothing to dismiss. */
 export type Problem = {
@@ -69,6 +69,11 @@ export function StatusPanel(props: {
   focus?: { id: string; at: number };
   /** A tab's notifications cleared - the sentinel's with its notices that have ended. */
   onClear: (tab: "notifications" | "sentinel") => void;
+  /**
+   * What the sentinel is doing now, while it works: the pulse it checks - by its id and its name - or, `job` null, a
+   * check the person asked for. Said at the top of its tab, which clearing never takes away.
+   */
+  sentinelNow?: { job: string | null; title: string } | null;
 }) {
   const [open, setOpen] = useState(false);
   // Its height: dragged by its top edge, kept for next time.
@@ -92,7 +97,10 @@ export function StatusPanel(props: {
   const sentinel = props.notifications.filter((note) => note.source === "sentinel");
   const unread = general.filter((note) => note.id > seen.notifications);
   const unheard = sentinel.filter((note) => note.id > seen.sentinel);
-  const waiting = props.notices.filter((shown) => shown.ended === undefined);
+  // Open notices: those waiting on an answer, and the sentinel's fixes of its own - notes to read and put away, which
+  // wait on nothing and open nothing by themselves.
+  const waiting = props.notices.filter((shown) => shown.ended === undefined && shown.notice.kind !== "fixed");
+  const fixes = props.notices.filter((shown) => shown.ended === undefined && shown.notice.kind === "fixed");
   const ended = props.notices.filter((shown) => shown.ended !== undefined);
 
   // A notice put to the person - one not there before - opens the panel on it: it waits on their answer.
@@ -272,9 +280,24 @@ export function StatusPanel(props: {
             </ul>
           ) : (
             <ul className="status-list sentinel" role="tabpanel" aria-label="sentinel" ref={list}>
-              {sentinel.length + props.notices.length === 0 && <li className="status-none muted">nothing from the sentinel</li>}
+              {/* What it is doing now: no notification - it is there while it works, whatever is cleared. */}
+              {props.sentinelNow && (
+                <li className="sentinel-now" role="status">
+                  <Spinner />
+                  <span>
+                    the sentinel is checking {withPlain(props.sentinelNow.title)} - still at work
+                  </span>
+                  {props.sentinelNow.job !== null && (
+                    <button className="link" onClick={() => props.onOpenPulse(props.sentinelNow!.job!)} title="what it does, in regen">
+                      see what it does <Icon name="chevron" size={11} />
+                    </button>
+                  )}
+                </li>
+              )}
+              {sentinel.length + props.notices.length === 0 && !props.sentinelNow && <li className="status-none muted">nothing from the sentinel</li>}
               {/* The notices waiting on an answer first, the oldest first; then the rest, the newest first. */}
               {waiting.map(noticeRow)}
+              {fixes.map(noticeRow)}
               {[
                 ...sentinel.map((note) => ({ at: note.at, row: () => noteRow(note) })),
                 ...ended.map((shown) => ({ at: Date.parse(shown.notice.at), row: () => noticeRow(shown) })),
@@ -308,14 +331,14 @@ export function StatusPanel(props: {
         </button>
         {/* The sentinel's, right of the window's: what it concluded not yet read, and its notices waiting on an answer. */}
         <button
-          className={`status-sentinel ${open && tab === "sentinel" ? "on" : ""} ${unheard.length + waiting.length > 0 ? "unread" : ""}`}
+          className={`status-sentinel ${open && tab === "sentinel" ? "on" : ""} ${unheard.length + fixes.length + waiting.length > 0 ? "unread" : ""}`}
           onClick={() => show("sentinel")}
           title="sentinel"
-          aria-label={`sentinel: ${unheard.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}`}
+          aria-label={`sentinel: ${unheard.length + fixes.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}${props.sentinelNow ? ", at work" : ""}`}
         >
-          <Icon name="eye" size={13} />
-          {unheard.length + waiting.length > 0 && (
-            <span className={`status-count ${waiting.some((shown) => shown.notice.severity === "error") ? "error" : ""}`}>{unheard.length + waiting.length}</span>
+          {props.sentinelNow ? <Spinner /> : <Icon name="eye" size={13} />}
+          {unheard.length + fixes.length + waiting.length > 0 && (
+            <span className={`status-count ${waiting.some((shown) => shown.notice.severity === "error") ? "error" : ""}`}>{unheard.length + fixes.length + waiting.length}</span>
           )}
         </button>
       </div>

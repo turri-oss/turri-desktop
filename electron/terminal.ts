@@ -416,6 +416,8 @@ export function createTerminal({ send, capture, spawn = ptySpawn, shell: given }
         throw new Error("The person is not looking at the terminal, so it cannot be pictured now - the window is not brought to it for you. Read what it shows with terminal_read (cells: true) instead.");
       return { ...shot, rows: now.rows, cols: now.cols, running: pty !== undefined, program: foreground(), atPrompt: pty !== undefined && atPrompt() };
     },
+    /** Whether the shell is at its prompt - or not started yet, when the next thing typed starts one that is: nothing revealed. */
+    state: async () => ({ atPrompt: pty === undefined || atPrompt() }),
     read: async ({ cells }: { cells?: boolean }) => {
       if (pty === undefined && replay === "") throw new Error("Nothing has run in the terminal yet: run something with terminal_run.");
       reveal();

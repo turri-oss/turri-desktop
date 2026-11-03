@@ -137,6 +137,11 @@ export type Notice = {
   job?: string;
   /** What the person may leave as it is for good - a gap in the ***plain the build settled - so it is not raised again. */
   ignorable?: boolean;
+  /**
+   * A fix the sentinel made itself - a testing script, where config.turri.yaml names one - and said: a note, not a
+   * question, its evidence the lines before and after (- and +), and nothing to answer but putting it away.
+   */
+  kind?: "fixed";
   state: NoticeState;
   at: string;
 };
@@ -830,14 +835,15 @@ export function NoticeCard({
     if (words.trim() === "") return;
     answer({ steer: words.trim() });
   };
-  // The sentinel and the module it is about: the pulse's number is regen's to say.
-  const about = [SENTINEL_NAME, notice.module].filter(Boolean).join(" · ");
-  const ending = ended !== undefined && ended !== "open" ? ENDED[ended] : live ? null : "no longer open";
+  // The sentinel and the module it is about: the pulse's number is regen's to say. A fix of its own says so.
+  const fixed = notice.kind === "fixed";
+  const about = [fixed ? "the sentinel fixed" : SENTINEL_NAME, notice.module].filter(Boolean).join(" · ");
+  const ending = ended !== undefined && ended !== "open" ? (fixed && ended === "dismissed" ? "put away" : ENDED[ended]) : live ? null : "no longer open";
   return (
-    <section className={`msg notice-card ${notice.severity} ${live ? "open" : "over"}`} aria-label={`notice: ${notice.summary}`}>
+    <section className={`msg notice-card ${fixed ? "fixed" : notice.severity} ${live ? "open" : "over"}`} aria-label={`${fixed ? "fixed" : "notice"}: ${notice.summary}`}>
       <div className="notice-head">
-        <span className={`notice-mark ${notice.severity}`} aria-label={notice.severity}>
-          <Icon name={notice.severity === "info" ? "dot" : "warn"} size={14} />
+        <span className={`notice-mark ${fixed ? "fixed" : notice.severity}`} aria-label={fixed ? "fixed" : notice.severity}>
+          <Icon name={fixed ? "check" : notice.severity === "info" ? "dot" : "warn"} size={14} />
         </span>
         <span className="notice-about">
           <Icon name="eye" size={13} />
@@ -853,13 +859,23 @@ export function NoticeCard({
         <Prose text={notice.summary} />
       </div>
       {notice.evidence.length > 0 && (
-        <ul className="notice-evidence">
+        // A fix's evidence is what it changed: the lines before (-) and after (+), as a diff shows them.
+        <ul className={`notice-evidence ${fixed ? "diff" : ""}`}>
           {notice.evidence.map((line, index) => (
-            <li key={index}>{line}</li>
+            <li key={index} className={fixed ? (line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : undefined) : undefined}>
+              {line}
+            </li>
           ))}
         </ul>
       )}
-      {live ? (
+      {live && fixed ? (
+        // Done already: nothing to answer, only to put away.
+        <div className="notice-actions">
+          <button className="button small notice-got-it" disabled={sent} title="seen - put it away" onClick={() => answer({ dismiss: true })}>
+            got it
+          </button>
+        </div>
+      ) : live ? (
         steering ? (
           <div className="notice-steer">
             <textarea

@@ -934,3 +934,40 @@ test.describe("a failed pulse", () => {
     expect(requests.at(-1)).toContain("The conformance tests could not reach the greeter.");
   });
 });
+
+test.describe("the window's header, while pulses run", () => {
+  test("says what runs - regenerating and conformance testing, each in its colour, and on which modules - and a click opens it in regen", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const send = (job: object) => app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), job);
+    const header = window.locator(".toolbar");
+    await expect(header.locator(".running-pulse")).toHaveCount(0);
+
+    await send({ ...pulse(), status: "running", finishedAt: undefined, stage: "writing the code" });
+    const regenerating = header.locator(".running-pulse.regenerate");
+    await expect(regenerating).toHaveText("regenerating hello · writing the code");
+    await expect(regenerating.locator(".spinner")).toHaveCount(1);
+    expect(await regenerating.evaluate((element) => getComputedStyle(element).color)).toBe(await window.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--built").trim()).then((hex) => hexToRgb(hex)));
+
+    await send({ ...pulse(), id: "c1", kind: "conformance", module: "greeter", pulse: 2, title: "conformance", status: "running", finishedAt: undefined, startedAt: Date.now() });
+    const testing = header.locator(".running-pulse.conformance");
+    await expect(testing).toHaveText("conformance testing greeter");
+    await expect(regenerating).toHaveAttribute("title", "regenerating: hello · pulse 1 · writing the code - open in regen");
+
+    // A click: regen, on the pulse.
+    await regenerating.click();
+    await expect(window.locator(".dive")).toBeVisible();
+    await expect(window.locator(".dive .job.marked, .dive [data-job='p1'].marked, .dive .marked").first()).toBeVisible();
+    await window.locator(".dive .dive-back").click();
+
+    // Done: no longer said.
+    await send({ ...pulse(), status: "succeeded" });
+    await send({ ...pulse(), id: "c1", kind: "conformance", module: "greeter", pulse: 2, status: "succeeded" });
+    await expect(header.locator(".running-pulse")).toHaveCount(0);
+  });
+});
+
+/** A colour token's #rrggbb as getComputedStyle says a colour. */
+function hexToRgb(hex: string) {
+  const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}

@@ -26,8 +26,35 @@ const GUIDELINES = [
   "A server started there runs on in the person's terminal: to try it in the browser too, run it with terminal_run, then open it with browser_navigate.",
 ];
 
-/** Tools on the preview's terminal, each sent as `request(action, params)` and answered with what came of it. */
-export function terminalTools(request) {
+/**
+ * Tools on the preview's terminal, each sent as `request(action, params)` and answered with what came of it. A command
+ * line typed at the shell's prompt - with terminal_type, or entered with terminal_press - is checked as turri checks a
+ * command it runs (`machineChange`, from turri's host entry, where it has it): one that would install something or change
+ * the machine's settings is refused, nothing typed - turri installs nothing. What is typed into a program that runs -
+ * answering its prompt, a terminal UI - is not a command line, and is not checked.
+ */
+export function terminalTools(request, { machineChange, machineChangeReason } = {}) {
+  const checks = typeof machineChange === "function" && typeof machineChangeReason === "function";
+  /** What turri typed at the prompt and has not entered yet: the start of a command line. */
+  let line = "";
+  const atPrompt = async () => {
+    try {
+      return (await request("state", {})).atPrompt === true;
+    } catch {
+      return false;
+    }
+  };
+  /** The refusal of the first of these command lines that would change the machine, if one would. */
+  const refusalOf = (lines) => {
+    for (const each of lines) {
+      const why = each.trim() === "" ? undefined : machineChange(each);
+      if (why !== undefined) return machineChangeReason(why);
+    }
+    return undefined;
+  };
+  const ENTER = new Set(["enter", "return"]);
+  /** Keys that put away what was typed at the prompt. */
+  const CLEARS = new Set(["ctrl+c", "ctrl+u", "ctrl+g"]);
   const text = (value) => ({ type: "text", text: value });
   /** What the terminal shows since the command, and whether something still runs in it. */
   const said = (result) => {
@@ -65,7 +92,7 @@ export function terminalTools(request) {
         required: ["command"],
         additionalProperties: false,
       },
-      execute: async (_id, { command, wait }) => answer("run", { command, wait }),
+      execute: async (_id, { command, wait }) => ((line = ""), answer("run", { command, wait })),
     },
     {
       name: "terminal_type",
@@ -82,7 +109,20 @@ export function terminalTools(request) {
         },
         additionalProperties: false,
       },
-      execute: async (_id, { text: typed, key, delay, wait }) => answer("type", { text: typed, key, delay, wait }),
+      execute: async (_id, { text: typed, key, delay, wait }) => {
+        if (checks && (await atPrompt())) {
+          // Each line it enters - by a newline in the text, or enter after it - is a command the shell runs.
+          const lines = `${line}${typed ?? ""}`.split(/\r\n|\r|\n/);
+          const entered = key !== undefined && ENTER.has(key.toLowerCase());
+          const refused = refusalOf(entered ? lines : lines.slice(0, -1));
+          if (refused !== undefined) {
+            line = "";
+            throw new Error(refused);
+          }
+          line = entered || (key !== undefined && CLEARS.has(key.toLowerCase())) ? "" : lines.at(-1);
+        } else line = "";
+        return answer("type", { text: typed, key, delay, wait });
+      },
     },
     {
       name: "terminal_press",
@@ -100,7 +140,27 @@ export function terminalTools(request) {
         required: ["keys"],
         additionalProperties: false,
       },
-      execute: async (_id, { keys, repeat, delay, wait }) => answer("press", { keys, repeat, delay, wait }),
+      execute: async (_id, { keys, repeat, delay, wait }) => {
+        if (checks && Array.isArray(keys) && (await atPrompt())) {
+          // Enter after what was typed at the prompt runs it: checked first. A character pressed adds to it.
+          let now = line;
+          for (const pressed of keys) {
+            const name = String(pressed).toLowerCase();
+            if (ENTER.has(name)) {
+              const refused = refusalOf([now]);
+              if (refused !== undefined) {
+                line = "";
+                throw new Error(refused);
+              }
+              now = "";
+            } else if (CLEARS.has(name)) now = "";
+            else if (name === "backspace") now = now.slice(0, -1);
+            else if ([...String(pressed)].length === 1) now += pressed;
+          }
+          line = now;
+        } else line = "";
+        return answer("press", { keys, repeat, delay, wait });
+      },
     },
     {
       name: "terminal_click",

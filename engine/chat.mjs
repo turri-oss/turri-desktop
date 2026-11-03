@@ -41,7 +41,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   // given it - is given the same, to test a release with. pi keeps the first registered under a name, so in its chat
   // the two are one.
   const browsing = browserTools(browser);
-  const trying = terminalTools(terminal);
+  // A command line turri types at the terminal's prompt is checked as one it runs: it installs nothing.
+  const trying = terminalTools(terminal, { machineChange: turri.machineChange, machineChangeReason: turri.machineChangeReason });
   const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch];
   const follow = (id, session, earlier) => {
     const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep, earlier });

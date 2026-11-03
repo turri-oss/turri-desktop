@@ -370,12 +370,28 @@ test.describe("the preview's page and the keyboard", () => {
     await window.locator(".preview-address input").press("Enter");
     await expect(window.locator(".preview-address input")).toHaveValue(/\?first/);
     // Typing in the chat: turri going to another page leaves the keyboard there.
-    await window.locator(".composer textarea").focus();
+    await window.locator(".composer textarea").pressSequentially("half a mess");
     const asked = await focusAsked(app);
     await tool(app)("browser", "navigate", { url: `${address}?second` });
     await expect(window.locator(".preview-address input")).toHaveValue(/\?second/);
     await window.waitForTimeout(300);
     expect(await asked()).toBe(0);
     await expect(window.locator(".composer textarea")).toBeFocused();
+  });
+
+  test("is the page's when turri opens one with only the chat's empty message box focused - nobody typing there", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("tab", { name: "browser" }).click();
+    await window.locator(".preview-address input").fill(`${address}?first`);
+    await window.locator(".preview-address input").press("Enter");
+    await expect(window.locator(".preview-address input")).toHaveValue(/\?first/);
+    // The chat focusing its own message box, as it does when a chat is shown: then turri opens a page.
+    await window.waitForTimeout(2100);
+    await window.locator(".composer textarea").focus();
+    const asked = await focusAsked(app);
+    await tool(app)("browser", "navigate", { url: `${address}?second` });
+    await expect(window.locator(".preview-address input")).toHaveValue(/\?second/);
+    await expect.poll(asked).toBeGreaterThan(0);
   });
 });

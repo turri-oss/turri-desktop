@@ -41,6 +41,11 @@ function addressOf(typed: string): string {
  * folder (electron/terminal.ts), for a CLI. turri drives both with its browser and terminal tools, and the window comes
  * to the one it uses - edged in blue while it does, and the bar saying so.
  */
+/** When a key was last pressed in the window, and how long after it the person is still typing. */
+let lastKey = 0;
+const TYPING_MS = 2000;
+window.addEventListener("keydown", () => (lastKey = Date.now()), true);
+
 export function PreviewView({
   dir,
   covered,
@@ -129,11 +134,15 @@ export function PreviewView({
   useEffect(() => () => void window.turri.preview.place(null), []);
   // Shown, and each page it goes to while it is: the page has the keyboard, as a browser's tab does - its focused control
   // (a game's start button) hears enter and space with no click to take the focus from it - unless the person is typing
-  // somewhere else in the window, the chat say, which keeps it. The preview's own address bar and terminal give it up.
+  // somewhere else in the window, which keeps it: a field with something in it, or keys pressed a moment ago. A field the
+  // window focused by itself - the chat's empty message box, as a chat is shown - is no one typing. The preview's own
+  // address bar and terminal give it up.
   useEffect(() => {
     if (!showing) return;
     const active = document.activeElement as HTMLElement | null;
-    const typing = active !== null && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable) && active.closest(".preview") === null;
+    const field = active !== null && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable) && active.closest(".preview") === null;
+    const written = field && ((active as HTMLInputElement).value ?? active.textContent ?? "").trim() !== "";
+    const typing = field && (written || Date.now() - lastKey < TYPING_MS);
     if (!typing) void window.turri.preview.go("focus");
   }, [showing, state.url]);
 

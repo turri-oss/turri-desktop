@@ -814,6 +814,16 @@ export function App() {
     () => sentinelByPulse(sentinelChat?.items ?? [], sentinelChat?.streaming ?? null, sentinelChat?.busy === true, chats.concluded),
     [sentinelChat?.items, sentinelChat?.streaming, sentinelChat?.busy, chats.concluded],
   );
+  // What the sentinel is doing now, while it works: the pulse its last brief is of - or a check asked of it - for its tab
+  // to say, as clearing its notifications takes nothing of its work away.
+  const sentinelNow = useMemo(() => {
+    if (sentinelChat?.busy !== true) return null;
+    const brief = [...sentinelChat.items].reverse().find((item) => item.role === "sentinelPulse");
+    const job = brief?.role === "sentinelPulse" ? brief.job : null;
+    const pulse = job !== null ? jobs.get(job) : undefined;
+    const title = pulse !== undefined ? [pulse.module, pulse.pulse !== undefined ? `pulse ${pulse.pulse}` : null, pulse.title].filter(Boolean).join(" · ") : job !== null ? "a pulse" : "what you asked it to check";
+    return { job, title };
+  }, [sentinelChat?.busy, sentinelChat?.items, jobs]);
   // The pulse running on a module's ***plain: its own, or one at the top of its chain building a functional spec of it.
   const runningFor = (module: string) => allJobs.find((job) => job.status === "running" && (job.module === module || buildingIn(job, module).size > 0));
   const running = allJobs.filter((job) => job.status === "running");
@@ -1046,6 +1056,7 @@ export function App() {
               ))}
             </div>
             <div className="toolbar-actions">
+              <RunningPulses running={running} onOpen={(id) => (setDive(true), showPulse(id))} />
               {/* The dive - and ! once a pulse failed, until it is shown. */}
               <button
                 className="icon-button dive-open"
@@ -1174,6 +1185,7 @@ export function App() {
               return pulse === undefined ? undefined : { title: pulse.title ?? pulse.summary };
             }}
             onOpenPulse={(id) => showSentinel.current(id)}
+            sentinelNow={sentinelNow}
             focus={focusNotice}
             onOpenFile={(path) => {
               setSelected(path);
@@ -1347,6 +1359,39 @@ export function App() {
 }
 
 /** What the engine said went wrong, without Electron's wrapping of it. */
+/**
+ * What runs now, in the window's header: regenerating and conformance testing, each in its kind's colour - pink what
+ * is regenerated, cyan what is conformance tested - with the building loader and the modules it is on, the stage too
+ * when one runs. A click opens the oldest of them in regen. Nothing while nothing runs.
+ */
+function RunningPulses({ running, onOpen }: { running: Job[]; onOpen: (id: string) => void }) {
+  const kinds = [
+    { kind: "regenerate", name: "regenerating", jobs: running.filter((job) => job.kind !== "conformance") },
+    { kind: "conformance", name: "conformance testing", jobs: running.filter((job) => job.kind === "conformance") },
+  ].filter((each) => each.jobs.length > 0);
+  if (kinds.length === 0) return null;
+  return (
+    <div className="running-pulses" role="status" aria-label="what runs now">
+      {kinds.map(({ kind, name, jobs }) => {
+        const oldest = [...jobs].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))[0]!;
+        const modules = [...new Set(jobs.map((job) => job.module).filter((module): module is string => typeof module === "string" && module !== ""))];
+        const stage = jobs.length === 1 ? oldest.stage : undefined;
+        const each = jobs.map((job) => [job.module, job.pulse !== undefined ? `pulse ${job.pulse}` : null, job.stage].filter(Boolean).join(" · "));
+        return (
+          <button key={kind} className={`running-pulse ${kind}`} onClick={() => onOpen(oldest.id)} title={`${name}: ${each.join("; ")} - open in regen`}>
+            <Spinner />
+            <span className="running-what">
+              {name}
+              {modules.length > 0 && <span className="running-modules"> {modules.join(", ")}</span>}
+              {stage !== undefined && stage !== "" && <span className="running-stage muted"> · {stage}</span>}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function engineSaid(error: unknown) {
   return String((error as Error).message ?? error).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 }

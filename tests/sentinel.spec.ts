@@ -144,6 +144,40 @@ test.describe("the sentinel", () => {
     await expect(card).toHaveCount(0);
   });
 
+  test("shows a fix the sentinel made as a note - what it changed, as a diff - to put away, nothing to answer", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    const answers = await answersTaken(app);
+    const fix = notice(chat, {
+      id: "f1",
+      kind: "fixed",
+      severity: "info",
+      summary: "the unit testing script called python3, which this machine does not have: it calls python now",
+      evidence: ["- python3 -m pytest", "+ python -m pytest"],
+      actions: [],
+      job: undefined,
+      pulse: undefined,
+    });
+    await tellChat(app, window, "chat:notice", fix);
+    // Unread, not waiting on an answer - and it opens nothing by itself.
+    await expect(window.getByRole("button", { name: /^sentinel:/ })).toHaveAccessibleName("sentinel: 1 unread");
+    await window.waitForTimeout(300);
+    await expect(window.getByRole("tabpanel", { name: "sentinel" })).toHaveCount(0);
+    await window.getByRole("button", { name: /^sentinel:/ }).click();
+
+    const card = window.getByRole("tabpanel", { name: "sentinel" }).getByRole("region", { name: `fixed: ${fix.summary}` });
+    await expect(card.locator(".notice-about")).toHaveText("the sentinel fixed · backend");
+    await expect(card.locator(".notice-mark")).toHaveAttribute("aria-label", "fixed");
+    await expect(card.locator(".notice-evidence li.del")).toHaveText("- python3 -m pytest");
+    await expect(card.locator(".notice-evidence li.add")).toHaveText("+ python -m pytest");
+    // One button, putting it away: nothing to say instead, nothing to ignore.
+    await expect(card.getByRole("button")).toHaveText(["got it"]);
+    await card.getByRole("button", { name: "got it" }).click();
+    await expect.poll(answers).toEqual([{ id: "f1", answer: { dismiss: true } }]);
+    await tellChat(app, window, "chat:noticeOver", { ...fix, state: "dismissed" });
+    await expect(card.locator(".notice-ended")).toHaveText("put away");
+  });
+
   test("links a notice to its pulse, opened in regen - and its pulse's card to the notice, shown in the sentinel's tab", async ({ launched: { app, window } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     const chat = await shownChat(window);
@@ -255,6 +289,39 @@ test.describe("the sentinel", () => {
     // A link to what it did, in regen - a pulse the ledger does not have, this one made up, said so rather than opened.
     await notes.nth(1).getByRole("button", { name: "see what it did" }).click();
     await expect(window.locator(".status-said")).toHaveText("that pulse ran in an earlier session: what the sentinel did of it is not kept.");
+  });
+
+  test("says in its tab what the sentinel is doing while it works - which clearing its notifications never takes away", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    const tell = (event: string, to: string, data: unknown) => app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send(`engine:${sent.event}`, { chat: sent.to, data: sent.data }), { event, to, data });
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    await send("engine:chats", [
+      { id: chat, title: "new chat", status: "idle", shown: true },
+      { id: "s", title: "sentinel", status: "working", shown: false, role: "sentinel" },
+    ]);
+    await send("engine:job", pulse("j1", "the greeting by name", 1));
+    await send("engine:job", pulse("j2", "a farewell", 2));
+    for (const item of [{ role: "sentinelPulse", job: "j1" }, { role: "sentinelPulse", job: "j2" }, { role: "assistant", text: "Now the farewell." }]) await tell("chat:message", "s", item);
+    await tell("chat:busy", "s", { busy: true });
+    await transcript(app, window, [{ customType: "turri_sentinel_concluded", data: { job: "j1", verdict: "holds", summary: "it greets by name", module: "hello", pulse: 1 } }]);
+
+    const eye = window.getByRole("button", { name: /^sentinel:/ });
+    await expect(eye).toHaveAccessibleName(/, at work$/);
+    await expect(eye.locator(".spinner")).toHaveCount(1);
+    await eye.click();
+    const tab = window.getByRole("tabpanel", { name: "sentinel" });
+    const now = tab.locator(".sentinel-now");
+    await expect(now).toContainText("the sentinel is checking hello · pulse 2 · a farewell - still at work");
+    await expect(tab.locator(".notification", { hasText: "it holds" })).toHaveCount(1);
+    // Cleared: its notifications go, what it is doing stays.
+    await window.locator(".status-tabs").getByRole("button", { name: "clear all" }).click();
+    await expect(tab.locator(".notification")).toHaveCount(0);
+    await expect(now).toBeVisible();
+    // Done: no longer said.
+    await tell("chat:busy", "s", { busy: false });
+    await expect(now).toHaveCount(0);
+    await expect(eye.locator(".spinner")).toHaveCount(0);
   });
 
   test("shows what the sentinel did of each pulse in that pulse's card in regen, opened from a conclusion's notification", async ({ launched: { app, window } }) => {

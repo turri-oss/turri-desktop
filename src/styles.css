@@ -611,7 +611,45 @@ code {
 .toolbar-actions {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+/* What runs now, in the header: each kind in its colour - pink regenerating, cyan conformance testing. */
+.running-pulses {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.running-pulse {
+  --tone: var(--built);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 280px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--tone) 50%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  color: var(--tone);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.running-pulse.conformance {
+  --tone: var(--tested);
+}
+.running-pulse:hover {
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+.running-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.running-modules {
+  color: var(--fg);
 }
 
 .segmented {
@@ -2262,6 +2300,35 @@ code {
 }
 .msg.notice-card.warning {
   --severity: var(--amber);
+}
+/* What the sentinel is doing now, at the top of its tab while it works: never cleared away. */
+.status-list > li.sentinel-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--sentinel);
+  color: var(--fg-2);
+}
+.status-list > li.sentinel-now .link {
+  margin-left: auto;
+}
+/* The sentinel's fix of its own: a note in the colour of what holds, its change a diff - nothing to answer. */
+.msg.notice-card.fixed {
+  border-color: color-mix(in srgb, var(--green) 50%, transparent);
+}
+.notice-mark.fixed {
+  color: var(--green);
+}
+.notice-evidence.diff li {
+  padding: 0 4px;
+  white-space: pre-wrap;
+}
+.notice-evidence.diff li.add {
+  background: var(--diff-add);
+}
+.notice-evidence.diff li.del {
+  background: var(--diff-del);
 }
 .msg.notice-card.info {
   --severity: var(--sentinel);

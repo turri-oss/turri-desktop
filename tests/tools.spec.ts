@@ -120,3 +120,52 @@ test.describe("browser_press", () => {
     expect(asked).toEqual([{ action: "press", params: { keys: ["left", "space"], hold: 300, together: undefined, repeat: undefined, delay: undefined } }]);
   });
 });
+
+// A command line turri types at the shell's prompt is checked as turri checks one it runs (machineChange, from its host
+// entry): one that installs something is refused, nothing typed. Here a check of the test's own stands in for turri's.
+test.describe("the terminal tools, at the shell's prompt", () => {
+  const machineChange = (command: string) => (/\bbrew\s+install\b/.test(command) ? "it installs with brew" : undefined);
+  const machineChangeReason = (why: string) => `turri changes nothing of this machine's - ${why}.`;
+  async function checked(atPrompt: boolean) {
+    const asked: Array<{ action: string; params: Record<string, unknown> }> = [];
+    const request = async (action: string, params: Record<string, unknown>) => {
+      asked.push({ action, params });
+      return action === "state" ? { atPrompt } : { ...SHOWN, atPrompt };
+    };
+    const made = ((await import(terminalModule)) as { terminalTools: (request: unknown, checks: object) => Tool[] }).terminalTools(request, { machineChange, machineChangeReason });
+    const named = (name: string) => made.find((tool) => tool.name === name)!;
+    /** What was typed or pressed - the requests besides asking whether the shell is at its prompt. */
+    const sent = () => asked.filter((each) => each.action !== "state");
+    return { named, sent };
+  }
+
+  test("refuses a command that installs something, entered with terminal_type, and types nothing - another is typed", async () => {
+    const { named, sent } = await checked(true);
+    await expect(named("terminal_type").execute("1", { text: "brew install node", key: "enter" })).rejects.toThrow("turri changes nothing of this machine's - it installs with brew.");
+    // A newline in the text enters it too.
+    await expect(named("terminal_type").execute("2", { text: "brew install jq\n" })).rejects.toThrow("it installs with brew");
+    expect(sent()).toEqual([]);
+    await named("terminal_type").execute("3", { text: "npm test", key: "enter" });
+    expect(sent()).toEqual([{ action: "type", params: { text: "npm test", key: "enter", delay: undefined, wait: undefined } }]);
+  });
+
+  test("refuses enter pressed after a command that installs something was typed at the prompt", async () => {
+    const { named, sent } = await checked(true);
+    await named("terminal_type").execute("1", { text: "brew install " });
+    await named("terminal_type").execute("2", { text: "node" });
+    await expect(named("terminal_press").execute("3", { keys: ["enter"] })).rejects.toThrow("it installs with brew");
+    expect(sent().map((each) => each.action)).toEqual(["type", "type"]);
+    // Put away with ctrl+u, what is typed next is a line of its own.
+    await named("terminal_type").execute("4", { text: "brew install node" });
+    await named("terminal_press").execute("5", { keys: ["ctrl+u"] });
+    await named("terminal_type").execute("6", { text: "ls" });
+    await named("terminal_press").execute("7", { keys: ["enter"] });
+    expect(sent().map((each) => each.action)).toEqual(["type", "type", "type", "press", "type", "press"]);
+  });
+
+  test("does not check what is typed into a program that runs - its prompt answered, a terminal UI", async () => {
+    const { named, sent } = await checked(false);
+    await named("terminal_type").execute("1", { text: "brew install node", key: "enter" });
+    expect(sent().map((each) => each.action)).toEqual(["type"]);
+  });
+});
