@@ -10,7 +10,12 @@ import { retriedWithoutImages } from "./browser.mjs";
  */
 export const APP_ACTION = "turri_app_action";
 /** The kinds of such buttons: each drawn its own way in the chat (src/actions.ts). */
-export const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform"]);
+export const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform", "regenerate"]);
+/**
+ * A button that runs one of turri's own commands - regenerate from scratch - rather than asking in words: the chat shows
+ * its box, as an action's, then the command runs, its echo left out. An entry of the chat's, never sent to the model.
+ */
+export const APP_COMMAND = "turri_app_command";
 
 /**
  * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
@@ -42,6 +47,8 @@ export function entryItem(entry) {
   if (entry?.type !== "custom") return null;
   const data = entry.data ?? {};
   switch (entry.customType) {
+    case APP_COMMAND:
+      return { role: "action", kind: typeof data.kind === "string" ? data.kind : "start", title: String(data.title ?? ""), ...(typeof data.detail === "string" ? { detail: data.detail } : {}), prompt: String(data.command ?? ""), command: String(data.command ?? "") };
     case "turri_command_outcome":
       // The command as typed, then what it showed - the two in one entry when it was not echoed first.
       if (data.text === undefined) return { role: "command", text: data.command };
@@ -139,8 +146,15 @@ export function normalise(message) {
 export function transcript(session) {
   const manager = session.sessionManager;
   if (typeof manager?.buildContextEntries !== "function") return session.messages.flatMap((message) => [normalise(message)].flat()).filter(Boolean);
-  return manager
-    .buildContextEntries()
-    .flatMap((entry) => [entry.type === "message" ? normalise(entry.message) : entryItem(entry)].flat())
-    .filter(Boolean);
+  return withoutEchoes(
+    manager
+      .buildContextEntries()
+      .flatMap((entry) => [entry.type === "message" ? normalise(entry.message) : entryItem(entry)].flat())
+      .filter(Boolean),
+  );
+}
+
+/** A command a button ran, said once: its box - the echo turri writes right under it, the command as typed, left out. */
+export function withoutEchoes(items) {
+  return items.filter((item, index) => !(item.role === "command" && index > 0 && items[index - 1].role === "action" && items[index - 1].command === item.text));
 }

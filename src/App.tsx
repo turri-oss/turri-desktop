@@ -142,7 +142,7 @@ export function App() {
   const [about, setAbout] = useState<AboutTab | null>(null);
   const [guide, setGuide] = useState(false);
   // Regenerate, chosen how - open with the functional specs it starts on, if any.
-  const [choosing, setChoosing] = useState<string[] | null>(null);
+  const [choosing, setChoosing] = useState(false);
   // The dive, in the whole window's place - regen: the dive button in the toolbar, ⌘2, /pulses, a pulse clicked
   // in the chat. Left by its ‹, or by anything that shows the window again - a view, the chat, a ***plain to open.
   const [dive, setDive] = useState(false);
@@ -432,8 +432,6 @@ export function App() {
           funcIds: how?.how === "again" ? how.funcIds : undefined,
           scratch: how?.how === "scratch",
           chain: how?.how === "scratch" && how.chain,
-          // Continued: what changed, as turri brings a module up to its spec - with the planner told where it stopped.
-          guidance: how?.how === "continue" ? `carry on where it stopped: build the functional specs not built yet - ${how.left.map((funcId) => `${spec.module}:${funcId}`).join(", ")}` : undefined,
         });
       } catch (error) {
         say(String((error as Error).message ?? error), "error");
@@ -661,7 +659,7 @@ export function App() {
         else if (action === "view-next" || action === "view-previous") (inViews.current = true, stepView(action === "view-next" ? 1 : -1));
         else if (action === "focus-chat") focusChat();
         else if (action === "dive") setDive((on) => !on);
-        else if (action === "regenerate-how" && spec?.ok) setChoosing([]);
+        else if (action === "regenerate-how" && spec?.ok) setChoosing(true);
         // Regenerate What Changed: only with something changed - the menu offers it only then.
         else if (action === "regenerate" && changed) void regenerate();
         else if (action === "glimpse") void glimpse();
@@ -998,6 +996,7 @@ export function App() {
             streaming={shownChat.streaming}
             busy={shownChat.busy}
             working={shownChat.working}
+            preparing={shownChat.preparing}
             running={shownChat.tools}
             statuses={shownChat.statuses}
             model={shownChat.model}
@@ -1056,6 +1055,15 @@ export function App() {
               ))}
             </div>
             <div className="toolbar-actions">
+              {/* Only turri halts a pulse: while one regenerates this module, Regenerate waits for it. */}
+              <button
+                className="button primary regenerate-open"
+                disabled={spec === null || !spec.ok || runningFor(spec.module) !== undefined}
+                onClick={() => setChoosing(true)}
+                title={spec && runningFor(spec.module) ? "turri is regenerating this module" : "regenerate this module from scratch - alone, or with its whole chain"}
+              >
+                regenerate…
+              </button>
               <RunningPulses running={running} onOpen={(id) => (setDive(true), showPulse(id))} />
               {/* The dive - and ! once a pulse failed, until it is shown. */}
               <button
@@ -1077,7 +1085,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing !== null || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}
@@ -1262,13 +1270,12 @@ export function App() {
           </aside>
         )}
 
-        {choosing !== null && spec !== null && (
+        {choosing && spec !== null && (
           <RegenerateSheet
             spec={spec}
-            initial={choosing}
-            onClose={() => setChoosing(null)}
+            onClose={() => setChoosing(false)}
             onRegenerate={(how) => {
-              setChoosing(null);
+              setChoosing(false);
               void regenerate(how);
             }}
           />

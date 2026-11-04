@@ -7,7 +7,7 @@ import turri from "./turri.mjs";
 import { browserExtension, browserTools } from "./browser.mjs";
 import { terminalExtension, terminalTools } from "./terminal.mjs";
 import { APP_SURFACE, SENTINEL, SENTINEL_SURFACE, withWhere } from "./app.mjs";
-import { APP_ACTION, entryItem, normalise, transcript } from "./entries.mjs";
+import { APP_ACTION, APP_COMMAND, entryItem, normalise, transcript } from "./entries.mjs";
 
 const { pi } = turri;
 
@@ -273,6 +273,15 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
   let lastDelta = 0;
   /** The turns buttons asked for while it answered, not heard yet: shown waiting, as what is typed meanwhile is. */
   let waiting = [];
+  /** The command a button just ran, its box shown: turri's echo of it, the command as typed, is not said again. */
+  let ran = null;
+  /**
+   * The command a button ran while it works outside any turn - /regenerate from scratch deleting, then planning in the
+   * background - and how much it has said: the window shows turri at work until it says what it started, or what went
+   * wrong. Its first line is that it began; its next, or a warning or an error, that it is done.
+   */
+  let preparing = null;
+  const prepared = () => ((preparing = null), emit("chat:preparing", { text: null }));
   const tellWaiting = () => emit("chat:actionsWaiting", waiting.map(({ kind, title, detail }) => ({ kind, title, ...(detail !== undefined ? { detail } : {}) })));
   /** What it had cost when last read: what it spent, once its session is let go and can be read no more. */
   let lastCost = 0;
@@ -341,7 +350,13 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       case "entry_appended": {
         // What the extension puts in the chat outside a turn: a slash command's echo and outcome, a job's announcement.
         const item = entryItem(event.entry);
-        if (item) emit("chat:message", item);
+        const said = event.entry?.type === "custom" && event.entry.customType === "turri_command_outcome" ? event.entry.data : undefined;
+        if (preparing !== null && said?.command === preparing.command && said.text !== undefined) {
+          preparing.said += 1;
+          if (said.level !== "info" || preparing.said >= 2) prepared();
+        }
+        if (item?.role === "command" && item.text === ran) ran = null;
+        else if (item) emit("chat:message", item);
         break;
       }
     }
@@ -380,6 +395,22 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       if (session.isStreaming) (waiting = [...waiting, { kind, title, detail }]), tellWaiting();
       const message = { customType: APP_ACTION, content: prompt, display: true, details: { kind, title, ...(detail !== undefined ? { detail } : {}) } };
       Promise.resolve(session.sendCustomMessage(message, { triggerTurn: true, deliverAs: "followUp" })).catch((error) => emit("chat:notify", { level: "error", text: error instanceof Error ? error.message : String(error) }));
+    },
+    /**
+     * Run one of turri's commands for a button of the window's - regenerate from scratch: the chat shows the button's box,
+     * by its kind (`APP_COMMAND`, kept in the chat and never sent to the model), then the command runs as if typed, at
+     * once, its echo left out. Given `working`, the window shows turri at work, in those words, until the command has
+     * said what it started - or what went wrong. A chat it begins is named by what it asked.
+     */
+    run: ({ kind, title, detail, command, working }) => {
+      if (session.messages.length === 0 && !session.sessionManager.getSessionName?.()) session.setSessionName?.(title);
+      const entry = session.sessionManager.getEntry(session.sessionManager.appendCustomEntry(APP_COMMAND, { kind, title, ...(detail !== undefined ? { detail } : {}), command }));
+      const item = entryItem(entry);
+      if (item) emit("chat:message", item);
+      ran = command;
+      if (working !== undefined) (preparing = { command, said: 0 }), emit("chat:preparing", { text: working });
+      const run = session.prompt(command, { streamingBehavior: "followUp" });
+      Promise.resolve(run).catch((error) => (prepared(), emit("chat:notify", { level: "error", text: error instanceof Error ? error.message : String(error) })));
     },
     /**
      * The commands typing / offers, as pi has them: the extension's - /turri-config, /regenerate, /stack - its prompt

@@ -1049,7 +1049,8 @@ function jobChanged(job, now = false) {
 /**
  * /regenerate, as the window chose it: what changed, named functional specs again, or from scratch - its whole chain
  * too - and how to cut the work in the person's words. turri reads the words after the module: module:func-ids first
- * are functional specs, "from scratch" and "whole chain" say so, the rest is guidance.
+ * are functional specs, "from scratch" and "whole chain" say so, the rest is guidance. From scratch is the regenerate
+ * sheet's: the chat shows its box, as try it's, and the command runs under it.
  */
 function regenerate({ file, funcIds, scratch, chain, guidance }) {
   const module = basename(file, ".plain");
@@ -1059,6 +1060,16 @@ function regenerate({ file, funcIds, scratch, chain, guidance }) {
   // Set off from what comes before it - and never read as a functional spec named, though it starts like one.
   const said = guidance?.trim();
   if (said) words.push(words.length > 1 || /^\S+:\S/.test(said) ? `- ${said}` : said);
+  if (scratch) {
+    chatOf().run({
+      kind: "regenerate",
+      title: chain ? `${module} and its whole chain, from scratch` : `${module}, from scratch`,
+      detail: chain ? "the code of every module in its chain deleted, and all of it regenerated from the bottom" : "its code deleted, and all of it regenerated",
+      command: words.join(" "),
+      working: chain ? "deleting the chain's code, then planning its regeneration" : "deleting the code, then planning its regeneration",
+    });
+    return true;
+  }
   chatOf().send(words.join(" "));
   return true;
 }

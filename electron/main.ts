@@ -860,7 +860,7 @@ function noticeAnswer(answer: unknown): { action: number } | { steer: string } |
 }
 
 /** The kinds of a button's action, as the engine knows them (engine/entries.mjs) and the window draws them (src/actions.ts). */
-const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform"]);
+const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform", "regenerate"]);
 
 /** What the window asks of its engine, checked where a method takes more than the engine can check itself. */
 function engineParams(method: string, params: unknown): unknown {

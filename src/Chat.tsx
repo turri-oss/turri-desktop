@@ -211,6 +211,8 @@ export function Chat(props: {
   streaming: ChatItem | null;
   busy: boolean;
   working: string | null;
+  /** A command a button ran at work outside any turn - its deleting and planning: said as turri at work is, with no stop. */
+  preparing: string | null;
   running: Map<string, boolean>;
   statuses: Record<string, string>;
   model: string | null;
@@ -504,6 +506,11 @@ export function Chat(props: {
         {props.busy && !(props.streaming?.role === "assistant" && props.streaming.text && !props.streaming.tools?.length) && (
           <div className="chat-working">
             <Jellyfish size={21} /> {props.working ?? ([...props.running.values()].includes(true) ? "working" : "thinking")}
+          </div>
+        )}
+        {!props.busy && props.preparing !== null && (
+          <div className="chat-working">
+            <Jellyfish size={21} /> {props.preparing}
           </div>
         )}
         {props.actionsWaiting.map((action, index) => (
