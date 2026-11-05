@@ -15,7 +15,7 @@ test.describe("the preview", () => {
     await expect(window.locator(".tree-row", { hasText: "hello.plain" }).locator(".spec-row-count")).toHaveText("0/1");
 
     // Built, as the engine would say it after a regeneration: its functional spec to choose.
-    type Summary = { specs: Array<{ functionalSpecs: object[] }> };
+    type Summary = { specs: Array<{ functionalSpecs: object[] }>; offers: { check?: boolean } };
     const summary = (await window.evaluate(() => (globalThis as unknown as { turri: { call: (method: string) => Promise<unknown> } }).turri.call("summary"))) as Summary;
     const built = { ...summary, specs: summary.specs.map((spec) => ({ ...spec, built: true, drifted: false, functionalSpecs: spec.functionalSpecs.map((entry) => ({ ...entry, built: true })) })) };
     const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
@@ -27,8 +27,9 @@ test.describe("the preview", () => {
     const watch = window.getByRole("button", { name: "try it" });
     // What is tried: the newest built module's release, said once, as far as it is built.
     await expect(window.locator(".preview-home-release")).toHaveText("latest release: hello:print-hello - the codebase as built up to it");
-    // A turri whose sentinel cannot be asked: no use sentinel.
-    await expect(window.getByRole("button", { name: "use sentinel" })).toHaveCount(0);
+    // use sentinel on a turri whose sentinel can be asked - none on one whose cannot.
+    const canAsk = summary.offers.check === true;
+    await expect(window.getByRole("button", { name: "use sentinel" })).toHaveCount(canAsk ? 1 : 0);
     await expect(watch).toBeDisabled();
 
     // turri using a pane meanwhile does not take the person from the home.
@@ -49,15 +50,17 @@ test.describe("the preview", () => {
     await send("terminal:reveal", null);
     await expect(window.locator(".preview-terminal")).toHaveCount(1);
 
-    // A turri whose sentinel can be asked: use sentinel, asking the engine for a check of what is chosen - this one, the
-    // pinned turri, saying it cannot.
-    await send("project:opened", { ...built, offers: { ...(built as unknown as { offers: object }).offers, check: true } });
-    await window.getByRole("tab", { name: "preview" }).click();
-    await window.getByRole("tab", { name: "home" }).click();
-    await window.getByRole("checkbox", { name: "print-hello" }).click();
-    await window.getByRole("button", { name: "use sentinel" }).click();
-    // An error opens the status panel on itself.
-    await expect(window.locator(".notification.error")).toContainText("This turri's sentinel checks only the pulses that finish.");
+    // A turri whose sentinel cannot be asked, told it can: use sentinel asks the engine for a check of what is chosen,
+    // and the engine says it cannot. (On a turri whose sentinel can be asked, it would start the sentinel - a model.)
+    if (!canAsk) {
+      await send("project:opened", { ...built, offers: { ...built.offers, check: true } });
+      await window.getByRole("tab", { name: "preview" }).click();
+      await window.getByRole("tab", { name: "home" }).click();
+      await window.getByRole("checkbox", { name: "print-hello" }).click();
+      await window.getByRole("button", { name: "use sentinel" }).click();
+      // An error opens the status panel on itself.
+      await expect(window.locator(".notification.error")).toContainText("This turri's sentinel checks only the pulses that finish.");
+    }
 
     // The switch goes between the three.
     await window.getByRole("tab", { name: "browser" }).click();
