@@ -1,7 +1,7 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { entryItem } from "../engine/entries.mjs";
+import { APP_DECISION, entryItem, noticeDecision } from "../engine/entries.mjs";
 import { expect, tellChat, test } from "./app.ts";
 
 /** A pulse as the engine sends it, done: the sentinel's to check. */
@@ -93,6 +93,39 @@ test.describe("the sentinel", () => {
     expect(entryItem({ type: "custom", customType: "turri_sentinel_concluded", data: conclusion })).toEqual({ role: "concluded", conclusion });
     // turri's brief of a pulse, hidden from the person: where the sentinel's work on that pulse starts.
     expect(entryItem({ type: "custom_message", customType: "turri_sentinel_pulse", display: false, content: "A pulse finished.", details: { jobId: "j-backend-3", status: "succeeded" } })).toEqual({ role: "sentinelPulse", job: "j-backend-3" });
+  });
+
+  test("keeps what the person decided of a notice in the chat, as their box, when it sets the chat to work", async ({ launched: { app, window } }) => {
+    const put = notice("1");
+    // One of its actions: what was chosen, what it was about, and what turri was asked behind it.
+    const chose = noticeDecision(put, { action: 0 });
+    expect(chose).toEqual({ title: "regenerate the backend", detail: put.summary, prompt: "Regenerate backend.plain from scratch." });
+    // Their own words: said once - nothing behind it to repeat them.
+    expect(noticeDecision(put, { steer: " keep the table in memory " })).toEqual({ title: "keep the table in memory", detail: put.summary, prompt: "", said: true });
+    // What sets nothing to work in the chat - dismissed, ignored, an action it does not have, one over, a fix already
+    // made, yes to starting the sentinel - keeps nothing.
+    for (const [given, answer] of [
+      [put, { dismiss: true }],
+      [put, { ignore: true }],
+      [put, { action: 5 }],
+      [{ ...put, state: "accepted" }, { action: 0 }],
+      [{ ...put, kind: "fixed" }, { action: 0 }],
+      [{ ...put, kind: "sentinel-start" }, { action: 0 }],
+    ] as const)
+      expect(noticeDecision(given, answer)).toBeUndefined();
+    // Asked to start the sentinel and answered in words: those words are the chat's to act on.
+    expect(noticeDecision({ ...put, kind: "sentinel-start" }, { steer: "not now" })?.said).toBe(true);
+    // Kept as an entry of the chat's, and drawn as the person's box - nothing of the sentinel in it.
+    const item = entryItem({ type: "custom", customType: APP_DECISION, data: chose });
+    expect(item).toEqual({ role: "action", kind: "chose", ...chose });
+    await tellChat(app, window, "chat:message", item);
+    const box = window.locator(".chat-body .msg.action[data-kind='chose']");
+    await expect(box.locator(".action-name")).toHaveText("you chose");
+    await expect(box.locator(".action-title")).toHaveText("regenerate the backend");
+    await expect(box.locator(".action-detail")).toHaveText(put.summary);
+    await expect(box).not.toContainText("sentinel");
+    await box.getByRole("button", { name: "what turri was asked" }).click();
+    await expect(box.locator(".action-prompt")).toHaveText("Regenerate backend.plain from scratch.");
   });
 
   test("is told where the person watches it try a release, by the tools it is given", async () => {

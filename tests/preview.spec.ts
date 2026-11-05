@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, showRegen, test } from "./app.ts";
+import { expect, showRegen, tellChat, test } from "./app.ts";
 
 // turri's browser and terminal tools tell the window which they use ("preview:reveal", "terminal:reveal") - never bringing
 // it there: sent here as they would be.
@@ -127,6 +127,42 @@ test.describe("the preview, while turri tests in it", () => {
     await testing(false);
     await expect(window.locator(".preview-testing")).toHaveCount(0);
     await expect.poll(async () => (await bounds())?.width).toBe(Math.round(box.width));
+  });
+
+  test("says who is testing which pulse, and opens its ***plain diff under the bar - the page made smaller, never drawn over", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("tab", { name: "browser" }).click();
+    await window.locator(".preview-address input").fill(address);
+    await window.locator(".preview-address input").press("Enter");
+    const page = window.locator(".preview-page");
+    const bounds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.contentView.children[0]?.getBounds());
+    await expect.poll(async () => (await bounds())?.width).toBeGreaterThan(0);
+    // A pulse landed, its ***plain diff with it - and a chat's turri at work in the browser.
+    const diff = "--- a/hello.plain\n+++ b/hello.plain\n@@ -1,2 +1,2 @@\n ***functional specs***\n-- :Greeter: greets.\n+- :Greeter: greets the person by name.\n";
+    const job = { id: "j1", kind: "regenerate", summary: "hello: by name", module: "hello", pulse: 3, title: "by name", status: "succeeded", sequence: 1, queuedAt: Date.now() - 60_000, startedAt: Date.now() - 60_000, finishedAt: Date.now(), waitingOn: [], activity: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, agents: [], specGaps: [], failures: [], diff };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), job);
+    await tellChat(app, window, "chat:tool", { id: "call_1", name: "browser_click", running: true });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("preview:testing", true));
+    const badge = window.locator(".preview-bar .preview-testing");
+    await expect(badge).toContainText("turri is testing hello · pulse 3");
+    const before = (await bounds())!;
+    await badge.getByRole("button", { name: "diff" }).click();
+    const shown = window.locator(".preview-diff");
+    await expect(shown.locator(".preview-diff-head")).toHaveText("hello · pulse 3");
+    await expect(shown.locator("pre.diff .line.add")).toHaveText("+- :Greeter: greets the person by name.");
+    await expect(shown.locator("pre.diff .line.del")).toHaveText("-- :Greeter: greets.");
+    // The page below it, smaller by the diff's height - never under it.
+    const box = (await shown.boundingBox())!;
+    await expect.poll(async () => (await bounds())!.y).toBeGreaterThanOrEqual(Math.floor(box.y + box.height));
+    await expect.poll(async () => (await bounds())!.height).toBeLessThan(before.height);
+    // turri between its tries: the diff stays, until put away.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("preview:testing", false));
+    await expect(badge).toHaveCount(0);
+    await expect(shown).toBeVisible();
+    await shown.getByRole("button", { name: "put the diff away" }).click();
+    await expect(shown).toHaveCount(0);
+    await expect.poll(async () => (await bounds())!.height).toBe(before.height + 6);
   });
 
   test("edges the terminal too", async ({ launched: { app, window } }) => {

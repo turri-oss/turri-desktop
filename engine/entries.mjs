@@ -16,6 +16,24 @@ export const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "in
  * its box, as an action's, then the command runs, its echo left out. An entry of the chat's, never sent to the model.
  */
 export const APP_COMMAND = "turri_app_command";
+/**
+ * What the person decided of a notice - one of its actions, or their own words - that sets the chat to work: their box,
+ * as a button's is, saying what they chose and what it was about. An entry of the chat's, never sent to the model:
+ * turri's own message for the turn is hidden.
+ */
+export const APP_DECISION = "turri_app_decision";
+
+/**
+ * The person's decision on a notice, as the chat keeps it - or nothing for an answer that starts no work in the chat:
+ * dismissed, ignored, a fix already made, or yes to starting the sentinel, which starts the sentinel, not the chat.
+ */
+export function noticeDecision(notice, answer) {
+  if (notice === undefined || notice.state !== "open" || notice.kind === "fixed") return undefined;
+  if (typeof answer?.steer === "string" && answer.steer.trim() !== "") return { title: answer.steer.trim(), detail: notice.summary, prompt: "", said: true };
+  if (notice.kind === "sentinel-start" || typeof answer?.action !== "number") return undefined;
+  const action = notice.actions?.[answer.action];
+  return action === undefined ? undefined : { title: action.label, detail: notice.summary, prompt: action.task };
+}
 
 /**
  * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
@@ -49,6 +67,8 @@ export function entryItem(entry) {
   switch (entry.customType) {
     case APP_COMMAND:
       return { role: "action", kind: typeof data.kind === "string" ? data.kind : "start", title: String(data.title ?? ""), ...(typeof data.detail === "string" ? { detail: data.detail } : {}), prompt: String(data.command ?? ""), command: String(data.command ?? "") };
+    case APP_DECISION:
+      return { role: "action", kind: data.said ? "said" : "chose", title: String(data.title ?? ""), ...(typeof data.detail === "string" ? { detail: data.detail } : {}), prompt: String(data.prompt ?? "") };
     case "turri_command_outcome":
       // The command as typed, then what it showed - the two in one entry when it was not echoed first.
       if (data.text === undefined) return { role: "command", text: data.command };
@@ -104,7 +124,8 @@ export function normalise(message) {
       return {
         role: "assistant",
         text: parts.filter((part) => part.type === "text").map((part) => part.text).join(""),
-        thinking: parts.filter((part) => part.type === "thinking").map((part) => part.thinking).join(""),
+        // What it thought, as the model gave it - none of a part its provider redacted, which pi keeps as a placeholder.
+        thinking: parts.filter((part) => part.type === "thinking" && part.redacted !== true).map((part) => part.thinking).join(""),
         tools: parts.filter((part) => part.type === "toolCall").map((part) => ({ id: part.id, name: part.name, args: part.arguments })),
         error: message.stopReason === "error" ? (message.errorMessage ?? "The model returned an error.") : undefined,
       };

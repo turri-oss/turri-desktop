@@ -606,6 +606,9 @@ export function Chat(props: {
             void attach(Promise.all(files.map(attachedFrom)));
           }}
           onKeyDown={(event) => {
+            // ctrl+tab and ctrl+shift+tab go along the chats (App.tsx) - never the box's tab, which would take what is
+            // offered, or type / into an empty box.
+            if (event.key === "Tab" && (event.ctrlKey || event.metaKey || event.altKey)) return;
             // A concept offered: the arrows choose, enter or tab takes it, escape puts the list away.
             if (offered.length > 0) {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -700,7 +703,8 @@ function Message({
   running: Map<string, boolean>;
   live?: boolean;
 }) {
-  const [thinking, setThinking] = useState(false);
+  // What turri thinks, open - as it thinks it, and after, whatever comes into the chat - until the person folds it.
+  const [thinking, setThinking] = useState(true);
   if (item.role === "user")
     return (
       <div className="msg user">
@@ -757,7 +761,11 @@ function Message({
           {thinking ? "hide thinking" : "thought about it"}
         </button>
       )}
-      {thinking && item.thinking && <div className="thinking">{item.thinking}</div>}
+      {thinking && item.thinking && (
+        <div className="thinking">
+          <Prose text={item.thinking} />
+        </div>
+      )}
       {item.text && <Prose text={item.text} />}
       {item.tools?.map((tool) => (
         // A call still being written is not done either.
@@ -1105,10 +1113,29 @@ const colour = (text: string, tokens: Token[] | undefined) =>
   tokens !== undefined && tokens.map((token) => token.text).join("") === text
     ? tokens.map((token) => (token.role ? `<span class="plain-${token.role}">${escape(token.text)}</span>` : escape(token.text))).join("")
     : escape(text);
+/**
+ * A block's colours - or, while turri is still writing it, those of the most of it already coloured: each line written
+ * keeps its colours as more comes in, and only the lines new since wait for theirs, rather than the whole block going
+ * plain at each word and coloured again a moment after.
+ */
+function coloursOf(plain: string): Token[][] | undefined {
+  const exact = plainColours.get(plain);
+  if (exact !== undefined) return exact;
+  let start: string | undefined;
+  for (const code of plainColours.keys()) if (plain.startsWith(code) && code.length > (start?.length ?? -1)) start = code;
+  return start === undefined ? undefined : plainColours.get(start);
+}
+
+/** A block's colours kept - and those of what it was while being written let go, its colours now. */
+function keepColours(plain: string, lines: Token[][]) {
+  for (const code of plainColours.keys()) if (code !== plain && plain.startsWith(code)) plainColours.delete(code);
+  plainColours.set(plain, lines);
+}
+
 markdown.set({
   highlight: (code, lang, attrs) => {
     const plain = plainIn(code, lang, attrs);
-    const lines = plain === null ? undefined : plainColours.get(plain);
+    const lines = plain === null ? undefined : coloursOf(plain);
     if (lang === "diff") {
       const html = diffLines(code)
         .map((line, index) => `<span class="line ${line.kind}">${escape(line.marker)}${colour(line.text, lines?.[index])}${line.marker + line.text === "" ? "\u200b" : ""}</span>`)
@@ -1144,7 +1171,7 @@ export function Prose({ text }: { text: string }) {
     let alive = true;
     // While turri is still writing a block it changes with each word: asked once it settles.
     const timer = setTimeout(() => {
-      void Promise.all(blocks.map((code) => window.turri.call<Token[][]>("highlightSpec", { text: code }).then((lines) => plainColours.set(code, lines)))).then(
+      void Promise.all(blocks.map((code) => window.turri.call<Token[][]>("highlightSpec", { text: code }).then((lines) => keepColours(code, lines)))).then(
         () => alive && setColoured((count) => count + 1),
       );
     }, 80);

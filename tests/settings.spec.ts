@@ -1,7 +1,7 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, offers, test } from "./app.ts";
+import { clickMenu, expect, offers, test } from "./app.ts";
 
 /** A menu item chosen: the window in front is sent its action, as the native menu sends it - once it is drawn, to hear it. */
 async function choose(app: ElectronApplication, page: Page, action: string) {
@@ -135,6 +135,31 @@ test.describe("a model setting", () => {
     const openai = await model.locator("optgroup[label=openai] option").first().getAttribute("value");
     await model.selectOption(openai!);
     await expect(page.locator(".chat-body")).toContainText(`harness-model: ${openai}`);
+  });
+});
+
+test.describe("harness-model", () => {
+  test("puts every chat on the model chosen - the ones open, not only the one it was chosen from, and the ones opened after", async ({ launched: { app, window: page } }) => {
+    test.skip(!(await offers(page)).chats, "the turri running has one chat");
+    await expect(page.locator(".chat-model")).toHaveText("claude-sonnet-5-5");
+    const tabs = page.locator(".chat-tabs [role=tab]");
+    await clickMenu(app, "New Chat");
+    await expect(tabs).toHaveCount(2);
+    await expect(page.locator(".chat-model")).toHaveText("claude-sonnet-5-5");
+    await tabs.nth(0).click();
+    await choose(app, page, "project-settings");
+    const sheet = page.getByRole("dialog", { name: "project settings" });
+    await sheet.getByRole("combobox", { name: "harness-model", exact: true }).selectOption("anthropic/claude-opus-5-5");
+    await expect(page.locator(".chat-body")).toContainText("harness-model: anthropic/claude-opus-5-5");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".chat-model")).toHaveText("claude-opus-5-5");
+    // The other chat, which /turri-config did not run in.
+    await tabs.nth(1).click();
+    await expect(page.locator(".chat-model")).toHaveText("claude-opus-5-5");
+    // And a chat opened since.
+    await clickMenu(app, "New Chat");
+    await expect(tabs).toHaveCount(3);
+    await expect(page.locator(".chat-model")).toHaveText("claude-opus-5-5");
   });
 });
 

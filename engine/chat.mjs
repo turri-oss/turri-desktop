@@ -7,7 +7,7 @@ import turri from "./turri.mjs";
 import { browserExtension, browserTools } from "./browser.mjs";
 import { terminalExtension, terminalTools } from "./terminal.mjs";
 import { APP_SURFACE, SENTINEL, SENTINEL_SURFACE, withWhere } from "./app.mjs";
-import { APP_ACTION, APP_COMMAND, entryItem, normalise, transcript } from "./entries.mjs";
+import { APP_ACTION, APP_COMMAND, APP_DECISION, entryItem, noticeDecision, normalise, transcript } from "./entries.mjs";
 
 const { pi } = turri;
 
@@ -160,7 +160,14 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     notices: () => (SENTINEL ? session.notices() : []),
     // The test advisor asked about functional specs, as a host asks it: at once, the verdicts coming to the chat shown.
     evaluateTests: typeof session.evaluateTests === "function" ? (funcIds, options) => session.evaluateTests(funcIds, options) : undefined,
-    answerNotice: (id, answer) => session.answer(id, answer),
+    // What the person decided, kept in the chat it sets to work as their box - written before turri's own hidden message
+    // for the turn, so it comes first - then answered.
+    answerNotice: (id, answer) => {
+      const notice = session.notices().find((each) => each.id === id);
+      const decided = noticeDecision(notice, answer);
+      if (decided !== undefined) chats.get(notice.chat)?.decided(decided);
+      return session.answer(id, answer);
+    },
     // A setting's values whole - every model signed in to, not the forty a terminal's autocomplete shows - on a turri
     // that gives them (its settingChoices).
     settingChoices: typeof session.settingChoices === "function" ? (key, typed) => session.settingChoices(key, typed) : undefined,
@@ -255,17 +262,21 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
  * says an event of this chat's; `sendWhole` one of the window's own.
  */
 function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlier = [] }) {
-  // The chat runs on harness-model, as `turri` starts pi with it - and is put on it after a sign-in, when it could not
-  // be before.
-  let onHarness = false;
+  // The chat runs on harness-model, as `turri` starts pi with it - read from the project's config each time, so a chat
+  // opened after it changed starts on the new one - and is put on it after a sign-in, when it could not be before, and
+  // when it changes: every chat of the person's goes with it, not only the one /turri-config ran in. A model chosen in
+  // one chat stays until harness-model changes again.
+  let onHarness;
   const onHarnessModel = async ({ quiet = true } = {}) => {
-    if (!harnessModel || onHarness) return;
-    const [spec, level] = splitLevel(harnessModel);
+    const wanted = harnessModel();
+    if (!wanted || onHarness === wanted) return;
+    const [spec, level] = splitLevel(wanted);
     const slash = spec.indexOf("/");
     const found = slash > 0 ? new pi.ModelRegistry(session.modelRuntime).find(spec.slice(0, slash), spec.slice(slash + 1)) : undefined;
     if (found !== undefined) {
-      await session.setModel(found);
-      onHarness = true;
+      // On it already - the chat /turri-config ran in, switched by turri: not switched again.
+      if (session.model?.provider !== found.provider || session.model?.id !== found.id) await session.setModel(found);
+      onHarness = wanted;
     } else if (!quiet) emit("chat:notify", { level: "warning", text: `harness-model ${spec} was not found: the chat uses pi's default model.` });
     if (level && (found !== undefined || !quiet)) session.setThinkingLevel(level);
   };
@@ -411,6 +422,12 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       if (working !== undefined) (preparing = { command, said: 0 }), emit("chat:preparing", { text: working });
       const run = session.prompt(command, { streamingBehavior: "followUp" });
       Promise.resolve(run).catch((error) => (prepared(), emit("chat:notify", { level: "error", text: error instanceof Error ? error.message : String(error) })));
+    },
+    /** What the person decided of a notice of the sentinel's: their box, kept in the chat (`APP_DECISION`), never sent to the model. */
+    decided: ({ title, detail, prompt, said }) => {
+      const entry = session.sessionManager.getEntry(session.sessionManager.appendCustomEntry(APP_DECISION, { title, ...(detail !== undefined ? { detail } : {}), prompt, ...(said ? { said: true } : {}) }));
+      const item = entryItem(entry);
+      if (item) emit("chat:message", item);
     },
     /**
      * The commands typing / offers, as pi has them: the extension's - /turri-config, /regenerate, /stack - its prompt

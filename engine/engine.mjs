@@ -107,10 +107,22 @@ const auth = createAuth({
   emit,
   runtime: modelRuntime,
   projectDir: () => projectDir,
-  signedIn: async () => {
-    for (const { id } of session?.chats() ?? []) await session.chat(id)?.onHarnessModel();
-  },
+  signedIn: () => onHarnessModel(),
 });
+
+/** harness-model as the project's config has it now - what the person's chats run on. */
+function harnessModel() {
+  try {
+    return turri.modelSpec(turri.projectModels(turri.readProjectConfig(projectDir)).harness);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The person's chats put on harness-model - each one not on it yet. Never the sentinel's, whose model is models.sentinel. */
+async function onHarnessModel() {
+  for (const { id, role } of session?.chats() ?? []) if (role === undefined) await session.chat(id)?.onHarnessModel();
+}
 
 // ---------- the project ----------
 
@@ -277,7 +289,8 @@ function watchSpecs() {
     // The project's config - /turri-config writes it from the chat: the window shows its settings again.
     if (CONFIG_FILE.test(name)) {
       clearTimeout(configTimer);
-      configTimer = setTimeout(() => (emit("config", null), readStanding()), 250);
+      // harness-model changed: every chat of the person's on it, not only the one /turri-config ran in.
+      configTimer = setTimeout(() => (emit("config", null), readStanding(), void onHarnessModel().catch(() => {})), 250);
     }
     if (!parts.some((part) => UNLISTED.has(part))) {
       changed.add(join(projectDir, name));
@@ -1273,7 +1286,6 @@ function chats() {
  * settles: regenerate, say, ends once the plan is made.
  */
 async function startChats() {
-  const harnessModel = turri.modelSpec(turri.projectModels(turri.readProjectConfig(projectDir)).harness);
   session = await startSession({
     cwd: projectDir,
     harnessModel,

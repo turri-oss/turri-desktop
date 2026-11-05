@@ -8,6 +8,27 @@ test.describe("the chat", () => {
     await expect(window.locator(".chat-model")).toHaveText("claude-sonnet-5-5");
   });
 
+  test("shows what turri thinks while it thinks it, and keeps it open once the reply is in - folded only when asked", async ({ launched: { app, window } }) => {
+    await tellChat(app, window, "chat:streaming", { role: "assistant", text: "", thinking: "**Weighing it** - the greeter first." });
+    const live = window.locator(".msg.assistant.live .thinking");
+    await expect(live).toContainText("the greeter first");
+    await expect(live.locator("strong")).toHaveText("Weighing it");
+    await tellChat(app, window, "chat:streaming", null);
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "Done.", thinking: "**Weighing it** - the greeter first." });
+    const done = window.locator(".msg.assistant", { hasText: "Done." });
+    await expect(done.locator(".thinking")).toContainText("the greeter first");
+    // More coming into the chat - a tool at work, another reply - leaves it open.
+    await tellChat(app, window, "chat:streaming", { role: "assistant", text: "", tools: [{ id: "call_9", name: "read", args: { path: "hello.plain" } }] });
+    await tellChat(app, window, "chat:streaming", null);
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "And then some." });
+    await expect(done.locator(".thinking")).toContainText("the greeter first");
+    // Folded when asked, and opened again.
+    await done.getByRole("button", { name: "hide thinking" }).click();
+    await expect(done.locator(".thinking")).toHaveCount(0);
+    await done.getByRole("button", { name: "thought about it" }).click();
+    await expect(done.locator(".thinking")).toContainText("the greeter first");
+  });
+
   test("suggests slash commands as one is typed", async ({ launched: { window } }) => {
     const box = window.getByPlaceholder("talk to turri - or / for a command");
     await box.fill("/std");
@@ -159,6 +180,30 @@ test.describe("the chat", () => {
     await expect(window.locator(".chat-body pre.plain-code")).toHaveCount(1);
   });
 
+  test("keeps a diff of ***plain coloured while turri writes it, a line at a time", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const lines = ["--- a/hello.plain", "+++ b/hello.plain", "@@ -1,2 +1,9 @@", " ***definitions***"];
+    for (let n = 1; n <= 8; n++) lines.push(`+- :Greeter${n}: greets person ${n}.`);
+    const writing = (upTo: number) => tellChat(app, window, "chat:streaming", { role: "assistant", text: "```diff\n" + lines.slice(0, upTo).join("\n") });
+    await writing(5);
+    const diff = window.locator(".msg.assistant.live pre.diff");
+    await expect(diff.locator(".plain-concept").first()).toHaveText(":Greeter1:");
+    // From here, every time the block is drawn again: how many of its concepts are coloured.
+    await window.evaluate(() => {
+      const seen: number[] = ((window as unknown as { seen: number[] }).seen = []);
+      new MutationObserver(() => {
+        const block = document.querySelector(".msg.assistant.live pre.diff");
+        if (block) seen.push(block.querySelectorAll(".plain-concept").length);
+      }).observe(document.querySelector(".chat-body")!, { childList: true, subtree: true });
+    });
+    for (let upTo = 6; upTo <= lines.length; upTo++) await writing(upTo);
+    await expect(diff.locator(".plain-concept")).toHaveCount(8);
+    // Never fewer than the one there was at first: no line went plain again as the next came in.
+    const seen = await window.evaluate(() => (window as unknown as { seen: number[] }).seen);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(1);
+  });
+
   test("colours a diff, and the ***plain in a diff of ***plain", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     const say = (text: string) => tellChat(app, window, "chat:notify", { level: "info", text });
@@ -224,12 +269,19 @@ test.describe("the chat", () => {
     await clickMenu(app, "New Chat");
     await expect(tabs).toHaveCount(3);
     await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+    // Pressed from the message box: the key goes to the chats, and types nothing in any - not tab's / of an empty box.
+    const box = window.getByPlaceholder("talk to turri - or / for a command");
+    await box.focus();
     await window.keyboard.press("Control+Tab");
     await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
     await window.keyboard.press("Control+Shift+Tab");
     await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
     await window.keyboard.press("Control+Shift+Tab");
     await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+    for (const at of [1, 0, 2]) {
+      await tabs.nth(at).click();
+      await expect(box).toHaveValue("");
+    }
   });
 
   test("keeps a hidden chat's question until it is shown", async ({ launched: { app, window } }) => {

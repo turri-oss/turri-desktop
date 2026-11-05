@@ -822,6 +822,17 @@ export function App() {
     const title = pulse !== undefined ? [pulse.module, pulse.pulse !== undefined ? `pulse ${pulse.pulse}` : null, pulse.title].filter(Boolean).join(" · ") : job !== null ? "a pulse" : "what you asked it to check";
     return { job, title };
   }, [sentinelChat?.busy, sentinelChat?.items, jobs]);
+  // Who is testing in the preview, and what pulse of the ***plain: the sentinel on the pulse it checks, a chat of the
+  // person's on the newest that landed - its release is what runs.
+  const tested = useMemo(() => {
+    if (!testing || chats.tester === null) return null;
+    const sentinel = chats.tester.sentinel;
+    const pulse = sentinel ? (sentinelNow?.job != null ? jobs.get(sentinelNow.job) : undefined) : allJobs.find((job) => job.kind === "regenerate" && job.status === "succeeded");
+    return {
+      who: sentinel ? "the sentinel" : "turri",
+      pulse: pulse?.diff ? { id: pulse.id, title: [pulse.module, pulse.pulse !== undefined ? `pulse ${pulse.pulse}` : null].filter(Boolean).join(" · ") || "a pulse", diff: pulse.diff } : null,
+    };
+  }, [testing, chats.tester, sentinelNow?.job, jobs, allJobs]);
   // The pulse running on a module's ***plain: its own, or one at the top of its chain building a functional spec of it.
   const runningFor = (module: string) => allJobs.find((job) => job.status === "running" && (job.module === module || buildingIn(job, module).size > 0));
   const running = allJobs.filter((job) => job.status === "running");
@@ -1085,7 +1096,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} tested={tested} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}

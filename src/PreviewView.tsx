@@ -6,6 +6,10 @@ import { PreviewHome } from "./PreviewHome.tsx";
 import type { Pane, Spec } from "./types.ts";
 import { Empty, Icon, Jellyfish } from "./ui.tsx";
 import type { Action } from "./actions.ts";
+import { Prose } from "./Chat.tsx";
+
+/** Who is testing in the preview, and the pulse it tests: its name and its ***plain diff - none known, only who. */
+export type Tested = { who: string; pulse: { id: string; title: string; diff: string } | null };
 
 /** The blue edge round the pane while turri tests in it, in CSS pixels: as wide as `.preview.testing`'s in styles.css. */
 const EDGE = 3;
@@ -56,6 +60,7 @@ export function PreviewView({
   onSentinel,
   testing,
   testingIn,
+  tested,
 }: {
   dir: string;
   covered: boolean;
@@ -71,12 +76,21 @@ export function PreviewView({
   testing: boolean;
   /** Which of the two turri tests in, while it does: the other shown, its switch glows, inviting the person to it. */
   testingIn: Pane | null;
+  /** Who is testing, and the pulse: said in the bar, its diff a click away. */
+  tested: Tested | null;
 }) {
   const [state, setState] = useState<PreviewState>(BLANK);
   const [shell, setShell] = useState<TerminalState>({ running: false, program: "" });
   const [typed, setTyped] = useState("");
   // The address this project had last: offered, not opened - another project's app may answer there now.
   const [last, setLast] = useState("");
+  // The diff of the pulse tested, opened from the bar: it stays - the page keeping its size - until put away, the pulse
+  // last tested kept while turri thinks between its tries.
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [pulse, setPulse] = useState<Tested["pulse"]>(null);
+  useEffect(() => {
+    if (tested?.pulse) setPulse(tested.pulse);
+  }, [tested?.pulse?.id, tested?.pulse?.diff]);
   const page = useRef<HTMLDivElement>(null);
   const address = useRef<HTMLInputElement>(null);
 
@@ -152,11 +166,32 @@ export function PreviewView({
     void window.turri.preview.open(addressOf(typed));
   };
 
-  // Said in the bar, above the pane it is in.
+  // Said in the bar, above the pane it is in: who is testing, and the pulse - its diff a click away.
   const badge = testing && (
     <span className="preview-testing" role="status">
-      <Jellyfish size={14} swimming={false} /> turri is testing
+      <Jellyfish size={14} swimming={false} /> {tested?.who ?? "turri"} is testing
+      {tested?.pulse && (
+        <>
+          {" "}
+          <span className="preview-testing-pulse">{tested.pulse.title}</span>
+          <button className="link preview-testing-diff" aria-expanded={diffOpen} onClick={() => setDiffOpen(!diffOpen)} title={diffOpen ? "put the diff away" : "the ***plain this pulse changed"}>
+            diff
+          </button>
+        </>
+      )}
     </span>
+  );
+  // The pulse's ***plain diff, under the bar: the page below it made smaller, never drawn over.
+  const diff = diffOpen && pulse !== null && (
+    <div className="preview-diff" aria-label={`the ***plain diff of ${pulse.title}`}>
+      <div className="preview-diff-head">
+        <span>{pulse.title}</span>
+        <button className="icon-button" onClick={() => setDiffOpen(false)} title="put the diff away" aria-label="put the diff away">
+          <Icon name="x" size={13} />
+        </button>
+      </div>
+      <Prose text={"```diff plain\n" + pulse.diff.replace(/\n$/, "") + "\n```"} />
+    </div>
   );
 
   const switcher = (
@@ -197,6 +232,7 @@ export function PreviewView({
             <Icon name="reload" />
           </button>
         </div>
+        {diff}
         <TerminalPane onState={setShell} />
       </div>
     );
@@ -243,6 +279,7 @@ export function PreviewView({
         {badge}
         {state.loading && <span className="preview-loading" />}
       </div>
+      {diff}
       <div className="preview-page" ref={page}>
         {!state.url ? (
           <Empty icon="globe" title="open the app you are building">

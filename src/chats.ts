@@ -31,6 +31,8 @@ export type ChatState = {
   /** A command a button ran at work outside any turn - regenerate from scratch deleting, then planning: what it does. */
   preparing: string | null;
   tools: Map<string, boolean>;
+  /** When it last used the preview - a browser or terminal tool of its own started: the newest is the one testing there. */
+  triedAt: number;
   statuses: Record<string, string>;
   questions: Question[];
   progress: SkillProgress | null;
@@ -45,7 +47,7 @@ export type ChatState = {
 /** A notice of turri's, as the status panel lists it: open, to answer, or how it ended while the window was there. */
 export type NoticeShown = { notice: Notice; ended?: NoticeState };
 
-const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, preparing: null, tools: new Map(), statuses: {}, questions: [], progress: null, model: null, stats: null, notices: new Map(), over: new Map() };
+const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, preparing: null, tools: new Map(), triedAt: 0, statuses: {}, questions: [], progress: null, model: null, stats: null, notices: new Map(), over: new Map() };
 
 /**
  * What turri says in a chat that is the status panel's notifications, not the conversation: the test advisor's no and a
@@ -152,7 +154,9 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
       on<{ busy: boolean }>("chat:busy", (id, { busy }) => update(id, (state) => ({ busy, working: busy ? state.working : null }))),
       on<{ text: string | null }>("chat:working", (id, { text }) => update(id, () => ({ working: text }))),
       on<{ text: string | null }>("chat:preparing", (id, { text }) => update(id, () => ({ preparing: text }))),
-      on<{ id: string; running: boolean }>("chat:tool", (id, tool) => update(id, (state) => ({ tools: new Map(state.tools).set(tool.id, tool.running) }))),
+      on<{ id: string; name?: string; running: boolean }>("chat:tool", (id, tool) =>
+        update(id, (state) => ({ tools: new Map(state.tools).set(tool.id, tool.running), ...(tool.running && /^(browser|terminal)_/.test(tool.name ?? "") ? { triedAt: Date.now() } : {}) })),
+      ),
       on<{ key: string; text: string | null }>("chat:status", (id, { key, text }) => update(id, (state) => ({ statuses: { ...state.statuses, [key]: text ?? "" } }))),
       on<{ level: string; text: string }>("chat:notify", (id, { level, text }) => {
         if (level === "warning" || level === "error") return onNotify(text, level);
@@ -193,6 +197,8 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
   const theirs = list.filter((chat) => chat.role === undefined);
   const sentinelId = list.find((chat) => chat.role === "sentinel")?.id;
   const shownId = (theirs.find((chat) => chat.shown) ?? theirs[0])?.id ?? null;
+  // The chat that used the preview last - the sentinel, or one of the person's: the one testing there now, while turri is.
+  const triedLast = [...states].filter(([id, state]) => state.triedAt > 0 && list.some((chat) => chat.id === id)).sort(([, a], [, b]) => b.triedAt - a.triedAt)[0]?.[0];
   return {
     list: theirs,
     shownId,
@@ -200,6 +206,8 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
     sentinel: sentinelId !== undefined ? (states.get(sentinelId) ?? EMPTY) : null,
     /** Each pulse the sentinel is done with, by its id: as the person's chats were told of it. */
     concluded,
+    /** The chat that used the preview last, and whether it is the sentinel's - none that has. */
+    tester: triedLast !== undefined ? { id: triedLast, sentinel: triedLast === sentinelId } : null,
     /** The chat shown's state - empty until it is read. */
     shown: (shownId !== null ? states.get(shownId) : undefined) ?? EMPTY,
     notices,
