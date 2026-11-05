@@ -150,6 +150,8 @@ export function normalise(message) {
         ...(background !== undefined ? { background } : {}),
         // The file a tool wrote, as its result says it: turn_on_conformance_tests's config.
         ...(typeof details.file === "string" ? { file: details.file } : {}),
+        // What an edit changed, as a patch: the chat shows it under the edit of a .plain file.
+        ...(message.toolName === "edit" && typeof details.patch === "string" ? { patch: details.patch.slice(0, 100_000) } : {}),
       };
     }
     case "custom":

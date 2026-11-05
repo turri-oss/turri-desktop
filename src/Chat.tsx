@@ -102,7 +102,7 @@ async function attachedFrom(file: File): Promise<Attached | null> {
 export type ChatItem =
   | { role: "user"; text: string; images?: string[] }
   | { role: "assistant"; text: string; thinking?: string; tools?: Array<{ id: string; name: string; args: unknown }>; error?: string }
-  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background; file?: string }
+  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background; file?: string; patch?: string }
   | { role: "note"; customType?: string; text: string; level?: string }
   | { role: "command"; text: string }
   | { role: "job"; id: string; summary: string; status: string; duration?: string; spent?: string; text: string }
@@ -958,6 +958,9 @@ function describeTool(name: string, args: any, background?: Background, wrote?: 
       return `wrote ${file ?? "a file"}`;
     case "edit":
       return `edited ${file ?? "a file"}`;
+    // turri's own way to change the ***plain: a diff, applied, and its build started.
+    case "change_plain":
+      return `changed ${file ?? "the ***plain"}`;
     case "bash":
       return `ran ${String(args?.command ?? "a command").split("\n")[0]}`;
     case "ask_user":
@@ -1038,8 +1041,20 @@ function ActionAsked({ item, waiting }: { item: Extract<ChatItem, { role: "actio
   );
 }
 
+/**
+ * The ***plain a tool call changed, as a diff: change_plain's own - shown as turri writes it - or an edit of a .plain
+ * file's patch, once made. None for a change that failed: turri undid it.
+ */
+function plainDiffOf(tool: { name: string; args: any }, result?: Extract<ChatItem, { role: "toolResult" }>): string | null {
+  if (result?.isError) return null;
+  if (tool.name === "change_plain" && typeof tool.args?.diff === "string" && tool.args.diff.trim() !== "") return tool.args.diff;
+  if (tool.name === "edit" && /\.plain$/.test(String(tool.args?.path ?? "")) && result?.patch) return result.patch;
+  return null;
+}
+
 function ToolCall({ tool, result, running }: { tool: { id: string; name: string; args: unknown }; result?: Extract<ChatItem, { role: "toolResult" }>; running: boolean }) {
   const [open, setOpen] = useState(false);
+  const diff = plainDiffOf(tool as { name: string; args: any }, result);
   return (
     <div className={`tool-call ${result?.isError ? "error" : ""}`}>
       <button onClick={() => setOpen(!open)}>
@@ -1051,6 +1066,12 @@ function ToolCall({ tool, result, running }: { tool: { id: string; name: string;
           <pre>{JSON.stringify(tool.args, null, 2)}</pre>
           {result?.image && <img className="tool-image" src={result.image} alt="what turri saw in the preview" />}
           {result && <pre className="tool-result">{result.text}</pre>}
+        </div>
+      )}
+      {/* What it changed of the ***plain, every time, with no asking: coloured as regen colours a pulse's diff. */}
+      {diff !== null && (
+        <div className="tool-diff">
+          <Prose text={"```diff plain\n" + diff.replace(/\n$/, "") + "\n```"} />
         </div>
       )}
     </div>
@@ -1082,6 +1103,8 @@ function diffLines(code: string): DiffLine[] {
     .split("\n")
     .map((line): DiffLine => {
       if (line.startsWith("@@")) return (inHunk = true), { kind: "hunk", marker: line, text: "" };
+      // A git diff's next file: its headers again, not lines taken out.
+      if (line.startsWith("diff --git ")) return (inHunk = false), { kind: "file", marker: line, text: "" };
       if (!inHunk && /^(---|\+\+\+|diff |index )/.test(line)) return { kind: "file", marker: line, text: "" };
       const kind = line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "same";
       return { kind, marker: /^[+\- \\]/.test(line) ? line.slice(0, 1) : "", text: /^[+\- \\]/.test(line) ? line.slice(1) : line };

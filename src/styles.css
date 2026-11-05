@@ -2507,6 +2507,13 @@ code {
 .tool-call {
   margin-top: 4px;
 }
+/* What a tool call changed of the ***plain, under it: shown every time, with no asking. */
+.tool-diff {
+  margin-top: 4px;
+}
+.tool-diff .prose pre {
+  margin: 0;
+}
 .tool-call > button {
   display: flex;
   align-items: center;

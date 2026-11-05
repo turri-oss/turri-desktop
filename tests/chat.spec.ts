@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { normalise } from "../engine/entries.mjs";
 import { clickMenu, expect, offers, tellChat, test } from "./app.ts";
 
 // Only what calls no model: slash commands that print, and the window's own.
@@ -27,6 +28,43 @@ test.describe("the chat", () => {
     await expect(done.locator(".thinking")).toHaveCount(0);
     await done.getByRole("button", { name: "thought about it" }).click();
     await expect(done.locator(".thinking")).toContainText("the greeter first");
+  });
+
+  test("shows the ***plain diff of every change turri makes - change_plain's, and an edit's of a .plain file - but not of one refused", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    // Two files in one git diff: the second's headers are headers, not lines taken out.
+    const diff = [
+      "diff --git a/hello.plain b/hello.plain",
+      "--- a/hello.plain",
+      "+++ b/hello.plain",
+      "@@ -6,1 +6,1 @@",
+      "-- :Greeter: greets.",
+      "+- :Greeter: greets the person by name.",
+      "diff --git a/tests/hello/print-hello.plain b/tests/hello/print-hello.plain",
+      "--- a/tests/hello/print-hello.plain",
+      "+++ b/tests/hello/print-hello.plain",
+      "@@ -3,1 +3,1 @@",
+      "-# says-hello",
+      "+# says-hello-by-name",
+    ].join("\n");
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_c", name: "change_plain", args: { plain_file: "hello.plain", diff } }] });
+    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_c", name: "change_plain", text: "Written, and its build started.", isError: false });
+    const changed = window.locator(".tool-call", { hasText: "changed hello.plain" });
+    await expect(changed.locator(".tool-diff pre.diff .line.add .plain-concept")).toHaveText(":Greeter:");
+    await expect(changed.locator(".tool-diff pre.diff .line.file")).toHaveCount(6);
+    await expect(changed.locator(".tool-diff pre.diff .line.del")).toHaveCount(2);
+
+    // An edit of a .plain file: the patch its result carries, mapped from pi's result as the engine maps it.
+    const patch = "--- hello.plain\n+++ hello.plain\n@@ -6,1 +6,1 @@\n-- :Greeter: greets the person by name.\n+- :Greeter: greets the person by their name.\n";
+    expect(normalise({ role: "toolResult", toolCallId: "call_e", toolName: "edit", content: [{ type: "text", text: "Successfully replaced 1 block(s)." }], details: { diff: "", patch } })).toMatchObject({ role: "toolResult", patch });
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_e", name: "edit", args: { path: "hello.plain" } }] });
+    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_e", name: "edit", text: "Successfully replaced 1 block(s).", isError: false, patch });
+    await expect(window.locator(".tool-call", { hasText: "edited hello.plain" }).locator(".tool-diff pre.diff .line.add")).toHaveText("+- :Greeter: greets the person by their name.");
+
+    // Refused - the ***plain would no longer check: nothing was written, and no diff is shown.
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_r", name: "change_plain", args: { plain_file: "hello.plain", diff } }] });
+    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_r", name: "change_plain", text: "Nothing was written: with this change the ***plain no longer checks.", isError: true });
+    await expect(window.locator(".tool-call.error .tool-diff")).toHaveCount(0);
   });
 
   test("suggests slash commands as one is typed", async ({ launched: { window } }) => {

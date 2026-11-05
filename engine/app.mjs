@@ -106,6 +106,8 @@ export const APP_SURFACE = [
   "  with the message for you to see; any other file is named on a line of its own - Attached file: <its path> - for you",
   "  to read with your tools. It may be anywhere on their machine, not only in the project.",
   "- Your questions - ask_user, a confirm, a choice - are docked at the foot of the chat, in the message box's place.",
+  "- Every change you make to the ***plain - change_plain, or an edit of a .plain file - shows its diff in the chat under",
+  "  the call, coloured, as you make it: never paste that diff again in what you say - say what it does, if anything.",
   "- Under the message box: how full this chat's context is, and what the project has spent since it opened - every",
   "  chat, the pulses, the sentinel and your other agents - each of the four (chat, regeneration, sentinel, other) on hover.",
   "- Verdicts on testing scenarios: a no is a notification in the status panel, not in the chat; a yes comes as a message",
