@@ -1,5 +1,7 @@
-# The actions the workflows use, kept up to date. npm packages get security updates only (the repository's setting):
-# turri is pinned exactly, and a new turri is a new release of the app.
+# The actions the workflows use, kept up to date. npm packages get security updates only: the npm entry opens no
+# version updates (open-pull-requests-limit: 0) and is here to title its security fixes as Conventional Commits -
+# fix(deps): ..., chore(deps-dev): ... - which the commits check asks of every pull request. turri is left out: it is
+# pinned exactly, and a new turri is a new release of the app.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,3 +10,14 @@ updates:
       interval: monthly
     commit-message:
       prefix: ci
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    ignore:
+      - dependency-name: "@turri-dev/cli"
