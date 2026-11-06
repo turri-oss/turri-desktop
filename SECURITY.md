@@ -2,9 +2,9 @@
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a security problem. Report it privately, through GitHub's [private vulnerability reporting](https://github.com/turri-oss/turri-desktop/security/advisories/new): only the maintainers see it.
+Please do not open a public issue for a security problem. Report it privately, through GitHub's [private vulnerability reporting](https://github.com/turri-oss/turri-desktop/security/advisories/new): only the maintainer sees it.
 
-Say what is affected, how to reproduce it, and what someone could do with it. We will answer within a week, keep you told as we fix it, and credit you in the advisory unless you would rather we did not.
+Say what is affected, how to reproduce it, and what someone could do with it. You will have an answer within a week, word as it is fixed, and credit in the advisory unless you would rather not.
 
 A problem in turri itself - its work loop, its agents, its sandbox - belongs to [turri](https://github.com/turri-oss/turri/security).
 

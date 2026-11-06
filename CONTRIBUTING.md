@@ -31,7 +31,7 @@ npm run typecheck
 npm test           # the real window, driven by Playwright - calls no model
 ```
 
-Add a test in `tests/` for what you change, as long as it calls no model. The same tests run on macOS and Linux for every pull request; for a first contribution a maintainer starts them, and they must pass before it is merged.
+Add a test in `tests/` for what you change, as long as it calls no model. The same tests run on macOS and Linux for every pull request; for a contribution from outside, the maintainer starts them, and they must pass before it is merged.
 
 The tests spend nothing, but the app itself does: Regenerate, Preview plan and every chat message call the project's models with your keys. Check what you can with what calls none - opening a project, the \*\*\*plain, slash commands that only print.
 
