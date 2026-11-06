@@ -349,6 +349,8 @@ test.describe("a module's base folder", () => {
     await expect(page.locator(".chat-model")).toBeVisible();
     const strip = page.getByRole("button", { name: /^problems:/ });
     await expect(strip).toHaveAccessibleName("problems: 0 errors, 0 warnings");
+    // Read first: how the module stands, read after the project opens, would otherwise come over what is sent here.
+    await expect(page.locator(".tree-row", { hasText: "hello.plain" }).locator(".state-dot.unread")).toHaveCount(0, { timeout: 15_000 });
     // The module as the engine describes it, with drift's line on its base folder - as the watcher sends it.
     const summary = await page.evaluate(() => window.turri.call<{ specs: Array<{ file: string }> }>("summary"));
     const said = "its base folder is now old-assets, but its codebase started from assets - regenerate it from scratch to start again from it";
