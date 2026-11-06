@@ -1,0 +1,40 @@
+# A pull request is rebased onto main, each of its commits as it is - so each must be one to keep: a Conventional
+# Commit, and no fixup!, squash! or amend! left to fold in. Required on main for pull requests (its ruleset).
+name: commits
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Each commit, as it will land on main
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          fixup='^(fixup|squash|amend)!'
+          conventional='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'
+          bad=0
+          while IFS= read -r line; do
+            sha="${line%% *}"; subject="${line#* }"
+            if [[ "$subject" =~ $fixup ]]; then
+              echo "::error::$sha \"$subject\" is to be folded in: git rebase -i --autosquash origin/main, then push --force-with-lease"
+              bad=1
+            elif ! [[ "$subject" =~ $conventional ]]; then
+              echo "::error::$sha \"$subject\" is not a Conventional Commit - feat(ui): ..., fix(editor): ... - reword it: git rebase -i origin/main"
+              bad=1
+            fi
+          done < <(git log --no-merges --format='%h %s' "$BASE..$HEAD")
+          if [ -n "$(git log --merges --format=%h "$BASE..$HEAD")" ]; then
+            echo "::error::the branch has merge commits - rebase it onto main instead: git rebase origin/main"
+            bad=1
+          fi
+          exit $bad

@@ -37,7 +37,7 @@ The tests spend nothing, but the app itself does: Regenerate, Preview plan and e
 
 ## Conventions
 
-- **Commits and pull request titles** follow [Conventional Commits](https://www.conventionalcommits.org/), as in turri: `feat(ui): ...`, `fix(editor): ...`, the description lowercase and saying what the app now does. A pull request lands on `main` squashed into one commit, its title the message, or rebased, its commits as they are - so each of them is a Conventional Commit too.
+- **Commits and pull request titles** follow [Conventional Commits](https://www.conventionalcommits.org/), as in turri: `feat(ui): ...`, `fix(editor): ...`, the description lowercase and saying what the app now does. A pull request is rebased onto `main`, each of its commits as it is - never squashed or merged - so each one is a Conventional Commit, and none is a fixup: fold them in before it is merged (`git rebase -i --autosquash origin/main`, then `git push --force-with-lease`). A check on every pull request says when one is not.
 - **Names**: turri is written lowercase, even at the start of a sentence; \*\*\*plain is written `***plain`, never "spec" in what the person reads.
 - **The window's own words are lowercase** - buttons, labels, headings, tooltips, notices. What it shows as it is keeps its case: the \*\*\*plain, code, file names, product names, keys.
 - **Prose** - docs, comments, strings - uses British spelling and a spaced hyphen ` - `, not an em dash.

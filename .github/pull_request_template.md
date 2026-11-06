@@ -1,4 +1,4 @@
-<!-- The title is the commit on main, as a Conventional Commit: feat(ui): ..., fix(editor): ... - lowercase, saying what the app now does. -->
+<!-- Each commit lands on main as it is: a Conventional Commit - feat(ui): ..., fix(editor): ..., lowercase, saying what the app now does - and no fixup! left (git rebase -i --autosquash origin/main). -->
 
 ## What it does
 
