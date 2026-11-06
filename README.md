@@ -97,6 +97,8 @@ Every detail: [the window](docs/window.md).
 | [The window](docs/window.md) | everything the window offers, view by view |
 | [Development](docs/development.md) | how the app is put together, running it on a turri clone, checking a change |
 | [Privacy](docs/privacy.md) | what turri sends, and where - and what stays on your machine |
+| [Contributing](CONTRIBUTING.md) | reporting a bug, making a change, the conventions a pull request follows |
+| [Security](SECURITY.md) | reporting a vulnerability, privately |
 | [turri](https://github.com/turri-oss/turri#readme) | turri itself: regenerative software, \*\*\*plain, models, skills |
 
 ## Licence

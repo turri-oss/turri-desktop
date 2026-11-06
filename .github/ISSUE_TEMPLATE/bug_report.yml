@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in the app does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      placeholder: |
+        1. open a project
+        2. ...
+  - type: input
+    id: versions
+    attributes:
+      label: App and turri
+      description: Both are at the foot of the window's sidebar.
+      placeholder: turri desktop 0.2.3, turri 0.2.2 · npm
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      placeholder: macOS 26.1, Apple silicon / Ubuntu 24.04
+    validations:
+      required: true

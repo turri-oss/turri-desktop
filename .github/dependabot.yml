@@ -1,0 +1,10 @@
+# The actions the workflows use, kept up to date. npm packages get security updates only (the repository's setting):
+# turri is pinned exactly, and a new turri is a new release of the app.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

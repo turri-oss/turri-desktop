@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A security problem
+    url: https://github.com/turri-oss/turri-desktop/security/advisories/new
+    about: Report it privately, not as an issue.
+  - name: Something in turri itself
+    url: https://github.com/turri-oss/turri/issues
+    about: The work loop, ***plain, models, skills - turri's own issues.
