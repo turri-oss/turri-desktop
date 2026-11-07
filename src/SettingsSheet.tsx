@@ -29,6 +29,7 @@ function updateLine(state: UpdateState | null): string {
   if (state.status === "checking") return "checking for an update…";
   if (state.status === "downloading") return `downloading turri ${state.version} - ${state.percent}%`;
   if (state.status === "ready") return `turri ${state.version} is ready: restart to update.`;
+  if (state.status === "available") return `turri ${state.version} is out: download it from GitHub - this one cannot update itself.`;
   if (state.status === "failed") return `the last check failed: ${state.error}`;
   return "up to date, as of the last check.";
 }
@@ -137,6 +138,10 @@ export function SettingsSheet({ onClose, onPrivacy }: { onClose: () => void; onP
                   <button className="button small primary" onClick={() => void window.turri.updates.install()}>
                     restart to update
                   </button>
+                ) : updates?.status === "available" ? (
+                  <a className="button small primary" href={updates.url} target="_blank" rel="noreferrer">
+                    download
+                  </a>
                 ) : (
                   <button
                     className="button small"

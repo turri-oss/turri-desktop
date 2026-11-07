@@ -869,6 +869,16 @@ code {
 .toast.engine-stopped .button {
   margin-left: 8px;
 }
+/* A newer turri desktop: said until it is put away, at the top of the window - clear of the notices and the message box. */
+.toast.new-release {
+  top: 48px;
+  bottom: auto;
+  cursor: auto;
+}
+.toast.new-release .icon {
+  color: var(--accent);
+  flex: none;
+}
 @keyframes rise {
   from {
     opacity: 0;

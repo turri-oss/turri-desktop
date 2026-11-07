@@ -8,6 +8,7 @@ import { PlanSheet, type Plan } from "./PlanSheet.tsx";
 import { type Point, type PulseLines, pulseLinesOf } from "./PulseSpec.tsx";
 import { DoctorSheet, problems, toSeeTo } from "./DoctorSheet.tsx";
 import { AuthSheet } from "./AuthSheet.tsx";
+import { NewRelease } from "./NewRelease.tsx";
 import { AboutSheet, type AboutTab } from "./AboutSheet.tsx";
 import { SettingsSheet } from "./SettingsSheet.tsx";
 import { ChooseFolder, ProjectSettingsSheet } from "./ProjectSettings.tsx";
@@ -905,6 +906,7 @@ export function App() {
         {authSheet}
         {settingsSheet}
         {aboutSheet}
+        <NewRelease />
       </>
     );
 
@@ -1295,6 +1297,7 @@ export function App() {
           />
         )}
         {plan !== null && plan !== "loading" && <PlanSheet plan={plan} onClose={() => setPlan(null)} onRegenerate={() => (setPlan(null), void regenerate())} />}
+        <NewRelease />
         {stopped && project && (
           <div className="toast error engine-stopped" role="alert">
             <Icon name="warn" />

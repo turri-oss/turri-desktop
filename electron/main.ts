@@ -236,9 +236,26 @@ async function restartToUpdate() {
   updates.install();
 }
 
+/** A newer release this app cannot install itself: its page opened, to download it. */
+function downloadRelease(state: Extract<UpdateState, { status: "available" }>) {
+  void shell.openExternal(state.url);
+}
+
 /** Check for Updates…, chosen: says what it found, as the check runs on its own otherwise. */
 async function checkForUpdates() {
   const state = await updates.check();
+  if (state.status === "available") {
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      message: `turri ${state.version} is out`,
+      detail: `this is turri ${app.getVersion()}. it cannot update itself here - ${state.reason} - so download the new one from GitHub.`,
+      buttons: ["download", "later"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) downloadRelease(state);
+    return;
+  }
   const said =
     state.status === "off"
       ? { message: "turri cannot update itself here", detail: `${state.reason}.` }
@@ -258,6 +275,7 @@ function updateItem(): MenuItemConstructorOptions {
   const state = updates.state();
   if (state.status === "ready") return { label: `Restart to Update to ${state.version}`, click: () => void restartToUpdate() };
   if (state.status === "downloading") return { label: `Downloading turri ${state.version}…`, enabled: false };
+  if (state.status === "available") return { label: `Download turri ${state.version}…`, click: () => downloadRelease(state) };
   if (state.status === "checking") return { label: "Checking for Updates…", enabled: false };
   return { label: "Check for Updates…", click: () => void checkForUpdates() };
 }

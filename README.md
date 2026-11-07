@@ -17,7 +17,7 @@
 
 ### Install it
 
-Download it from the [latest release](https://github.com/turri-oss/turri-desktop/releases/latest) - turri comes with it, so there is nothing else to install for the app itself. You need git, which turri works with, and on Linux bubblewrap, turri's sandbox there. Once installed, the app updates itself on Linux; on macOS it does not yet.
+Download it from the [latest release](https://github.com/turri-oss/turri-desktop/releases/latest) - turri comes with it, so there is nothing else to install for the app itself. You need git, which turri works with, and on Linux bubblewrap, turri's sandbox there. Once installed, the app updates itself on Linux; on macOS it does not yet, but it says when a newer release is out, with a link to download it.
 
 **macOS** (Apple silicon) - `turri-<version>-mac-arm64.dmg`: open it and drag turri into Applications. The app is not signed with a Developer ID or notarised yet, so the first time you open it macOS says it cannot check it: choose Done, then System Settings > Privacy & Security > Open Anyway beside turri, and open it again. Or, in a terminal, once:
 

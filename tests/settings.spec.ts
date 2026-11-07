@@ -417,3 +417,36 @@ test.describe("a project just started", () => {
     await expect(page.locator(".editor-pane .pane-header")).toContainText("fresh.plain");
   });
 });
+
+test.describe("a newer turri desktop", () => {
+  /** What the main process says of the app's updates, as it says it once GitHub is looked at. */
+  const tell = (app: ElectronApplication, state: object) => app.evaluate(({ BrowserWindow }, state) => BrowserWindow.getAllWindows()[0]!.webContents.send("updates", state), state);
+
+  test("is said once found - to download where the app cannot update itself, to restart into where it has - until put away", async ({ launched: { app, window: page } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    const notice = page.locator(".toast.new-release");
+    await expect(notice).toHaveCount(0);
+    const url = "https://github.com/turri-oss/turri-desktop/releases/tag/v9.9.9";
+    await tell(app, { status: "available", version: "9.9.9", url, reason: "this build is not signed with a Developer ID, which macOS needs to update it" });
+    await expect(notice).toContainText("turri 9.9.9 is out - please update.");
+    await expect(notice.getByRole("link", { name: "download it" })).toHaveAttribute("href", url);
+    // Put away for this version; one newer still is said again.
+    await notice.getByRole("button", { name: "not now" }).click();
+    await expect(notice).toHaveCount(0);
+    await tell(app, { status: "available", version: "9.9.9", url, reason: "unsigned" });
+    await expect(notice).toHaveCount(0);
+    await tell(app, { status: "ready", version: "9.9.10" });
+    await expect(notice).toContainText("turri 9.9.10 is downloaded - restart to update.");
+    await expect(notice.getByRole("button", { name: "restart to update" })).toBeVisible();
+  });
+
+  test.describe("on the welcome screen", () => {
+    test.use({ open: false });
+
+    test("is said there too", async ({ launched: { app, window: page } }) => {
+      await expect(page.locator(".welcome")).toBeVisible();
+      await tell(app, { status: "available", version: "9.9.9", url: "https://github.com/turri-oss/turri-desktop/releases/tag/v9.9.9", reason: "unsigned" });
+      await expect(page.locator(".toast.new-release")).toContainText("turri 9.9.9 is out - please update.");
+    });
+  });
+});
