@@ -1,30 +1,41 @@
 # A release of the app: a tag v<version> - the version in package.json - builds it on macOS and Linux and uploads the
 # builds, and the latest*.yml that installed apps update from, to a draft release on GitHub. Publishing the draft, by
-# hand, is what puts it out: only then do installed apps see it.
+# hand, is what puts it out: only then do installed apps see it - and then it is announced on Discord (announce).
 name: release
 
 on:
   push:
     tags: ["v*"]
+  # The draft published, by hand: announced, once its builds are on it. Nothing is built again.
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 jobs:
   draft:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Every tag and commit: the notes are what changed since the release before.
+          fetch-depth: 0
       - name: The tag is package.json's version
         run: |
           version=$(node -p 'require("./package.json").version')
           test "v$version" = "$GITHUB_REF_NAME" || { echo "the tag $GITHUB_REF_NAME is not package.json's v$version"; exit 1; }
+      # Its notes from its commits (scripts/release-notes.mjs): what is new and fixed since the release before, and which
+      # turri it runs - not GitHub's generated notes, which list pull requests, and changes here go straight to main.
       - name: One draft release, for both builds to upload to
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --draft --title "turri-desktop ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || {
+            node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+            gh release create "$GITHUB_REF_NAME" --draft --title "turri-desktop ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          }
 
   build:
     needs: draft
@@ -46,3 +57,71 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
+
+  # A stable release, published: posted to the Discord channel, as turri's own releases are (its publish.yml). Not from
+  # the tag's run, whose release is still a draft - from the publishing's, which builds nothing: so instead of needing
+  # the builds, it waits until both have uploaded the latest*.yml installed apps update from, the last of a build's
+  # files - and posts nothing when they are not there. Never a pre-release, and never fails the release: Discord's
+  # answer, or no webhook, is only said.
+  announce:
+    if: ${{ github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions: {}
+    steps:
+      - name: Post the release to Discord, once its builds are on it
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          NAME: ${{ github.event.release.name }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+          NOTES: ${{ github.event.release.body }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBHOOK" ]; then
+            echo "::notice::DISCORD_RELEASE_WEBHOOK is not set - no announcement posted"
+            exit 0
+          fi
+          # Both builds on the release - macOS's and Linux's latest*.yml - asked of GitHub's public API, with no token:
+          # once a minute, for up to half an hour.
+          ready=false
+          for _ in $(seq 30); do
+            assets=$(curl --silent --show-error --fail --retry 3 -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" | jq -r '[.assets[].name] | join(" ")' || true)
+            if [[ " $assets " == *" latest-mac.yml "* && " $assets " == *" latest-linux.yml "* ]]; then
+              ready=true
+              break
+            fi
+            echo "waiting for both builds on $TAG - it has: ${assets:-nothing yet}"
+            sleep 60
+          done
+          if [ "$ready" != true ]; then
+            echo "::warning::$TAG does not have both builds on it after half an hour - no announcement posted"
+            exit 0
+          fi
+          # Discord holds an embed's description to 4096 characters: longer notes are cut, and point to the rest. The
+          # link in the line is in <>, so Discord previews only the embed. macOS's builds are signed ad hoc, which
+          # cannot update themselves: the page is where to get it, and Linux's install updates itself.
+          payload=$(jq -n \
+            --arg name "${NAME:-turri desktop ${TAG#v}}" \
+            --arg url "$URL" \
+            --arg notes "$NOTES" \
+            '{
+              username: "turri desktop",
+              content: ("**" + $name + "** is out - download it from <" + $url + "> (installed on Linux, it updates itself)"),
+              allowed_mentions: { parse: [] },
+              embeds: [{
+                title: $name,
+                url: $url,
+                color: 3447003,
+                description: (if ($notes | length) > 3900
+                  then ($notes[0:3900] + "\n\n... [the rest on GitHub](" + $url + ")")
+                  else $notes end)
+              }]
+            }')
+          if curl --fail-with-body --silent --show-error --retry 3 -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"; then
+            echo "announced $TAG on Discord"
+          else
+            echo "::warning::Discord did not take the announcement of $TAG"
+          fi
