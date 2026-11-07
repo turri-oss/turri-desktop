@@ -2140,6 +2140,27 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* harness-model out of reach: the model the chat is to talk on, struck through - nothing is sent to it, nor to another. */
+.chat-model.out-of-reach {
+  color: var(--red);
+  text-decoration: line-through;
+}
+/* What says so, above the message box, and what to do. */
+.out-of-reach-card {
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--red);
+  background: var(--card);
+  font-size: 12px;
+}
+.out-of-reach-card p {
+  margin: 0 0 8px;
+}
+.out-of-reach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .composer-meta > .chat-model:first-child {
   padding-left: 0;
   border-left: none;
@@ -2170,8 +2191,13 @@ code {
   padding: 8px 16px;
   text-align: center;
 }
-.hint:hover {
+.hint:hover:not(:disabled) {
   border-color: var(--accent);
+}
+/* harness-model out of reach: what would reach it is not offered. */
+.hint:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .msg {
   overflow-wrap: anywhere;

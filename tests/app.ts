@@ -41,6 +41,8 @@ interface Options {
   debug: boolean;
   /** Its conformance tests on - `conformance-tests: true`, as the fixture has it - or off: unset, as a new project's are. */
   conformance: boolean;
+  /** Its models in place of the fixture's Anthropic ones, as config.turri.yaml writes them: harness-model, coding-model. */
+  models: { harness?: string; coding?: string };
 }
 
 export const test = base.extend<Options & { launched: Launched; scratch: string }>({
@@ -50,6 +52,7 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
   env: [{}, { option: true }],
   debug: [false, { option: true }],
   conformance: [true, { option: true }],
+  models: [{}, { option: true }],
 
   scratch: async ({}, use) => {
     // Real paths: macOS's tmpdir is a link, and the app names a project by where it really is.
@@ -58,11 +61,15 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
     rmSync(scratch, { recursive: true, force: true });
   },
 
-  launched: async ({ scratch, open, recent, stubModel, env: more, debug, conformance }, use) => {
+  launched: async ({ scratch, open, recent, stubModel, env: more, debug, conformance, models }, use) => {
     const project = join(scratch, "hello");
     cpSync(FIXTURE, project, { recursive: true });
     if (debug) appendFileSync(join(project, "config.turri.yaml"), "debug: true\n");
     if (!conformance) writeFileSync(join(project, "config.turri.yaml"), readFileSync(join(project, "config.turri.yaml"), "utf8").replace(/^conformance-tests: true\n/m, ""));
+    for (const [role, model] of Object.entries(models)) {
+      const file = join(project, "config.turri.yaml");
+      writeFileSync(file, readFileSync(file, "utf8").replace(new RegExp(`^${role}-model: .*$`, "m"), `${role}-model: ${model}`));
+    }
     const userData = join(scratch, "user-data");
     mkdirSync(userData);
     if (recent) writeFileSync(join(userData, "recent-projects.json"), JSON.stringify([project]));

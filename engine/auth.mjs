@@ -100,6 +100,19 @@ function brandCallbackPages() {
   };
 }
 
+/**
+ * A Claude subscription is left out of the app: Claude Code's provider (`claude-code`, a pi extension's, which turri's
+ * Claude subscription vendor runs on) and Anthropic's own sign-in with Claude Pro/Max. The one needs Claude Code and a pi
+ * extension installed from a terminal, and a project on a model its chat could not reach ran on whichever provider had
+ * credentials instead; switching between the two routes to the same models mixed them up. Anthropic's models stay, with
+ * an API key - and so do the other subscriptions: ChatGPT, GitHub Copilot.
+ */
+export const CLAUDE_CODE = "claude-code";
+/** The providers whose subscription sign-in the app leaves out, keeping their API keys. */
+const NO_SUBSCRIPTION = new Set(["anthropic"]);
+/** Whether a model spec - provider/id, a thinking level after it - is Claude Code's, which the app does not offer. */
+export const viaClaudeCode = (spec) => typeof spec === "string" && spec.startsWith(`${CLAUDE_CODE}/`);
+
 /** What pi said when a prompt was refused or a login aborted: not a failure, the person changed their mind. */
 const CANCELLED = "Login cancelled";
 
@@ -141,9 +154,10 @@ export function createAuth({ emit, runtime, projectDir, signedIn }) {
     const used = projectProviders(dir);
     return {
       kept: join(pi.getAgentDir(), "auth.json"),
-      providers: models.getProviders().map((provider) => {
+      providers: models.getProviders().filter((provider) => provider.id !== CLAUDE_CODE).map((provider) => {
         const status = models.getProviderAuthStatus(provider.id);
-        const { oauth, apiKey } = provider.auth;
+        const { apiKey } = provider.auth;
+        const oauth = NO_SUBSCRIPTION.has(provider.id) ? undefined : provider.auth.oauth;
         return {
           id: provider.id,
           name: provider.name,
@@ -201,6 +215,7 @@ export function createAuth({ emit, runtime, projectDir, signedIn }) {
    * again, as pi's terminal does after /login.
    */
   function login({ provider, method }) {
+    if (provider === CLAUDE_CODE || (NO_SUBSCRIPTION.has(provider) && method === "oauth")) throw new Error("A Claude subscription is not offered here: sign in to Anthropic with an API key.");
     const id = ++nextLogin;
     const controller = new AbortController();
     logins.set(id, controller);

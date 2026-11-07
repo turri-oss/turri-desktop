@@ -37,6 +37,8 @@ export type ChatState = {
   questions: Question[];
   progress: SkillProgress | null;
   model: string | null;
+  /** harness-model as it cannot be reached here, while it cannot: the chat sends nothing to a model meanwhile. */
+  unreachable: Unreachable | null;
   stats: ChatStats | null;
   /** The sentinel's notices open in it, by id: their buttons are live only while they are. */
   notices: Map<string, Notice>;
@@ -47,7 +49,7 @@ export type ChatState = {
 /** A notice of turri's, as the status panel lists it: open, to answer, or how it ended while the window was there. */
 export type NoticeShown = { notice: Notice; ended?: NoticeState };
 
-const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, preparing: null, tools: new Map(), triedAt: 0, statuses: {}, questions: [], progress: null, model: null, stats: null, notices: new Map(), over: new Map() };
+const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, preparing: null, tools: new Map(), triedAt: 0, statuses: {}, questions: [], progress: null, model: null, unreachable: null, stats: null, notices: new Map(), over: new Map() };
 
 /**
  * What turri says in a chat that is the status panel's notifications, not the conversation: the test advisor's no and a
@@ -62,7 +64,13 @@ const leftOut = (item: ChatItem) => notified(item) || item.role === "job";
 /** How a notification looks: the window's three tones. */
 export type Tone = "info" | "warning" | "error";
 
-type History = { messages: ChatItem[]; queued?: string[]; model: string | null; stats: ChatStats; questions: Question[]; notices?: Notice[] };
+/**
+ * The model a chat is to talk on, out of reach: not signed in to its provider (`signed-out`, its id in `provider`), no
+ * such model here (`unknown`), or a Claude subscription's (`subscription`), which the app does not offer.
+ */
+export type Unreachable = { model: string; provider: string | null; name: string | null; why: "signed-out" | "unknown" | "subscription" };
+
+type History = { messages: ChatItem[]; queued?: string[]; model: string | null; unreachable?: Unreachable | null; stats: ChatStats; questions: Question[]; notices?: Notice[] };
 
 /**
  * turri's chats in the window: each one's state, kept whether it is shown or not - a hidden chat goes on working, and
@@ -93,7 +101,7 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
   const load = useCallback(
     (id: string): Promise<void> =>
       window.turri.call<History>("chatHistory", { chat: id }).then(
-        ({ messages, queued = [], model, stats, questions, notices = [] }) => {
+        ({ messages, queued = [], model, unreachable = null, stats, questions, notices = [] }) => {
           const notes = after.current.get(id) ?? [];
           after.current.delete(id);
           const history = messages.filter((item) => !leftOut(item));
@@ -101,7 +109,7 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
           const before = (early.current.get(id) ?? []).filter((item) => !had.has(JSON.stringify(item)));
           early.current.delete(id);
           read.current.add(id);
-          update(id, () => ({ items: [...history, ...before, ...notes], queued, model, stats, questions, notices: new Map(notices.map((notice) => [notice.id, notice])) }));
+          update(id, () => ({ items: [...history, ...before, ...notes], queued, model, unreachable, stats, questions, notices: new Map(notices.map((notice) => [notice.id, notice])) }));
         },
         () => {},
       ),
@@ -166,6 +174,7 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
       }),
       on<SkillProgress | null>("chat:progress", (id, progress) => update(id, () => ({ progress }))),
       on<{ model: string }>("chat:model", (id, { model }) => update(id, () => ({ model }))),
+      on<Unreachable | null>("chat:unreachable", (id, unreachable) => update(id, () => ({ unreachable }))),
       on<ChatStats>("chat:stats", (id, stats) => update(id, () => ({ stats }))),
       on<Question>("chat:ask", (id, question) => {
         update(id, (state) => ({ questions: [...state.questions, question] }));

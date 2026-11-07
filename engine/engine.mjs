@@ -6,7 +6,7 @@
 import turri, { turriFrom } from "./turri.mjs";
 import { busy, MANY_CHATS, SENTINEL, startSession } from "./chat.mjs";
 import { ACTION_KINDS } from "./entries.mjs";
-import { createAuth } from "./auth.mjs";
+import { CLAUDE_CODE, createAuth, viaClaudeCode } from "./auth.mjs";
 import { conformanceTestsOn as conformanceOf, said, standing } from "./describe.mjs";
 import { Worker } from "node:worker_threads";
 import { existsSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
@@ -635,10 +635,13 @@ function olderPair(maker, region, models) {
   return { harness: talk.id, coding: code.id, strong: talk.id };
 }
 
-/** turri's vendors and the two models each gives - and Bedrock's offer - for the window to choose from. */
+/**
+ * turri's vendors and the two models each gives - and Bedrock's offer - for the window to choose from. Not its Claude
+ * subscription, which the app leaves out (auth.mjs).
+ */
 async function vendors() {
   return {
-    vendors: Object.entries(turri.VENDORS).map(([id, preset]) => ({ id, label: preset.label, harness: preset.harness, coding: preset.coding })),
+    vendors: Object.entries(turri.VENDORS).filter(([id]) => id !== CLAUDE_CODE).map(([id, preset]) => ({ id, label: preset.label, harness: preset.harness, coding: preset.coding })),
     bedrockDefault: turri.BEDROCK_DEFAULT,
     bedrock: await bedrockOffer(),
     // Whether turri sets AWS_REGION itself for the models' geography, as a turri with bedrockRegionFor does.
@@ -656,6 +659,7 @@ const modelIn = (id) => new RegExp(`${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}
  * which a window has no use for: it signs in in its own sheet.
  */
 async function initConfig({ dir, vendor, bedrock, models }) {
+  if (vendor === CLAUDE_CODE) throw new Error("A Claude subscription is not offered here: choose Anthropic, with an API key.");
   const onBedrock = vendor === "amazon-bedrock";
   let message;
   if (KNOWS_CATALOGUE) {
@@ -1221,9 +1225,13 @@ const typedValue = (value) => (Array.isArray(value) ? value.join(", ") : typeof 
 function projectSettings() {
   if (!KNOWS_SETTINGS) return null;
   const text = turri.readConfigText(projectDir);
+  const config = turri.readProjectConfig(projectDir);
   return turri.configSettings().map((setting) => {
     const value = turri.currentValue(text, setting.key);
     return {
+      // A model's setting as turri reads it - the model, and how hard it thinks - for the window never to take one apart
+      // itself: a Bedrock model's id ends in its version, `:0`, which is no thinking level.
+      ...(setting.kind === "model" ? { choice: modelChoiceOf(config, setting.key) } : {}),
       key: setting.key,
       about: setting.about,
       kind: setting.kind,
@@ -1236,6 +1244,13 @@ function projectSettings() {
   });
 }
 
+/** A model setting's choice as turri read the config: harness-model's, coding-model's, judge-model's, or a role's under models. */
+function modelChoiceOf(config, key) {
+  const role = /^models\.([^.]+)$/.exec(key)?.[1];
+  const choice = role !== undefined ? config.models?.[role] : config[key.replace(/-(\w)/g, (_, letter) => letter.toUpperCase())];
+  return choice?.model === undefined && choice?.thinking === undefined ? null : { model: choice.model ?? null, thinking: choice.thinking ?? null };
+}
+
 /**
  * What /turri-config offers for a setting's value, as typing it in the chat would - turri's own choices, never the
  * window's: `harness-model ` the models reachable here, `harness-model <model>:` how hard it can think, `review ` true or
@@ -1245,9 +1260,10 @@ async function configChoices({ typed }) {
   if (session === undefined) return [];
   // A setting's values, whole, on a turri that gives them so; else what /turri-config completes, cut at forty.
   const space = typed.indexOf(" ");
-  if (space !== -1 && session.settingChoices !== undefined) return session.settingChoices(typed.slice(0, space), typed.slice(space + 1));
+  // Never Claude Code's models: the app leaves the Claude subscription out (auth.mjs).
+  if (space !== -1 && session.settingChoices !== undefined) return (await session.settingChoices(typed.slice(0, space), typed.slice(space + 1))).filter((value) => !viaClaudeCode(value));
   const items = await chatOf().completions("turri-config", typed);
-  return items.map((item) => item.value.slice(item.value.indexOf(" ") + 1)).filter((value) => value !== "unset");
+  return items.map((item) => item.value.slice(item.value.indexOf(" ") + 1)).filter((value) => value !== "unset" && !viaClaudeCode(value));
 }
 
 /**
@@ -1258,7 +1274,7 @@ function chatHistory({ chat }) {
   const shown = chatOf(chat);
   const asking = [...questions.values()].filter((question) => question.chat === shown.id).map((question) => question.asked);
   const open = session.notices().filter((notice) => notice.chat === shown.id);
-  return { messages: shown.history(), queued: shown.queued(), model: shown.model(), stats: shown.stats(), questions: asking, notices: open };
+  return { messages: shown.history(), queued: shown.queued(), model: shown.model(), unreachable: shown.unreachable(), stats: shown.stats(), questions: asking, notices: open };
 }
 
 /** The sentinel's notices open now, each in the chat it names. */

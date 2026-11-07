@@ -1011,6 +1011,9 @@ export function App() {
             running={shownChat.tools}
             statuses={shownChat.statuses}
             model={shownChat.model}
+            unreachable={shownChat.unreachable}
+            onSignIn={(provider) => setSignIn({ provider })}
+            onSettings={() => setProjectSettingsOpen(true)}
             fresh={project.specs.length === 0}
             changed={project.specs.some((entry) => entry.ok && entry.drifted !== false)}
             commands={commands}

@@ -116,15 +116,18 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
     setPair(twoOf(at.pair));
   };
   const place = vendors === null ? undefined : placeIn(vendors, maker, region);
-  /** The providers a vendor's two models come from - Other's are two - as the sign-in sheet has them. */
-  const providersOf = (id: string) => {
+  /** The providers a vendor's two models come from - Other's are two - by id. */
+  const providerIds = (id: string) => {
     const shown = models(id);
-    if (shown === undefined || providers === null) return [];
-    const ids = [...new Set([shown.harness, shown.coding].map((model) => model.split("/")[0]!))];
-    return ids.map((each) => providers.find((provider) => provider.id === each)).filter((provider) => provider !== undefined);
+    return shown === undefined ? [] : [...new Set([shown.harness, shown.coding].map((model) => model.split("/")[0]!))];
   };
-  /** Whether a vendor's models can be started on here: signed in to every provider they come from - or not known yet. */
-  const signedIn = (id: string) => providersOf(id).every((provider) => provider.connected);
+  /** Those of them the sign-in sheet has. */
+  const providersOf = (id: string) => (providers === null ? [] : providerIds(id).map((each) => providers.find((provider) => provider.id === each)).filter((provider) => provider !== undefined));
+  /**
+   * Whether a vendor's models can be started on here: signed in to every provider they come from - or not known yet. A
+   * provider the sheet does not have at all is not signed in to: there is nothing to start on.
+   */
+  const signedIn = (id: string) => providers === null || providerIds(id).every((each) => providers.find((provider) => provider.id === each)?.connected === true);
   const unsigned = vendor === null ? [] : providersOf(vendor).filter((provider) => !provider.connected);
 
   return (

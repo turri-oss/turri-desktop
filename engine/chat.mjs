@@ -8,6 +8,7 @@ import { browserExtension, browserTools } from "./browser.mjs";
 import { terminalExtension, terminalTools } from "./terminal.mjs";
 import { APP_SURFACE, SENTINEL, SENTINEL_SURFACE, withWhere } from "./app.mjs";
 import { APP_ACTION, APP_COMMAND, APP_DECISION, entryItem, noticeDecision, normalise, transcript } from "./entries.mjs";
+import { CLAUDE_CODE } from "./auth.mjs";
 
 const { pi } = turri;
 
@@ -35,6 +36,13 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
       const chat = [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
       if (chat !== undefined) says(chat.id)("chat:model", { model: `${model.provider}/${model.id}` });
     });
+  // Nothing reaches a model from a chat that cannot be on harness-model: what is typed, a skill, a prompt template, what a
+  // command sends - pi hears each as input after the extension commands, which run, and before anything is sent.
+  const reachGuard = (api) =>
+    api.on("input", (_event, ctx) => {
+      const chat = [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
+      return chat?.refused() ? { action: "handled" } : { action: "continue" };
+    });
   // turri is told it is in the app: the window's views in place of the terminal's, and what the person has open now.
   const told = { surface: APP_SURFACE, systemPrompt: (prompt) => withWhere(prompt, whereNow()) };
   // The preview's tools, made once: every chat has them, and the sentinel - which turri refuses any tool not its own or
@@ -43,7 +51,7 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const browsing = browserTools(browser);
   // A command line turri types at the terminal's prompt is checked as one it runs: it installs nothing.
   const trying = terminalTools(terminal, { machineChange: turri.machineChange, machineChangeReason: turri.machineChangeReason });
-  const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch];
+  const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch, reachGuard];
   const follow = (id, session, earlier) => {
     const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep, earlier });
     chats.set(id, chat);
@@ -136,7 +144,7 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const open = async () => {
     const info = await session.openChat();
     const chat = chats.get(info.id) ?? follow(info.id, info.session);
-    await chat.onHarnessModel({ quiet: false });
+    await chat.onHarnessModel();
     tell();
     return info.id;
   };
@@ -226,7 +234,7 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
   await loader.reload();
   const { session } = await pi.createAgentSession({ cwd, resourceLoader: loader, sessionManager: pi.SessionManager.create(cwd) });
   const chat = follow(ID, session);
-  await chat.onHarnessModel({ quiet: false });
+  await chat.onHarnessModel();
   // "tui": jobs run in the background and the chat stays free, as in the terminal.
   await session.bindExtensions({
     uiContext: uiContext({ emit: says(ID), ask: (question, signal) => ask(ID, question, { signal }) }),
@@ -267,18 +275,41 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
   // when it changes: every chat of the person's goes with it, not only the one /turri-config ran in. A model chosen in
   // one chat stays until harness-model changes again.
   let onHarness;
-  const onHarnessModel = async ({ quiet = true } = {}) => {
-    const wanted = harnessModel();
-    if (!wanted || onHarness === wanted) return;
+  // harness-model as it cannot be reached here, while it cannot - no credentials for its provider, or no such model: the
+  // window says so, and the chat sends nothing to a model meanwhile. Never on another instead: pi's own choice is the
+  // first provider with credentials - an AWS account the person's shell has, say - billed there, unseen.
+  let unreachable = null;
+  const reach = (now) => {
+    if (JSON.stringify(now) === JSON.stringify(unreachable)) return;
+    unreachable = now;
+    emit("chat:unreachable", now);
+  };
+  const onHarnessModel = async () => {
+    const wanted = harnessModel() ?? "";
     const [spec, level] = splitLevel(wanted);
+    // Unset, or a thinking level alone: pi's own choice of model, as `turri` has it.
+    if (spec === "") return reach(null);
+    if (onHarness === wanted && unreachable === null) return;
     const slash = spec.indexOf("/");
-    const found = slash > 0 ? new pi.ModelRegistry(session.modelRuntime).find(spec.slice(0, slash), spec.slice(slash + 1)) : undefined;
-    if (found !== undefined) {
-      // On it already - the chat /turri-config ran in, switched by turri: not switched again.
-      if (session.model?.provider !== found.provider || session.model?.id !== found.id) await session.setModel(found);
-      onHarness = wanted;
-    } else if (!quiet) emit("chat:notify", { level: "warning", text: `harness-model ${spec} was not found: the chat uses pi's default model.` });
-    if (level && (found !== undefined || !quiet)) session.setThinkingLevel(level);
+    const provider = slash > 0 ? spec.slice(0, slash) : null;
+    const found = provider !== null && provider !== CLAUDE_CODE ? new pi.ModelRegistry(session.modelRuntime).find(provider, spec.slice(slash + 1)) : undefined;
+    if (found === undefined || !session.modelRuntime.hasConfiguredAuth(found.provider)) {
+      onHarness = undefined;
+      const name = session.modelRuntime.getProviders?.().find((each) => each.id === provider)?.name ?? provider;
+      const why = provider === CLAUDE_CODE ? "subscription" : found === undefined ? "unknown" : "signed-out";
+      return reach({ model: spec, provider: why === "signed-out" ? provider : null, name, why });
+    }
+    // On it already - the chat /turri-config ran in, switched by turri: not switched again.
+    if (session.model?.provider !== found.provider || session.model?.id !== found.id) await session.setModel(found);
+    onHarness = wanted;
+    reach(null);
+    if (level) session.setThinkingLevel(level);
+  };
+  /** Whether what would reach a model now is refused, harness-model out of reach: said in the chat when it is. */
+  const refused = () => {
+    if (unreachable === null) return false;
+    emit("chat:notify", { level: "error", text: `nothing was sent: ${unreachable.model}, the model this project talks to, cannot be reached here.` });
+    return true;
   };
 
   let lastDelta = 0;
@@ -402,6 +433,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
      * prompt. A chat it begins is named by what it asked, as one the person begins is by their first words.
      */
     act: ({ kind, title, detail, prompt }) => {
+      if (refused()) return;
       if (session.messages.length === 0 && !session.sessionManager.getSessionName?.()) session.setSessionName?.(title);
       if (session.isStreaming) (waiting = [...waiting, { kind, title, detail }]), tellWaiting();
       const message = { customType: APP_ACTION, content: prompt, display: true, details: { kind, title, ...(detail !== undefined ? { detail } : {}) } };
@@ -454,6 +486,9 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
     },
     restore,
     onHarnessModel,
+    refused,
+    /** harness-model as it cannot be reached here - what, and why - or null. */
+    unreachable: () => unreachable,
     model: () => (session.model ? `${session.model.provider}/${session.model.id}` : null),
     stats,
     spent,

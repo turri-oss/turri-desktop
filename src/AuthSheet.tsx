@@ -37,7 +37,7 @@ function connection(provider: AuthProvider): string | null {
 
 /**
  * The words for signing in in the browser: pi's own label where it has one ("Sign in with ChatGPT"), lowercased; else
- * the subscription its name gives - "Anthropic (Claude Pro/Max)" is your Claude Pro/Max - or the name itself.
+ * the subscription its name gives - "OpenAI (ChatGPT Plus/Pro)" is your ChatGPT Plus/Pro - or the name itself.
  */
 function signInWith(provider: AuthProvider): string {
   const oauth = provider.oauth!;
@@ -62,7 +62,7 @@ const plain = (failure: unknown) => String((failure as Error).message ?? failure
 
 /**
  * Signing in to the model providers turri's models come from - pi's own sign-ins, as /login runs them in a terminal: a
- * subscription in the browser (Claude Pro/Max, ChatGPT, GitHub Copilot), or an API key typed here. Opened on a provider
+ * subscription in the browser (ChatGPT, GitHub Copilot - never a Claude subscription, which the engine leaves out), or an API key typed here. Opened on a provider
  * (`initial`, its id or name) it goes straight to it. `dir` is the project whose models' providers are listed first;
  * `onSignedIn` hears of each sign-in that stored a credential.
  */

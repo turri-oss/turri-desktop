@@ -17,6 +17,8 @@ type Setting = {
   options: string[];
   /** What the file has, as /turri-config takes it back - null for unset. */
   value: string | null;
+  /** A model's, as turri reads it: the model, and how hard it thinks - null for unset. */
+  choice?: { model: string | null; thinking: string | null } | null;
   /** What wins over it: models.chat over harness-model, a stack's file. */
   over: string[];
 };
@@ -34,12 +36,6 @@ function fromSummary(settings: Record<string, Value>): Setting[] {
     { key: "debug", about: "whether turri keeps what it writes for debugging it - agents' logs and sessions, pulse logs, outputs", kind: "boolean", unset: "false" },
   ];
   return few.filter(({ key }) => key in settings).map((each) => ({ ...each, effect: "", options: [], over: [], value: settings[each.key] === null ? null : String(settings[each.key]) }));
-}
-
-/** A model as config.turri.yaml writes it - provider/id, and how hard it thinks after a colon - taken apart. */
-function splitModel(spec: string): { model: string; level: string } {
-  const colon = spec.lastIndexOf(":");
-  return colon > spec.lastIndexOf("/") ? { model: spec.slice(0, colon), level: spec.slice(colon + 1) } : { model: spec, level: "" };
 }
 
 /** What /turri-config offers for what is typed after it - turri's own choices, asked of the engine. */
@@ -76,13 +72,17 @@ function Choose({ value, options, onChange, label, blank, byProvider = false }: 
 
 /** A model setting: which model, of those turri can reach here, and how hard it thinks. */
 function ModelSetting({ setting, onChange }: { setting: Setting; onChange: (value: string) => void }) {
-  const { model, level } = splitModel(setting.value ?? "");
+  // As turri reads it, never taken apart here: a Bedrock model's id ends in its version, `:0`, which is no thinking level.
+  // A turri that does not say (fromSummary) has the value whole, as the model.
+  const model = setting.choice !== undefined ? (setting.choice?.model ?? "") : (setting.value ?? "");
+  const level = setting.choice?.thinking ?? "";
   const [models, setModels] = useState<string[] | null>(null);
   const [levels, setLevels] = useState<string[] | null>(null);
   useEffect(() => void choicesFor(`${setting.key} `).then(setModels), [setting.key]);
   useEffect(() => {
     setLevels(null);
-    if (model !== "") void choicesFor(`${setting.key} ${model}:`).then((offered) => setLevels(offered.map((each) => splitModel(each).level).filter((each) => each !== "")));
+    // Each offered as the model, a colon, and the level: what follows the model is the level.
+    if (model !== "") void choicesFor(`${setting.key} ${model}:`).then((offered) => setLevels(offered.filter((each) => each.startsWith(`${model}:`)).map((each) => each.slice(model.length + 1)).filter((each) => each !== "")));
   }, [setting.key, model]);
   return (
     <span className="model-setting">

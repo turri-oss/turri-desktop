@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Icon, Jellyfish, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
 import { keys, MAC } from "./platform.ts";
 import type { Concept } from "./types.ts";
-import type { ChatInfo } from "./chats.ts";
+import type { ChatInfo, Unreachable } from "./chats.ts";
 import type { Attached } from "../electron/preload.ts";
 import { lookOf, type Action } from "./actions.ts";
 
@@ -216,6 +216,12 @@ export function Chat(props: {
   running: Map<string, boolean>;
   statuses: Record<string, string>;
   model: string | null;
+  /** harness-model out of reach: said above the message box, and nothing but a command is sent meanwhile. */
+  unreachable: Unreachable | null;
+  /** Sign in to a provider, in the window's sheet - harness-model's, out of reach. */
+  onSignIn: (provider: string) => void;
+  /** The project's settings, where harness-model is chosen. */
+  onSettings: () => void;
   /** A project with no spec yet: the hints start one. */
   fresh: boolean;
   /** What typing / offers: turri's commands, prompt templates and skills, as its chat has them. */
@@ -349,9 +355,11 @@ export function Chat(props: {
   };
   const hasFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files");
 
+  // harness-model out of reach: only a command goes - /turri-config, /login - and what reaches a model stays in the box.
+  const held = props.unreachable !== null && !draft.trim().startsWith("/");
   const send = () => {
     const text = draft.trim();
-    if (text === "" && attached.length === 0) return;
+    if ((text === "" && attached.length === 0) || held) return;
     props.onSend(text, attached);
     setDraft("");
     setAttached([]);
@@ -480,6 +488,7 @@ export function Chat(props: {
                 </button>
                 <button
                   className="hint"
+                  disabled={props.unreachable !== null}
                   onClick={() => props.onAct({ kind: "start", title: "what to build, asked first, then its first ***plain", prompt: "Help me work out what to build: ask me what you need to know, then write the first ***plain." })}
                 >
                   help me work out what to build
@@ -487,7 +496,7 @@ export function Chat(props: {
               </>
             ) : (
               ["what does this project do?", "add a way to delete a message", ...(props.changed ? ["regenerate what changed"] : [])].map((hint) => (
-                <button key={hint} className="hint" onClick={() => props.onSend(hint)}>
+                <button key={hint} className="hint" disabled={props.unreachable !== null} onClick={() => props.onSend(hint)}>
                   {hint}
                 </button>
               ))
@@ -525,6 +534,7 @@ export function Chat(props: {
         <div ref={end} />
       </div>
       {props.progress && <ProgressBar progress={props.progress} />}
+      {props.unreachable && <OutOfReach unreachable={props.unreachable} onSignIn={props.onSignIn} onSettings={props.onSettings} />}
       {question ? (
         // Known by what it asks, not its id: a question asked again - a box ticked, the rest still to choose - is the
         // same card, changed in place.
@@ -668,7 +678,13 @@ export function Chat(props: {
           {/* How full, what it cost, and the model it is with - together at the foot's left. */}
           <span className="composer-meta">
             {props.stats && <ChatMeter stats={props.stats} spending={props.spending} />}
-            {props.model && <span className="chat-model" title={props.model}>{props.model.split("/").at(-1)}</span>}
+            {props.unreachable ? (
+              <span className="chat-model out-of-reach" title={`${props.unreachable.model} - out of reach`}>
+                {props.unreachable.model.split("/").at(-1)}
+              </span>
+            ) : (
+              props.model && <span className="chat-model" title={props.model}>{props.model.split("/").at(-1)}</span>
+            )}
           </span>
           <span className="muted small composer-status">{statusLine}</span>
           <span className="composer-actions">
@@ -680,7 +696,7 @@ export function Chat(props: {
                 <Icon name="stop" size={13} /> stop
               </button>
             ) : (
-              <button className="button small primary" onClick={send} disabled={draft.trim() === "" && attached.length === 0}>
+              <button className="button small primary" onClick={send} disabled={(draft.trim() === "" && attached.length === 0) || held}>
                 send <kbd>↩</kbd>
               </button>
             )}
@@ -1212,6 +1228,37 @@ export function Prose({ text }: { text: string }) {
  * ticked, the one it is in turning, the rest to come, joined by a line filled as far as it has got; and under them
  * what the phase it is in does.
  */
+/**
+ * harness-model out of reach, above the message box: what it is, why, and what to do - sign in to its provider, or choose
+ * another in the project's settings. The chat sends nothing to a model meanwhile, never another model in its place.
+ */
+function OutOfReach({ unreachable, onSignIn, onSettings }: { unreachable: Unreachable; onSignIn: (provider: string) => void; onSettings: () => void }) {
+  const { model, provider, name, why } = unreachable;
+  const said =
+    why === "signed-out"
+      ? `turri talks to ${model}, but you are not signed in to ${name ?? provider}.`
+      : why === "subscription"
+        ? `turri talks to ${model}, through a Claude subscription - which turri desktop does not offer. choose another model, or Anthropic's with an API key.`
+        : `turri talks to ${model}, which is not a model it can reach here.`;
+  return (
+    <div className="out-of-reach-card" role="alert">
+      <p>
+        <Icon name="key" size={13} /> {said} nothing is sent until it can.
+      </p>
+      <div className="out-of-reach-actions">
+        {provider !== null && (
+          <button className="button small primary" onClick={() => onSignIn(provider)}>
+            sign in to {name ?? provider}
+          </button>
+        )}
+        <button className="button small" onClick={onSettings}>
+          choose another model
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProgressBar({ progress }: { progress: SkillProgress }) {
   const current = progress.phases.find((phase) => phase.state === "now")?.name;
   // "build - what it does" under a bar that already says build: what it does, alone.
