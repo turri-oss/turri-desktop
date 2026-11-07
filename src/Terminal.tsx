@@ -60,9 +60,7 @@ export function TerminalPane({ onState }: { onState: (state: TerminalState) => v
     // The theme changed - chosen, or the system's when it follows it - and the terminal's colours with it.
     const recolour = () => (term.options.theme = themeNow());
     const themeWatch = new MutationObserver(recolour);
-    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    const system = matchMedia("(prefers-color-scheme: dark)");
-    system.addEventListener("change", recolour);
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
 
     const resize = () => {
       if (gone || element.clientWidth === 0) return;
@@ -112,7 +110,6 @@ export function TerminalPane({ onState }: { onState: (state: TerminalState) => v
       offs.forEach((off) => off());
       sizeWatch.disconnect();
       themeWatch.disconnect();
-      system.removeEventListener("change", recolour);
       term.dispose();
     };
   }, []);

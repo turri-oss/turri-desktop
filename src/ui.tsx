@@ -32,7 +32,7 @@ export function tokens(usage: Usage | undefined): string {
   return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(1)}M tok` : `${(total / 1000).toFixed(1)}k tok`;
 }
 
-/** The hero jellyfish's box, in its pixels: jellyfish-hero.svg's, and the swaying sprite's, which bobs inside it. */
+/** The hero jellyfish's box, in its pixels: the kit's sprite, still or swaying, which bobs inside it. */
 const HERO_WIDTH = 350;
 const HERO_HEIGHT = 460;
 /** The lifecycle's box: the polyp on the floor at its foot, the jellyfish risen to where the hero hangs. */
@@ -50,20 +50,24 @@ const LOGO_BELOW = 48;
  */
 export function Jellyfish({ size = 48, swimming = true, lifecycle = false, className = "" }: { size?: number; swimming?: boolean; lifecycle?: boolean; className?: string }) {
   if (size < LOGO_BELOW) {
+    // The logo mark (public/jellyfish/logo-mark.svg) drawn here, its pixels in the theme's jellyfish colours.
     return (
-      <img
+      <svg
         className={`jellyfish logo-mark ${swimming ? "swimming" : ""} ${className}`}
-        src="./jellyfish/logo-mark.svg"
+        viewBox="0 0 7 8"
         width={size}
         height={Math.round((size * 8) / 7)}
-        alt=""
-        draggable={false}
-      />
+        shapeRendering="crispEdges"
+        aria-hidden
+      >
+        {BUILDING.map(({ x, y, part }, index) => (
+          <rect key={index} x={x} y={y} width={1} height={1} className={part} />
+        ))}
+      </svg>
     );
   }
   if (lifecycle) return <Pixels size={size} width={LIFECYCLE_WIDTH} height={LIFECYCLE_HEIGHT} mount={(host) => mountJellyfish(host)} className={className} />;
-  if (swimming) return <Pixels size={size} width={HERO_WIDTH} height={HERO_HEIGHT} mount={(host) => mountSprite(host, "hero")} className={className} />;
-  return <img className={`jellyfish ${className}`} src="./jellyfish/jellyfish-hero.svg" width={size} height={Math.round((size * HERO_HEIGHT) / HERO_WIDTH)} alt="" draggable={false} />;
+  return <Pixels size={size} width={HERO_WIDTH} height={HERO_HEIGHT} mount={(host) => mountSprite(host, "hero", 10, { motion: swimming })} className={`${swimming ? "" : "still"} ${className}`} />;
 }
 
 /** One of the kit's animations, mounted in its own pixels' box and scaled to `size` wide. */
@@ -126,18 +130,24 @@ export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; s
 }
 
 /**
- * ***plain's own mark - its three asterisks, in its green (public/plain/plain-mark.svg) - for a .plain file wherever
- * one is named. `size` is its width: it is about half as high.
+ * What a ***plain mark's img draws of its own: nothing - a transparent pixel. The mark is its mask (styles.css), over the
+ * theme's green; the img keeps its alt, which a copy takes.
+ */
+export const PLAIN_MARK_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/**
+ * ***plain's own mark - its three asterisks, in the theme's green (public/plain/plain-mark.svg) - for a .plain file
+ * wherever one is named. `size` is its width: it is about half as high.
  */
 export function PlainMark({ size = 16 }: { size?: number }) {
-  return <img className="plain-mark" src="./plain/plain-mark.svg" width={size} height={Math.round((size * 243.9) / 439.2)} alt="" draggable={false} />;
+  return <img className="plain-mark" src={PLAIN_MARK_SRC} width={size} height={Math.round((size * 243.9) / 439.2)} alt="" draggable={false} />;
 }
 
 /** ***plain as the window writes its name: its mark, then plain - copied as ***plain. */
 export function PlainName() {
   return (
     <span className="plain-name">
-      <img className="plain-mark" src="./plain/plain-mark.svg" alt="***" draggable={false} />
+      <img className="plain-mark" src={PLAIN_MARK_SRC} alt="***" draggable={false} />
       plain
     </span>
   );

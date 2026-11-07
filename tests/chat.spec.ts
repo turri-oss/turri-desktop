@@ -187,7 +187,7 @@ test.describe("the chat", () => {
 
   test("writes ***plain as its name is, its mark then plain - but not in code", async ({ launched: { window, app } }) => {
     // The window's own words: the empty chat's.
-    await expect(window.locator(".chat-empty .plain-name img.plain-mark")).toHaveAttribute("src", "./plain/plain-mark.svg");
+    await expect(window.locator(".chat-empty .plain-name img.plain-mark")).toHaveAttribute("alt", "***");
     await tellChat(app, window, "chat:notify", { level: "info", text: "the \\*\\*\\*plain says so - `***plain` in code stays as it is." });
     const note = window.locator(".chat-body .msg.note", { hasText: "says so" });
     await expect(note.locator(".plain-name")).toHaveCount(1);
@@ -259,7 +259,7 @@ test.describe("the chat", () => {
     await window.locator(".chat button[title^='hide the chat']").click();
     const open = window.locator(".toolbar > :first-child");
     await expect(open).toHaveText("turri");
-    await expect(open.locator("img")).toHaveAttribute("src", "./jellyfish/logo-mark.svg");
+    await expect(open.locator("svg.logo-mark")).toBeVisible();
     await open.click();
     await expect(window.locator(".chat-model")).toBeVisible();
   });
@@ -469,9 +469,8 @@ test.describe("a turn at work", () => {
     const box = window.locator(".composer textarea");
     await box.fill("hello");
     await box.press("Enter");
-    const jelly = window.locator(".chat-working img.jellyfish");
+    const jelly = window.locator(".chat-working svg.jellyfish.logo-mark");
     await expect(jelly).toBeVisible();
-    await expect(jelly).toHaveAttribute("src", /logo-mark\.svg$/);
     await expect(window.locator(".chat-working")).toContainText("thinking");
     expect(await jelly.evaluate((image) => [getComputedStyle(image).animationName, getComputedStyle(image).animationTimingFunction])).toEqual(["bob", "steps(1)"]);
   });

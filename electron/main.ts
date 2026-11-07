@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, type MenuItemConstructorOptions, type Rectangle } from "electron";
 import { fork, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createPreview } from "./preview.ts";
 import { readSettings, writeSettings, type Settings } from "./settings.ts";
 import { loadShellEnvironment } from "./shell-env.ts";
+import { backgroundOf, BUILT_IN, DEFAULT_DARK, DEFAULT_LIGHT, ownId, readOwnThemes, schemePalette, type ResolvedTheme, type Theme } from "./themes.ts";
 import { createTerminal, shellsEnded } from "./terminal.ts";
 import { turriVersion } from "./turri-version.ts";
 import { createUpdates, type UpdateState } from "./updates.ts";
@@ -34,9 +35,19 @@ const shellReady = loadShellEnvironment();
 const RECENTS_FILE = join(app.getPath("userData"), "recent-projects.json");
 const APPEARANCE_FILE = join(app.getPath("userData"), "appearance.json");
 
-/** Dark - turri's own - unless the person chose light or to follow the system. */
-type Theme = "dark" | "light" | "system";
-let theme: Theme = readTheme();
+/**
+ * The window's colours: a theme by its id - turri dark unless the person chose another - or the system's, its light one or
+ * its dark one as the system is (electron/themes.ts).
+ */
+interface ThemeChoice {
+  theme: string;
+  lightTheme: string;
+  darkTheme: string;
+}
+let choice: ThemeChoice = readChoice();
+/** The person's own themes: Base16 and Base24 schemes in the themes folder, read again whenever it changes. */
+const THEMES_DIR = join(app.getPath("userData"), "themes");
+let own = readOwnThemes(THEMES_DIR);
 /** How far the window is zoomed: 0 is actual size, each step about 20% bigger or smaller (Electron's zoom levels). */
 let zoom = readAppearance().zoom ?? 0;
 const ZOOM_MIN = -3;
@@ -69,21 +80,23 @@ async function captureTerminal(window: BrowserWindow): Promise<{ data: string; m
   return { data: image.toJPEG(80).toString("base64"), mimeType: "image/jpeg" };
 }
 
-function readAppearance(): { theme?: Theme; zoom?: number } {
+function readAppearance(): Partial<ThemeChoice> & { zoom?: number } {
   try {
-    return JSON.parse(readFileSync(APPEARANCE_FILE, "utf8")) as { theme?: Theme; zoom?: number };
+    return JSON.parse(readFileSync(APPEARANCE_FILE, "utf8")) as Partial<ThemeChoice> & { zoom?: number };
   } catch {
     return {};
   }
 }
 
 function writeAppearance() {
-  writeFileSync(APPEARANCE_FILE, JSON.stringify({ theme, zoom }));
+  writeFileSync(APPEARANCE_FILE, JSON.stringify({ ...choice, zoom }));
 }
 
-function readTheme(): Theme {
-  const chosen = readAppearance().theme;
-  return chosen === "light" || chosen === "system" ? chosen : "dark";
+function readChoice(): ThemeChoice {
+  const saved = readAppearance();
+  // Saved by 0.2.4 and before, when there were turri's two: dark or light.
+  const id = (value: unknown, otherwise: string) => (value === "dark" ? DEFAULT_DARK : value === "light" ? DEFAULT_LIGHT : typeof value === "string" ? value : otherwise);
+  return { theme: id(saved.theme, DEFAULT_DARK), lightTheme: id(saved.lightTheme, DEFAULT_LIGHT), darkTheme: id(saved.darkTheme, DEFAULT_DARK) };
 }
 
 /** Zoom in, out or back to actual size - the text and everything with it - and remember it. */
@@ -94,22 +107,114 @@ function setZoom(next: number) {
   sendSettings();
 }
 
-/** The window's own colour behind the page, as the theme has it - what shows while it loads or resizes. */
-function backgroundFor(): string {
-  return (theme === "system" ? nativeTheme.shouldUseDarkColors : theme === "dark") ? "#0a0f1a" : "#f4f7f9";
+const everyTheme = (): Theme[] => [...BUILT_IN, ...own.themes];
+const themeById = (id: string) => everyTheme().find((each) => each.info.id === id);
+
+/** The theme the window is in: the one chosen, or the system's - turri's own in place of one that is gone. */
+function currentTheme(): Theme {
+  const dark = nativeTheme.shouldUseDarkColors;
+  if (choice.theme !== "system") return themeById(choice.theme) ?? themeById(DEFAULT_DARK)!;
+  return themeById(dark ? choice.darkTheme : choice.lightTheme) ?? themeById(dark ? DEFAULT_DARK : DEFAULT_LIGHT)!;
 }
 
-function setTheme(next: Theme) {
-  theme = next;
-  writeAppearance();
-  // Menus, dialogs and the title bar follow it too.
-  nativeTheme.themeSource = theme;
+function resolvedTheme(): ResolvedTheme {
+  const { info, tokens } = currentTheme();
+  return { id: info.id, name: info.name, appearance: info.appearance, tokens, background: backgroundOf(currentTheme()) };
+}
+
+/** The window's own colour behind the page, as the theme has it - what shows while it loads or resizes. */
+function backgroundFor(): string {
+  return resolvedTheme().background;
+}
+
+/** The themes there are, for the settings sheet: built in, the person's own, and the files in their folder that are not one. */
+const themeList = () => ({ themes: everyTheme().map((each) => each.info), problems: own.problems, folder: THEMES_DIR });
+
+/** What each window was last sent, so the system's change - or a file saved again unchanged - sends nothing new. */
+let themeShown = "";
+
+/** The theme now, in every window - and in what the system draws: menus, dialogs, the title bar, the preview's pages. */
+function applyTheme() {
+  const source = choice.theme === "system" ? "system" : currentTheme().info.appearance;
+  if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;
+  const resolved = resolvedTheme();
+  const shown = JSON.stringify(resolved);
+  if (shown === themeShown) return;
+  themeShown = shown;
   for (const workspace of workspaces.values()) {
-    workspace.window.setBackgroundColor(backgroundFor());
-    workspace.send("theme", theme);
+    workspace.window.setBackgroundColor(resolved.background);
+    workspace.send("theme", resolved);
   }
+}
+
+function setChoice(next: Partial<ThemeChoice>) {
+  choice = { ...choice, ...next };
+  writeAppearance();
+  applyTheme();
   buildMenu();
   sendSettings();
+}
+
+/** The themes folder read again - a scheme added, changed or taken away - and every window told. */
+function reloadThemes() {
+  own = readOwnThemes(THEMES_DIR);
+  applyTheme();
+  buildMenu();
+  for (const workspace of workspaces.values()) workspace.send("themes", themeList());
+}
+
+function watchThemes() {
+  mkdirSync(THEMES_DIR, { recursive: true });
+  let soon: ReturnType<typeof setTimeout> | undefined;
+  try {
+    watch(THEMES_DIR, () => {
+      clearTimeout(soon);
+      soon = setTimeout(reloadThemes, 150);
+    });
+  } catch {
+    // A folder that cannot be watched is read again at an import only.
+  }
+}
+
+/**
+ * A scheme the person picks, read and copied into the themes folder, then chosen - in place of the system's light or
+ * dark one, if the window follows the system. Null if they picked none; what is wrong with it if it is not one.
+ */
+async function importTheme(window: BrowserWindow | null): Promise<{ id: string } | { error: string } | null> {
+  const options: Electron.OpenDialogOptions = {
+    title: "import a theme",
+    buttonLabel: "import",
+    message: "a base16 or base24 scheme - .yaml or .json",
+    filters: [{ name: "base16 or base24 scheme", extensions: ["yaml", "yml", "json"] }],
+    properties: ["openFile"],
+  };
+  const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+  const from = picked.filePaths[0];
+  if (picked.canceled || from === undefined) return null;
+  let text: string;
+  let appearance: "dark" | "light";
+  try {
+    text = readFileSync(from, "utf8");
+    appearance = schemePalette(text, from).appearance;
+  } catch (error) {
+    return { error: `${basename(from)}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  mkdirSync(THEMES_DIR, { recursive: true });
+  // Its own name in the folder - the same scheme imported again is the one there; another of that name is numbered.
+  const extension = extname(from);
+  let file = basename(from);
+  for (let n = 2; existsSync(join(THEMES_DIR, file)) && readFileSync(join(THEMES_DIR, file), "utf8") !== text; n++) file = `${basename(from, extension)}-${n}${extension}`;
+  if (!existsSync(join(THEMES_DIR, file))) copyFileSync(from, join(THEMES_DIR, file));
+  own = readOwnThemes(THEMES_DIR);
+  const id = ownId(file);
+  setChoice(choice.theme === "system" ? (appearance === "dark" ? { darkTheme: id } : { lightTheme: id }) : { theme: id });
+  for (const workspace of workspaces.values()) workspace.send("themes", themeList());
+  return { id };
+}
+
+function revealThemes() {
+  mkdirSync(THEMES_DIR, { recursive: true });
+  return shell.openPath(THEMES_DIR);
 }
 
 // ---------- settings ----------
@@ -118,7 +223,7 @@ function setTheme(next: Theme) {
 let settings: Settings = readSettings();
 
 /** Everything the settings sheet shows: the look, and the rest. */
-const allSettings = () => ({ theme, zoom, ...settings });
+const allSettings = () => ({ ...choice, zoom, ...settings });
 
 /** Each window's settings sheet, if open, shows what changed - from the menu, or another window. */
 function sendSettings() {
@@ -126,9 +231,10 @@ function sendSettings() {
 }
 
 function changeSettings(next: Partial<ReturnType<typeof allSettings>>) {
-  if (next.theme !== undefined && next.theme !== theme) setTheme(next.theme);
-  if (next.zoom !== undefined && next.zoom !== zoom) setZoom(next.zoom);
-  const { theme: _theme, zoom: _zoom, ...rest } = next;
+  const { theme, lightTheme, darkTheme, zoom: nextZoom, ...rest } = next;
+  const themes = Object.fromEntries(Object.entries({ theme, lightTheme, darkTheme }).filter(([, id]) => id !== undefined)) as Partial<ThemeChoice>;
+  if (Object.keys(themes).length > 0) setChoice(themes);
+  if (nextZoom !== undefined && nextZoom !== zoom) setZoom(nextZoom);
   if (Object.keys(rest).length === 0) return allSettings();
   settings = { ...settings, ...rest };
   writeSettings(settings);
@@ -711,6 +817,37 @@ async function newProject() {
 
 // ---------- the menu ----------
 
+/**
+ * View > Theme: the system's, then each theme - the dark ones, the light ones, the person's own - then importing one and
+ * their folder. Checkboxes, not radios: a radio group with none checked would have its first checked for it.
+ */
+function themeMenu(): MenuItemConstructorOptions[] {
+  const item = (theme: Theme): MenuItemConstructorOptions => ({
+    label: theme.info.name,
+    type: "checkbox",
+    checked: choice.theme === theme.info.id,
+    click: () => setChoice({ theme: theme.info.id }),
+  });
+  const groups = [
+    BUILT_IN.filter((each) => each.info.appearance === "dark"),
+    BUILT_IN.filter((each) => each.info.appearance === "light"),
+    own.themes,
+  ].filter((group) => group.length > 0);
+  return [
+    { label: "Same as the System", type: "checkbox", checked: choice.theme === "system", click: () => setChoice({ theme: "system" }) },
+    ...groups.flatMap((group): MenuItemConstructorOptions[] => [{ type: "separator" }, ...group.map(item)]),
+    { type: "separator" },
+    {
+      label: "Import a Theme…",
+      click: () =>
+        void importTheme(BrowserWindow.getFocusedWindow()).then((result) => {
+          if (result !== null && "error" in result) void dialog.showMessageBox({ type: "warning", message: "turri cannot read that theme", detail: result.error, buttons: ["ok"] });
+        }),
+    },
+    { label: "Show the Themes Folder", click: () => void revealThemes() },
+  ];
+}
+
 function buildMenu() {
   const front = focused();
   const menuAction = (action: string) => () => focused()?.send("menu", action);
@@ -787,15 +924,7 @@ function buildMenu() {
         { type: "separator" },
         { label: "Show or Hide the Files", accelerator: "CmdOrCtrl+B", click: menuAction("sidebar") },
         { label: "Show or Hide the Chat", accelerator: "CmdOrCtrl+J", click: menuAction("chat") },
-        {
-          label: "Appearance",
-          submenu: (["dark", "light", "system"] as Theme[]).map((name) => ({
-            label: name === "system" ? "Same as the System" : name === "dark" ? "Dark" : "Light",
-            type: "radio" as const,
-            checked: theme === name,
-            click: () => setTheme(name),
-          })),
-        },
+        { label: "Theme", submenu: themeMenu() },
         { type: "separator" },
         { label: "Actual Size", accelerator: "CmdOrCtrl+0", click: () => setZoom(0) },
         { label: "Zoom In", accelerator: "CmdOrCtrl+Plus", click: () => setZoom(zoom + 0.5) },
@@ -855,10 +984,14 @@ function inProject(workspace: Workspace, path: string): string {
   return full;
 }
 
+const knownTheme = (id: unknown) => typeof id === "string" && themeById(id) !== undefined;
+
 /** Only the settings there are, each of its own kind: the window says what it changes, never what the app keeps. */
 function pickSettings(next: Record<string, unknown>): Partial<ReturnType<typeof allSettings>> {
   return {
-    ...(next.theme === "dark" || next.theme === "light" || next.theme === "system" ? { theme: next.theme } : {}),
+    ...(next.theme === "system" || knownTheme(next.theme) ? { theme: next.theme as string } : {}),
+    ...(knownTheme(next.lightTheme) ? { lightTheme: next.lightTheme as string } : {}),
+    ...(knownTheme(next.darkTheme) ? { darkTheme: next.darkTheme as string } : {}),
     ...(typeof next.zoom === "number" && Number.isFinite(next.zoom) ? { zoom: next.zoom } : {}),
     ...(typeof next.vendor === "string" || next.vendor === null ? { vendor: next.vendor as string | null } : {}),
     ...(typeof next.checkUpdates === "boolean" ? { checkUpdates: next.checkUpdates } : {}),
@@ -998,7 +1131,10 @@ ipcMain.handle("terminal:restart", (event) => workspaceOf(event.sender).terminal
 // Which turri the app runs - worked out once: it does not change while the app runs.
 const turri = turriVersion(ROOT, DEV ? process.env.TURRI_DEV : undefined);
 ipcMain.handle("turri:version", () => turri);
-ipcMain.handle("theme:get", () => theme);
+ipcMain.handle("theme:get", () => resolvedTheme());
+ipcMain.handle("themes:list", () => themeList());
+ipcMain.handle("themes:import", (event) => importTheme(BrowserWindow.fromWebContents(event.sender)));
+ipcMain.handle("themes:reveal", () => revealThemes());
 ipcMain.handle("settings:get", () => allSettings());
 ipcMain.handle("settings:set", (_event, next: Partial<ReturnType<typeof allSettings>>) => changeSettings(pickSettings(next)));
 ipcMain.handle("updates:state", () => updates.state());
@@ -1020,9 +1156,8 @@ ipcMain.handle("machine:developer-tools", () => {
   if (!MAC) return;
   spawn("xcode-select", ["--install"], { detached: true, stdio: "ignore" }).unref();
 });
-nativeTheme.on("updated", () => {
-  for (const { window } of workspaces.values()) window.setBackgroundColor(backgroundFor());
-});
+// The system turned light or dark: a window following it changes theme with it.
+nativeTheme.on("updated", () => applyTheme());
 // A native context menu: the window lists what it offers, and is told which was chosen.
 // The window says whether its ***plain has changed since it was built, for Regenerate What Changed.
 ipcMain.handle("menu:changed", (event, changed: boolean) => {
@@ -1055,7 +1190,8 @@ app.whenReady().then(() => {
   app.dock?.setIcon(join(ROOT, "build", "icon.png"));
   // The Dock's menu lists the windows on its own; a new one is opened from it too.
   app.dock?.setMenu(Menu.buildFromTemplate([{ label: "New Window", click: () => void createWorkspace() }]));
-  nativeTheme.themeSource = theme;
+  applyTheme();
+  watchThemes();
   // The window's own page asks for nothing but the clipboard - its copy buttons, the terminal's paste: anything else a
   // page asks for - the camera, the microphone, where the machine is - is refused. The preview's pages have sessions of
   // their own.

@@ -17,8 +17,8 @@ const atTheEnd = (window: Page) =>
 test.describe("the spec editor", () => {
   test("shows the spec, coloured by turri's grammar, with its functional spec marked", async ({ launched: { window } }) => {
     await expect(window.locator(".editor-pane .pane-header")).toContainText("0 of 1 regenerated");
-    // Named beside ***plain's own mark, in its green.
-    await expect(window.locator(".editor-pane .pane-header img.plain-mark")).toHaveAttribute("src", "./plain/plain-mark.svg");
+    // Named beside ***plain's own mark, in its green - turri-dark's, #79FC96.
+    await expect(window.locator(".editor-pane .pane-header img.plain-mark")).toHaveCSS("background-color", "rgb(121, 252, 150)");
     // And in the tree, its state beside how much of it is built.
     const row = window.locator(".tree-row", { hasText: "hello.plain" });
     await expect(row.locator("img.plain-mark")).toBeVisible();

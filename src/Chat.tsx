@@ -1,6 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Icon, Jellyfish, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
+import { Icon, Jellyfish, PLAIN_MARK_SRC, PlainMark, PlainName, Spinner, withPlain } from "./ui.tsx";
 import { keys, MAC } from "./platform.ts";
 import type { Concept } from "./types.ts";
 import type { ChatInfo, Unreachable } from "./chats.ts";
@@ -1187,7 +1187,7 @@ markdown.set({
 });
 
 // ***plain in what turri writes, written as its name is - in its words, never in its code.
-const PLAIN_NAME = '<span class="plain-name"><img class="plain-mark" src="./plain/plain-mark.svg" alt="***" draggable="false">plain</span>';
+const PLAIN_NAME = `<span class="plain-name"><img class="plain-mark" src="${PLAIN_MARK_SRC}" alt="***" draggable="false">plain</span>`;
 // Its concepts - `:User:` - coloured as the ***plain colours them, in its words too.
 markdown.renderer.rules.text = (tokens, index) =>
   escape(tokens[index]!.content)

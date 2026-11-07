@@ -2,11 +2,22 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "ele
 import type { PreviewState } from "./preview.ts";
 import type { Settings } from "./settings.ts";
 import type { TerminalState } from "./terminal.ts";
+import type { ResolvedTheme, ThemeInfo, ThemeProblem } from "./themes.ts";
 import type { TurriVersion } from "./turri-version.ts";
 import type { UpdateState } from "./updates.ts";
 
-/** The settings sheet's: the look - appearance.json's - and the rest, settings.json's. */
-export type AppSettings = Settings & { theme: "dark" | "light" | "system"; zoom: number };
+/**
+ * The settings sheet's: the look - appearance.json's: a theme by its id, or "system" and the light and dark ones it
+ * takes, and the zoom - and the rest, settings.json's.
+ */
+export type AppSettings = Settings & { theme: string; lightTheme: string; darkTheme: string; zoom: number };
+
+/** The themes there are: built in and the person's own, the files in their folder that are not one, and the folder. */
+export interface ThemeList {
+  themes: ThemeInfo[];
+  problems: ThemeProblem[];
+  folder: string;
+}
 
 /** A file attached to a message in the chat: where it is, and - for an image - its bytes, to go to the model as one. */
 export interface Attached {
@@ -155,7 +166,14 @@ const api = {
   installDeveloperTools: () => ipcRenderer.invoke("machine:developer-tools"),
   /** Which turri the app runs: from npm, or a clone's sources - and anything to do about it. */
   turriVersion: () => ipcRenderer.invoke("turri:version") as Promise<TurriVersion>,
-  theme: () => ipcRenderer.invoke("theme:get") as Promise<"dark" | "light" | "system">,
+  /** The theme the window is in now - its tokens set over the stylesheet's - and again as it changes ("theme"). */
+  theme: () => ipcRenderer.invoke("theme:get") as Promise<ResolvedTheme>,
+  /** The themes to choose from ("themes" as the folder changes), a scheme imported - picked in a dialog - and the folder. */
+  themes: {
+    list: () => ipcRenderer.invoke("themes:list") as Promise<ThemeList>,
+    import: () => ipcRenderer.invoke("themes:import") as Promise<{ id: string } | { error: string } | null>,
+    reveal: () => ipcRenderer.invoke("themes:reveal"),
+  },
   platform: process.platform,
 };
 

@@ -1,5 +1,5 @@
 import type { ElectronApplication, Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickMenu, expect, offers, test } from "./app.ts";
 
@@ -28,7 +28,7 @@ test.describe("settings", () => {
   test("change the look and the models new projects start on, and keep them", async ({ launched: { app, window: page } }) => {
     await choose(app, page, "settings");
     const sheet = page.getByRole("dialog", { name: "settings" });
-    await sheet.getByRole("button", { name: "light" }).click();
+    await sheet.getByRole("combobox", { name: "theme", exact: true }).selectOption("turri-light");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     const vendor = sheet.getByRole("combobox", { name: "the models new projects start on" });
@@ -36,16 +36,76 @@ test.describe("settings", () => {
     await vendor.selectOption(first!);
     await sheet.getByRole("switch", { name: "pre-releases too" }).click();
     const saved = await page.evaluate(() => window.turri.settings.get());
-    expect(saved).toMatchObject({ theme: "light", vendor: first, prerelease: true, checkUpdates: true });
+    expect(saved).toMatchObject({ theme: "turri-light", vendor: first, prerelease: true, checkUpdates: true });
     // Run from source, the app does not update itself: the sheet says so.
     await expect(sheet).toContainText("cannot update itself here");
   });
 
   test("refuses a setting there is not", async ({ launched: { window: page } }) => {
     const saved = await page.evaluate(() => window.turri.settings.set({ theme: "purple", zoom: "big", nonsense: 1 } as never));
-    expect(saved.theme).toBe("dark");
+    expect(saved.theme).toBe("turri-dark");
     expect(saved.zoom).toBe(0);
     expect(saved).not.toHaveProperty("nonsense");
+  });
+});
+
+test.describe("themes", () => {
+  test.use({ open: false, recent: true });
+
+  const bg = (page: Page) => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg"));
+
+  test("one built in colours the whole window - its own tokens over turri's - and turri's own takes them away", async ({ launched: { app, window: page } }) => {
+    await choose(app, page, "settings");
+    const sheet = page.getByRole("dialog", { name: "settings" });
+    const theme = sheet.getByRole("combobox", { name: "theme", exact: true });
+    await theme.selectOption("catppuccin-mocha");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect.poll(() => bg(page)).toBe("#1e1e2e");
+    // The jellyfish and ***plain's mark are drawn in its colours too.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--jelly-bell"))).toBe("#f5c2e7");
+    await theme.selectOption("catppuccin-latte");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect.poll(() => bg(page)).toBe("#eff1f5");
+    await theme.selectOption("turri-dark");
+    await expect.poll(() => bg(page)).toBe("");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  });
+
+  test("following the system, asks which for light and which for dark", async ({ launched: { app, window: page } }) => {
+    await choose(app, page, "settings");
+    const sheet = page.getByRole("dialog", { name: "settings" });
+    await sheet.getByRole("combobox", { name: "theme", exact: true }).selectOption("system");
+    await sheet.getByRole("combobox", { name: "the theme while the system is light" }).selectOption("solarized-light");
+    await sheet.getByRole("combobox", { name: "the theme while the system is dark" }).selectOption("nord");
+    const saved = await page.evaluate(() => window.turri.settings.get());
+    expect(saved).toMatchObject({ theme: "system", lightTheme: "solarized-light", darkTheme: "nord" });
+    const dark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+    await expect.poll(() => bg(page)).toBe(dark ? "#2e3440" : "#fdf6e3");
+  });
+
+  test("a base16 scheme saved in the themes folder is one of the person's own, read again as it changes", async ({ launched: { app, window: page }, scratch }) => {
+    const folder = join(scratch, "user-data", "themes");
+    const scheme = (base00: string) =>
+      `scheme: "Paper"\n${["base00: \"" + base00 + "\"", ...["01", "02", "03", "04", "05", "06", "07", "08", "09", "0A", "0B", "0C", "0D", "0E", "0F"].map((n) => `base${n}: "${n === "05" ? "222222" : "888888"}"`)].join("\n")}\n`;
+    await expect.poll(() => existsSync(folder)).toBe(true);
+    writeFileSync(join(folder, "paper.yaml"), scheme("fafafa"));
+    writeFileSync(join(folder, "broken.json"), "{ nope");
+    await choose(app, page, "settings");
+    const sheet = page.getByRole("dialog", { name: "settings" });
+    const theme = sheet.getByRole("combobox", { name: "theme", exact: true });
+    await expect(theme.locator("optgroup[label='your own'] option")).toHaveText(["Paper"]);
+    await expect(sheet).toContainText("broken.json: it could not be read as JSON");
+    await theme.selectOption("own:paper.yaml");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect.poll(() => bg(page)).toBe("#fafafa");
+    // Saved again, it is the window's at once.
+    writeFileSync(join(folder, "paper.yaml"), scheme("fff8e7"));
+    await expect.poll(() => bg(page)).toBe("#fff8e7");
+    // Taken away, the window goes back to turri's own, and the choice says it is gone.
+    rmSync(join(folder, "paper.yaml"));
+    await expect.poll(() => bg(page)).toBe("");
+    await expect(theme).toHaveValue("own:paper.yaml");
+    await expect(theme.locator("option:checked")).toHaveText("paper.yaml - gone");
   });
 });
 

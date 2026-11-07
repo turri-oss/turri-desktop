@@ -7,8 +7,9 @@ test.describe("the welcome screen", () => {
 
   test("keeps its jellyfish still - only the chat's move - and the empty chat's grows from the polyp", async ({ launched: { window } }) => {
     const card = window.locator(".welcome-card");
-    await expect(card.locator("img.jellyfish")).toBeVisible();
-    await expect(card.locator(".jellyfish.pixels")).toHaveCount(0);
+    await expect(card.locator(".jellyfish.pixels.still")).toBeVisible();
+    // Still: the kit's hero with none of its sway or bob.
+    await expect(card.locator(".tp-bob, .tp-fa, .tp-fb")).toHaveCount(0);
     await window.locator(".recents button", { hasText: "hello" }).click();
     await expect(window.locator(".chat-empty .jellyfish.pixels")).toBeVisible();
     // The chat's header has no jellyfish, nor turri's name: its tabs alone.

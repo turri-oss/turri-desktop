@@ -13,15 +13,17 @@
  */
 
 export const PALETTE = {
-  pink: '#FF5C8D',   // jelly bell, primary accent
-  mid:  '#A9479A',   // bell midtone
-  ind:  '#5B57D9',   // bell shadow
-  egg:  '#732553',   // bell rim
-  or:   '#FF7A3D',   // core / eye glow
-  neon: '#5CE1E6',   // tentacles, secondary accent
-  hi:   '#FF7FA6',   // specular highlight
-  gz:   '#85A3B2',   // muted body text / ghost pixels
-  line: '#22344A'    // ground line, hairlines
+  // turri desktop: each colour the theme's token (styles.css), with the kit's own after it - a cell's background is set to
+  // one, so the jellyfish takes the theme's colours, and turri's where there is no theme.
+  pink: 'var(--jelly-bell, #FF5C8D)',      // jelly bell, primary accent
+  mid:  'var(--jelly-mid, #A9479A)',       // bell midtone
+  ind:  'var(--jelly-shadow, #5B57D9)',    // bell shadow
+  egg:  'var(--jelly-rim, #732553)',       // bell rim
+  or:   'var(--jelly-core, #FF7A3D)',      // core / eye glow
+  neon: 'var(--jelly-tentacle, #5CE1E6)',  // tentacles, secondary accent
+  hi:   'var(--jelly-highlight, #FF7FA6)', // specular highlight
+  gz:   'var(--jelly-ghost, #85A3B2)',     // muted body text / ghost pixels
+  line: 'var(--jelly-ground, #22344A)'     // ground line, hairlines
 };
 
 /* Surface colors the sprites are designed against. */
@@ -323,9 +325,9 @@ export function logoRuns(s = 3) {
 /** The 7x7 nav mark, as an inline SVG string. `size` = rendered px (square). */
 export function logoMarkSVG(size = 42) {
   return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 7 7" shape-rendering="crispEdges" aria-hidden="true">'
-    + '<path fill="' + P.pink + '" d="M2 0h3v1H2zM1 1h5v1H1zM0 2h3v1H0zM4 2h3v1H4zM0 3h7v1H0z"/>'
-    + '<path fill="' + P.or   + '" d="M3 2h1v1H3z"/>'
-    + '<path fill="' + P.neon + '" d="M1 4h1v2H1zM3 4h1v3H3zM5 4h1v2H5z"/>'
+    + '<path style="fill:' + P.pink + '" d="M2 0h3v1H2zM1 1h5v1H1zM0 2h3v1H0zM4 2h3v1H4zM0 3h7v1H0z"/>'
+    + '<path style="fill:' + P.or   + '" d="M3 2h1v1H3z"/>'
+    + '<path style="fill:' + P.neon + '" d="M1 4h1v2H1zM3 4h1v3H3zM5 4h1v2H5z"/>'
     + '</svg>';
 }
 
@@ -467,7 +469,7 @@ export function mountCycle(container, labels = ['define', 'review', 'regenerate'
   svg.setAttribute('style', 'position:absolute;inset:0');
   svg.innerHTML =
     '<circle cx="420" cy="330" r="200" fill="none" stroke="' + THEME.dim + '" stroke-width="4" stroke-dasharray="8 8"></circle>'
-    + '<g fill="' + P.gz + '">'
+    + '<g style="fill:' + P.gz + '">'
     + '<g transform="translate(561 189) rotate(45)"><path d="M-5 -6 L5 0 L-5 6 Z"></path></g>'
     + '<g transform="translate(561 471) rotate(135)"><path d="M-5 -6 L5 0 L-5 6 Z"></path></g>'
     + '<g transform="translate(279 471) rotate(225)"><path d="M-5 -6 L5 0 L-5 6 Z"></path></g>'

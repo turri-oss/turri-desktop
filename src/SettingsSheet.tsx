@@ -1,14 +1,51 @@
 import { useEffect, useState } from "react";
-import type { AppSettings } from "../electron/preload.ts";
+import type { AppSettings, ThemeList } from "../electron/preload.ts";
+import type { ThemeInfo } from "../electron/themes.ts";
 import type { UpdateState } from "../electron/updates.ts";
 import { keys } from "./platform.ts";
 import { Icon, Spinner } from "./ui.tsx";
 
-const THEMES: Array<{ id: AppSettings["theme"]; label: string }> = [
-  { id: "dark", label: "dark" },
-  { id: "light", label: "light" },
-  { id: "system", label: "same as the system" },
-];
+/** A theme by a few of its colours: its background, text, accent, regenerated and conformance tested. */
+function Swatch({ theme }: { theme: ThemeInfo | undefined }) {
+  if (theme === undefined) return null;
+  return (
+    <span className="theme-swatch" aria-hidden>
+      {theme.swatch.map((colour, at) => (
+        <i key={at} style={{ background: colour }} />
+      ))}
+    </span>
+  );
+}
+
+/** A choice of theme: the dark ones, the light ones and the person's own - and, for the window's, the system's. */
+function ThemePicker({ list, value, onChange, label, system = false }: { list: ThemeList; value: string; onChange: (id: string) => void; label: string; system?: boolean }) {
+  const groups: Array<[string, ThemeInfo[]]> = [
+    ["dark", list.themes.filter((each) => each.file === undefined && each.appearance === "dark")],
+    ["light", list.themes.filter((each) => each.file === undefined && each.appearance === "light")],
+    ["your own", list.themes.filter((each) => each.file !== undefined)],
+  ];
+  const known = value === "system" || list.themes.some((each) => each.id === value);
+  return (
+    <span className="theme-picker">
+      <Swatch theme={list.themes.find((each) => each.id === value)} />
+      <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label}>
+        {system && <option value="system">same as the system</option>}
+        {!known && <option value={value}>{value.replace(/^own:/, "")} - gone</option>}
+        {groups
+          .filter(([, themes]) => themes.length > 0)
+          .map(([group, themes]) => (
+            <optgroup key={group} label={group}>
+              {themes.map((each) => (
+                <option key={each.id} value={each.id}>
+                  {each.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+      </select>
+    </span>
+  );
+}
 
 /** Electron's zoom levels: each about 20% bigger or smaller than the one before. */
 const percent = (zoom: number) => `${Math.round(100 * 1.2 ** zoom)}%`;
@@ -44,14 +81,17 @@ export function SettingsSheet({ onClose, onPrivacy }: { onClose: () => void; onP
   const [updates, setUpdates] = useState<UpdateState | null>(null);
   const [version, setVersion] = useState<Awaited<ReturnType<typeof window.turri.turriVersion>> | null>(null);
   const [app, setApp] = useState<string | null>(null);
+  const [themes, setThemes] = useState<ThemeList | null>(null);
+  const [themeError, setThemeError] = useState<string | null>(null);
 
   useEffect(() => {
     void window.turri.settings.get().then(setSettings);
     void window.turri.updates.state().then(setUpdates);
     void window.turri.turriVersion().then(setVersion);
     void window.turri.about.info().then((info) => setApp(info.app));
+    void window.turri.themes.list().then(setThemes);
     void window.turri.vendors().then((all: { vendors: Array<{ id: string; label: string }> }) => setVendors(all.vendors), () => setVendors([]));
-    const off = [window.turri.on("settings", setSettings), window.turri.on("updates", setUpdates)];
+    const off = [window.turri.on("settings", setSettings), window.turri.on("updates", setUpdates), window.turri.on("themes", setThemes)];
     return () => off.forEach((stop) => stop());
   }, []);
   useEffect(() => {
@@ -61,6 +101,11 @@ export function SettingsSheet({ onClose, onPrivacy }: { onClose: () => void; onP
   }, [onClose]);
 
   const change = (next: Partial<AppSettings>) => void window.turri.settings.set(next).then(setSettings);
+  const importTheme = () =>
+    void window.turri.themes.import().then((result) => {
+      if (result === null) return;
+      setThemeError("error" in result ? result.error : null);
+    });
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -75,15 +120,21 @@ export function SettingsSheet({ onClose, onPrivacy }: { onClose: () => void; onP
             <section>
               <h3>appearance</h3>
               <div className="preference">
-                <span>colours</span>
-                <div className="segmented">
-                  {THEMES.map((each) => (
-                    <button key={each.id} className={settings.theme === each.id ? "on" : ""} aria-pressed={settings.theme === each.id} onClick={() => change({ theme: each.id })}>
-                      {each.label}
-                    </button>
-                  ))}
-                </div>
+                <span>theme</span>
+                {themes === null ? <Spinner /> : <ThemePicker list={themes} value={settings.theme} onChange={(theme) => change({ theme })} label="theme" system />}
               </div>
+              {themes !== null && settings.theme === "system" && (
+                <>
+                  <div className="preference">
+                    <span>while the system is light</span>
+                    <ThemePicker list={themes} value={settings.lightTheme} onChange={(lightTheme) => change({ lightTheme })} label="the theme while the system is light" />
+                  </div>
+                  <div className="preference">
+                    <span>while it is dark</span>
+                    <ThemePicker list={themes} value={settings.darkTheme} onChange={(darkTheme) => change({ darkTheme })} label="the theme while the system is dark" />
+                  </div>
+                </>
+              )}
               <div className="preference">
                 <span>text size</span>
                 <div className="segmented">
@@ -98,6 +149,27 @@ export function SettingsSheet({ onClose, onPrivacy }: { onClose: () => void; onP
                   </button>
                 </div>
               </div>
+              <div className="preference">
+                <span>your own</span>
+                <span className="preference-buttons">
+                  <button className="button small" onClick={importTheme}>
+                    import a theme…
+                  </button>
+                  <button className="button small" onClick={() => void window.turri.themes.reveal()}>
+                    open the themes folder
+                  </button>
+                </span>
+              </div>
+              <p className="muted small">
+                a base16 or base24 scheme, .yaml or .json - the format hundreds of palettes are published in, Catppuccin, Dracula and Nord among them. one saved in the
+                themes folder is read again as it changes.
+              </p>
+              {themeError && <p className="error-text small">{themeError}</p>}
+              {themes?.problems.map((problem) => (
+                <p key={problem.file} className="error-text small">
+                  {problem.file}: {problem.error}
+                </p>
+              ))}
             </section>
 
             <section>
