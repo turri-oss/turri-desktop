@@ -1,6 +1,6 @@
 {
   "name": "turri-app",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "A proof of concept: turri as a native desktop app, for people who do not live in a terminal.",
   "type": "module",
