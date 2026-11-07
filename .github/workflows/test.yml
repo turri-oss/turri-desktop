@@ -39,7 +39,7 @@ jobs:
         run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}npm test
       - name: What failed, with its traces
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
           path: test-results/
