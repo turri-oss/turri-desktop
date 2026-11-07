@@ -9,6 +9,12 @@ on:
   # The draft published, by hand: announced, once its builds are on it. Nothing is built again.
   release:
     types: [published]
+  # A published release announced again, by hand - one whose announcement did not go out: the workflow as main has it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "the release to announce: its tag, v0.2.4"
+        required: true
 
 permissions:
   contents: write
@@ -64,7 +70,7 @@ jobs:
   # files - and posts nothing when they are not there. Never a pre-release, and never fails the release: Discord's
   # answer, or no webhook, is only said.
   announce:
-    if: ${{ github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions: {}
@@ -73,22 +79,29 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
           NAME: ${{ github.event.release.name }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
           URL: ${{ github.event.release.html_url }}
           NOTES: ${{ github.event.release.body }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # As pasted into the secret: a newline, spaces or quotes around it are not the URL's - curl refuses them.
+          WEBHOOK=$(printf '%s' "$WEBHOOK" | tr -d '[:space:]' | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//')
           if [ -z "$WEBHOOK" ]; then
             echo "::notice::DISCORD_RELEASE_WEBHOOK is not set - no announcement posted"
+            exit 0
+          fi
+          if [[ "$WEBHOOK" != https://* ]]; then
+            echo "::warning::DISCORD_RELEASE_WEBHOOK is not an https:// URL - no announcement posted"
             exit 0
           fi
           # Both builds on the release - macOS's and Linux's latest*.yml - asked of GitHub's public API, with no token:
           # once a minute, for up to half an hour.
           ready=false
           for _ in $(seq 30); do
-            assets=$(curl --silent --show-error --fail --retry 3 -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" | jq -r '[.assets[].name] | join(" ")' || true)
+            release=$(curl --silent --show-error --fail --retry 3 -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPOSITORY/releases/tags/$TAG" || true)
+            assets=$(printf '%s' "$release" | jq -r '[.assets[]?.name] | join(" ")' 2>/dev/null || true)
             if [[ " $assets " == *" latest-mac.yml "* && " $assets " == *" latest-linux.yml "* ]]; then
               ready=true
               break
@@ -99,6 +112,17 @@ jobs:
           if [ "$ready" != true ]; then
             echo "::warning::$TAG does not have both builds on it after half an hour - no announcement posted"
             exit 0
+          fi
+          # Run by hand, the release is read from GitHub: a published one only - a draft is not there to read - and
+          # never a pre-release.
+          if [ -z "$URL" ]; then
+            if [ "$(printf '%s' "$release" | jq -r '.prerelease')" = true ]; then
+              echo "::notice::$TAG is a pre-release - no announcement posted"
+              exit 0
+            fi
+            NAME=$(printf '%s' "$release" | jq -r '.name // ""')
+            URL=$(printf '%s' "$release" | jq -r '.html_url')
+            NOTES=$(printf '%s' "$release" | jq -r '.body // ""')
           fi
           # Discord holds an embed's description to 4096 characters: longer notes are cut, and point to the rest. The
           # link in the line is in <>, so Discord previews only the embed. macOS's builds are signed ad hoc, which
