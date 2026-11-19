@@ -15,6 +15,7 @@ import { ChooseFolder, ProjectSettingsSheet } from "./ProjectSettings.tsx";
 import { GettingStartedSheet } from "./GettingStarted.tsx";
 import type { Check } from "../electron/preload.ts";
 import { RegenerateSheet, type Regeneration } from "./RegenerateSheet.tsx";
+import { ConformSheet } from "./ConformSheet.tsx";
 import { NewProject } from "./NewProject.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 import { FileTree } from "./FileTree.tsx";
@@ -144,6 +145,8 @@ export function App() {
   const [guide, setGuide] = useState(false);
   // Regenerate, chosen how - open with the functional specs it starts on, if any.
   const [choosing, setChoosing] = useState(false);
+  /** Conform… open: the module's conformance tests from scratch, or its whole chain's, to choose. */
+  const [conformingAgain, setConformingAgain] = useState(false);
   // The dive, in the whole window's place - regen: the dive button in the toolbar, ⌘2, /pulses, a pulse clicked
   // in the chat. Left by its ‹, or by anything that shows the window again - a view, the chat, a ***plain to open.
   const [dive, setDive] = useState(false);
@@ -318,6 +321,14 @@ export function App() {
     setGuide(false);
     setRenamed([]);
     setNotifications([]);
+    // turri's banner, which the window does not draw: config keys it does not read - a setting gone, like test-advisor,
+    // or one misspelt - said as it started, with the way to have the chat take them out.
+    for (const line of summary.configWarnings ?? []) {
+      say(`turri warns · ${line}`, "warning", {
+        label: "take it out",
+        run: () => void act({ kind: "config", title: "keys turri does not read", detail: line, prompt: `Take out of the project's config what turri does not read, as it says: ${line}` }),
+      });
+    }
     setPutAway(new Set());
     setProject(summary);
     setSelected(summary.specs[0]?.file ?? null);
@@ -505,28 +516,6 @@ export function App() {
   }, [project, selected, act]);
 
   /**
-   * The test advisor asked whether a functional spec needs testing scenarios: it says at once what it took up - each
-   * verdict comes to the chat shown, as the advisor's own do.
-   */
-  const evaluate = useCallback(
-    async (of: Spec, funcId: string) => {
-      try {
-        const outcome = await window.turri.call<{ started: string[]; already: string[]; scenarios: string[]; missing: string[] }>("evaluateTests", { file: of.file, funcIds: [funcId] });
-        const said = [
-          ...outcome.started.map((name) => `testing scenarios for ${name} are being evaluated - the verdict comes to the chat.`),
-          ...outcome.already.map((name) => `${name} is being evaluated already.`),
-          ...outcome.scenarios.map((name) => `${name} has scenarios already.`),
-          ...outcome.missing,
-        ];
-        say(said.join(" ") || `nothing was evaluated for ${of.module}:${funcId}.`, outcome.missing.length > 0 ? "error" : "info");
-      } catch (error) {
-        say(engineSaid(error), "error");
-      }
-    },
-    [say],
-  );
-
-  /**
    * Conformance tests turned on from the window - beside a module, or by its menu: written where the module's value comes
    * from, and what already has scenarios and code tested at once, the chat asked as conform's button asks it.
    */
@@ -543,14 +532,18 @@ export function App() {
     [say],
   );
 
+  /**
+   * Conformance tests written and run - the functional specs named, or the module's - or, from scratch, written again:
+   * the module's, or its whole chain's, never with functional specs named.
+   */
   const conform = useCallback(
-    async (funcIds?: string[]) => {
+    async (funcIds?: string[], fromScratch?: "module" | "chain") => {
       if (spec === null) return;
       // Off for the module: nothing to test with - said, with the way to turn them on.
       if (spec.conformanceTests === false) return say(`conformance tests are off for ${spec.rel}.`, "info", { label: "turn them on", run: () => void turnOnConformance(spec.file) });
       setChatOpen(true);
       try {
-        await window.turri.call("conform", { file: spec.file, funcIds });
+        await window.turri.call("conform", fromScratch !== undefined ? { file: spec.file, scratch: true, chain: fromScratch === "chain" } : { file: spec.file, funcIds });
       } catch (error) {
         say(engineSaid(error), "error");
       }
@@ -639,12 +632,20 @@ export function App() {
     return () => window.removeEventListener("keydown", step, true);
   }, [chats.list, chats.shownId, showChat, chatOpen, stepView]);
 
-  const glimpse = useCallback(async () => {
+  // Conform…: the sheet - or, with conformance tests off for the module, said so, with the way to turn them on.
+  const openConform = useCallback(() => {
+    if (spec === null || !spec.ok) return;
+    if (spec.conformanceTests === false) return say(`conformance tests are off for ${spec.rel}.`, "info", { label: "turn them on", run: () => void turnOnConformance(spec.file) });
+    setConformingAgain(true);
+  }, [spec, say, turnOnConformance]);
+
+  // Preview the plan: turri looks ahead - plans the module as Regenerate would, starting nothing, and keeps the plan.
+  const lookAhead = useCallback(async () => {
     if (spec === null) return;
     if (dirty) await saveRef.current?.();
     setPlan("loading");
     try {
-      setPlan({ spec, ...(await window.turri.call<Omit<Plan, "spec">>("glimpse", { file: spec.file })) });
+      setPlan({ spec, ...(await window.turri.call<Omit<Plan, "spec">>("lookAhead", { file: spec.file })) });
     } catch (error) {
       setPlan(null);
       say(String((error as Error).message ?? error), "error");
@@ -663,8 +664,9 @@ export function App() {
         else if (action === "regenerate-how" && spec?.ok) setChoosing(true);
         // Regenerate What Changed: only with something changed - the menu offers it only then.
         else if (action === "regenerate" && changed) void regenerate();
-        else if (action === "glimpse") void glimpse();
+        else if (action === "look-ahead") void lookAhead();
         else if (action === "conform") void conform();
+        else if (action === "conform-how" && spec?.ok) openConform();
         else if (action === "save") void saveRef.current?.();
         else if (action === "new-project") setCreating(true);
         else if (action === "switch-project") setSwitcher((open) => !open);
@@ -686,7 +688,7 @@ export function App() {
         else if (action === "about" || action === "privacy" || action === "notices") setAbout(action);
         else if (action === "getting-started") setGuide(true);
       }),
-    [regenerate, glimpse, conform, project, spec, changed, view, pane, toggleSidebar, newChat, closeChat, chats.shownId, stepView, focusChat],
+    [regenerate, lookAhead, conform, openConform, project, spec, changed, view, pane, toggleSidebar, newChat, closeChat, chats.shownId, stepView, focusChat],
   );
 
   // What the person is looking at, for turri to know: the view, and the file open in it - or the preview's browser or
@@ -1080,6 +1082,15 @@ export function App() {
               >
                 regenerate…
               </button>
+              {/* Its conformance tests from scratch - alone, or its whole chain's - as regenerate… is its code's. */}
+              <button
+                className="button conform-open"
+                disabled={spec === null || !spec.ok || runningFor(spec.module) !== undefined}
+                onClick={openConform}
+                title={spec && runningFor(spec.module) ? "turri is regenerating this module" : "conform this module from scratch - alone, or with its whole chain"}
+              >
+                conform…
+              </button>
               <RunningPulses running={running} onOpen={(id) => (setDive(true), showPulse(id))} />
               {/* The dive - and ! once a pulse failed, until it is shown. */}
               <button
@@ -1101,7 +1112,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} tested={tested} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || conformingAgain || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} tested={tested} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}
@@ -1133,7 +1144,6 @@ export function App() {
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(tests.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: tests.module ?? "", stdlib: false })}
-                onEvaluate={() => {}}
                 onWriteScenarios={() => {}}
                 say={say}
               />
@@ -1169,13 +1179,18 @@ export function App() {
                 onDirty={setDirty}
                 saveRef={saveRef}
                 onRegenerate={(funcIds) => void regenerate(funcIds?.length ? { how: "again", funcIds } : undefined)}
-                onConform={(funcIds) => void conform(funcIds)}
+                onConform={(funcIds) => {
+                  // One functional spec with no scenarios: the chat writes them first, then conforms it.
+                  const one = funcIds?.length === 1 ? spec.functionalSpecs.find((entry) => entry.funcId === funcIds[0]) : undefined;
+                  if (one !== undefined && one.scenarios.conformance.length + one.scenarios.acceptance.length === 0)
+                    void act({ kind: "conform", title: `${spec.module}:${one.funcId}`, detail: "its testing scenarios written first", prompt: `Write testing scenarios for ${spec.module}:${one.funcId}, then write and run its conformance tests.` });
+                  else void conform(funcIds);
+                }}
                 conformanceTests={spec.conformanceTests !== false}
                 onTurnOnConformance={() => void turnOnConformance(spec.file)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(spec.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: spec.module, stdlib: false })}
-                onEvaluate={(funcId) => void evaluate(spec, funcId)}
                 onWriteScenarios={(funcId) => void act({ kind: "scenarios", title: `${spec.module}:${funcId}`, prompt: `Write testing scenarios for ${spec.module}:${funcId}.` })}
                 say={say}
               />
@@ -1296,6 +1311,16 @@ export function App() {
             }}
           />
         )}
+        {conformingAgain && spec !== null && (
+          <ConformSheet
+            spec={spec}
+            onClose={() => setConformingAgain(false)}
+            onConform={(chain) => {
+              setConformingAgain(false);
+              void conform(undefined, chain ? "chain" : "module");
+            }}
+          />
+        )}
         {plan !== null && plan !== "loading" && <PlanSheet plan={plan} onClose={() => setPlan(null)} onRegenerate={() => (setPlan(null), void regenerate())} />}
         <NewRelease />
         {stopped && project && (
@@ -1351,6 +1376,10 @@ export function App() {
               setDive(false);
               setChatOpen(true);
               window.turri.call("investigate", failed).catch((error) => say(engineSaid(error), "error"));
+            }}
+            onRegenerate={(file) => {
+              setChatOpen(true);
+              window.turri.call("regenerate", { file }).catch((error) => say(engineSaid(error), "error"));
             }}
             readPlain={readPlain}
             debug={project.settings.debug === true}

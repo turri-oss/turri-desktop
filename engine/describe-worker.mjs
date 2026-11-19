@@ -1,6 +1,6 @@
 // How the project's modules stand - built, conformance tested, drifted - read in a thread of its own, so the engine
-// answers the window while it is read: turri of its own (the engine's turri.mjs), and a work loop of its own that starts
-// nothing (dryRun), as the engine's would be. Told the project and the modules to read, it sends turri's graph of the
+// answers the window while it is read: turri of its own (the engine's turri.mjs), and a work loop of its own, only ever
+// asked drift - which plans and starts nothing - as the engine's would be. Told the project and the modules to read, it sends turri's graph of the
 // project, what each module says, how each stands - each as it is known - then that it is done.
 import { parentPort, workerData } from "node:worker_threads";
 import turri from "./turri.mjs";
@@ -10,7 +10,7 @@ import { standings } from "./describe.mjs";
 for (const level of ["log", "info", "warn", "error"]) console[level] = (...args) => parentPort.postMessage({ log: { level, text: args.map(String).join(" ") } });
 
 const { projectDir } = workerData;
-const looker = turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir, dryRun: true });
+const looker = turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir });
 
 parentPort.on("message", ({ run, files }) => {
   try {

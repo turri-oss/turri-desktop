@@ -21,7 +21,7 @@ test.describe("conformance tests off", () => {
     await expect(chip).toHaveClass(/untested/);
     await expect(chip).toHaveAttribute("title", /not tested: conformance tests are off/);
     await expect(header).not.toContainText("conformed ·");
-    // Its mark offers no conformance testing, nor the test advisor - nor turning them on, which is more than its own.
+    // Its mark offers no conformance testing - nor turning them on, which is more than its own.
     await page.locator('.editor-colours .mark[aria-label^="functional spec print-hello,"]').click();
     const menu = page.getByRole("menu");
     await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "open its scenarios"]);
@@ -50,26 +50,62 @@ test.describe("conformance tests off", () => {
     const sheet = page.getByRole("dialog", { name: "project settings" });
     const conformance = sheet.getByRole("switch", { name: "conformance-tests" });
     await expect(conformance).toHaveAttribute("aria-checked", "false");
-    await expect(sheet.locator(".project-setting", { has: page.getByRole("switch", { name: "test-advisor" }) })).toContainText("no effect while conformance tests are off");
+    await expect(sheet.locator(".project-setting", { has: page.getByLabel("conformance-tests-script", { exact: true }) })).toContainText("no effect while conformance tests are off");
     await conformance.click();
     await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^conformance-tests: true$/m);
     await expect(conformance).toHaveAttribute("aria-checked", "true");
     await expect(sheet).not.toContainText("no effect while conformance tests are off");
   });
 
-  test("leave the test advisor refusing - in turri's words, not the IPC's", async ({ launched: { window: page, project } }) => {
-    await expect(page.locator(".chat-model")).toBeVisible();
-    const refused = await page.evaluate((file) => window.turri.call("evaluateTests", { file, funcIds: ["print-hello"] }).then(() => "", (error: Error) => error.message), join(project, "hello.plain"));
-    expect(refused).toMatch(/conformance-tests/);
-  });
 });
 
 test.describe("the chat's conformance tools", () => {
-  test("say conformance tests turned on, and the file written - and what conform tests", async ({ launched: { app, window } }) => {
-    // The file the tool wrote reaches the window with its result.
-    expect(normalise({ role: "toolResult", toolCallId: "t1", toolName: "turn_on_conformance_tests", content: [{ type: "text", text: "…" }], isError: false, details: { file: "config.turri.yaml" } })).toMatchObject({ file: "config.turri.yaml" });
-    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "t1", name: "turn_on_conformance_tests", args: {} }, { id: "c1", name: "conform", args: { plain_file: "hello.plain", funcIds: ["hello:print-hello"] } }] });
-    await tellChat(app, window, "chat:message", { role: "toolResult", id: "t1", name: "turn_on_conformance_tests", text: "…", isError: false, file: "config.turri.yaml" });
-    await expect(window.locator(".tool-call")).toHaveText(["conformance tests turned on - written in config.turri.yaml", "conformance testing hello:print-hello"]);
+  test("say what conform tests - named, the module's, or written again from scratch, its whole chain's too", async ({ launched: { app, window } }) => {
+    await tellChat(app, window, "chat:message", {
+      role: "assistant",
+      text: "",
+      tools: [
+        { id: "c1", name: "conform", args: { plain_file: "hello.plain", funcIds: ["hello:print-hello"] } },
+        { id: "c2", name: "conform", args: { plain_file: "hello.plain" } },
+        { id: "c3", name: "conform", args: { plain_file: "hello.plain", from_scratch: "module" } },
+        { id: "c4", name: "conform", args: { plain_file: "app/hello.plain", from_scratch: "chain" } },
+      ],
+    });
+    await expect(window.locator(".tool-call")).toHaveText([
+      "conformance testing hello:print-hello",
+      "conformance testing hello.plain",
+      "writing hello's conformance tests again, from scratch",
+      "writing hello's conformance tests and its whole chain's again, from scratch",
+    ]);
+  });
+
+  test("have no renderer left for the tools turri dropped - said by their names, as any tool it does not know", async ({ launched: { app, window } }) => {
+    // A file's result no longer carries the file written: that was turn_on_conformance_tests's.
+    expect(normalise({ role: "toolResult", toolCallId: "t1", toolName: "write", content: [{ type: "text", text: "…" }], isError: false, details: { file: "config.turri.yaml" } })).not.toHaveProperty("file");
+    await tellChat(app, window, "chat:message", {
+      role: "assistant",
+      text: "",
+      tools: [
+        { id: "t1", name: "turn_on_conformance_tests", args: {} },
+        { id: "t2", name: "evaluate_tests", args: { funcIds: ["hello:print-hello"] } },
+        { id: "t3", name: "change_plain", args: { plain_file: "hello.plain", diff: "-a\n+b" } },
+      ],
+    });
+    await expect(window.locator(".tool-call")).toHaveText(["turn on conformance tests", "evaluate tests", "change plain · hello.plain"]);
+    await expect(window.locator(".tool-call .tool-diff")).toHaveCount(0);
+  });
+
+  test("say what pulses looks up - one, a look ahead at a module, or every one", async ({ launched: { app, window } }) => {
+    await tellChat(app, window, "chat:message", {
+      role: "assistant",
+      text: "",
+      tools: [
+        { id: "p1", name: "pulses", args: {} },
+        { id: "p2", name: "pulses", args: { runs: 6 } },
+        { id: "p3", name: "pulses", args: { plain_file: "hello.plain" } },
+        { id: "p4", name: "pulses", args: { job_id: "planned-hello-1" } },
+      ],
+    });
+    await expect(window.locator(".tool-call")).toHaveText(["listed the pulses", "listed the pulses, and 6 earlier runs", "looked ahead at hello.plain - planned, nothing started", "looked up planned-hello-1"]);
   });
 });

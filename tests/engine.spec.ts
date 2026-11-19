@@ -64,8 +64,6 @@ test.describe("the project's modules", () => {
         conformed: false,
         testPlainFile: join(project, "tests", "hello", "print-hello.plain"),
         scenarios: { conformance: [{ id: "prints-hello", text: 'Running :Greeter: prints "hello, world".', line: 8 }], acceptance: [] },
-        // Not looked at by the test advisor.
-        advisor: null,
       },
     ]);
   });

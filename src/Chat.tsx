@@ -102,7 +102,7 @@ async function attachedFrom(file: File): Promise<Attached | null> {
 export type ChatItem =
   | { role: "user"; text: string; images?: string[] }
   | { role: "assistant"; text: string; thinking?: string; tools?: Array<{ id: string; name: string; args: unknown }>; error?: string }
-  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background; file?: string; patch?: string }
+  | { role: "toolResult"; id: string; name: string; text: string; isError: boolean; image?: string; background?: Background; patch?: string }
   | { role: "note"; customType?: string; text: string; level?: string }
   | { role: "command"; text: string }
   | { role: "job"; id: string; summary: string; status: string; duration?: string; spent?: string; text: string }
@@ -111,8 +111,6 @@ export type ChatItem =
   | { role: "concluded"; conclusion: Conclusion }
   /** Where the sentinel's work on a pulse starts, in its chat: turri's brief of it, which the person does not read. */
   | { role: "sentinelPulse"; job: string | null }
-  /** The test advisor's yes, which starts the turn that writes their testing scenarios: the functional specs, `module:func-id`. */
-  | { role: "advisorVerdict"; specs: string[] }
   /** Background runs that did not do their work, which start the turn that says so: each its skill, and what it was to write. */
   | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> }
   /** What a button asked turri in the person's place: its kind and what it asked - the prompt turri heard, hidden. */
@@ -739,19 +737,11 @@ function Message({
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
   // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
   // ***plain, its card in regen: the chat stays a conversation.
-  // Where a turn of the chat's own comes from when nobody typed: the test advisor's yes, which the person does not read -
-  // the chat says it, and writes the scenarios.
-  if (item.role === "advisorVerdict")
-    return (
-      <div className="msg advisor-verdict">
-        <Icon name="test" size={13} /> testing scenarios evaluated
-        {item.specs.length > 0 && <span className="muted"> · {item.specs.join(", ")}</span>}
-      </div>
-    );
-  // Where a turn comes from when a background run did not do its work: the chat says what went wrong.
+  // Where a turn of the chat's own comes from when nobody typed - a background run that did not do its work: the chat
+  // says what went wrong.
   if (item.role === "skillRun")
     return (
-      <div className="msg advisor-verdict skill-run">
+      <div className="msg skill-run">
         <Icon name="test" size={13} />{" "}
         {item.runs.map((run, index) => (
           <span key={index}>
@@ -965,7 +955,7 @@ export function NoticeCard({
 }
 
 /** What a tool call says it does, in words: the turri tools by what they mean, the rest by name. */
-function describeTool(name: string, args: any, background?: Background, wrote?: string): string {
+function describeTool(name: string, args: any, background?: Background): string {
   const file = args?.path ?? args?.file ?? args?.plain_file ?? args?.plainFile;
   switch (name) {
     case "read":
@@ -974,9 +964,6 @@ function describeTool(name: string, args: any, background?: Background, wrote?: 
       return `wrote ${file ?? "a file"}`;
     case "edit":
       return `edited ${file ?? "a file"}`;
-    // turri's own way to change the ***plain: a diff, applied, and its build started.
-    case "change_plain":
-      return `changed ${file ?? "the ***plain"}`;
     case "bash":
       return `ran ${String(args?.command ?? "a command").split("\n")[0]}`;
     case "ask_user":
@@ -1007,14 +994,19 @@ function describeTool(name: string, args: any, background?: Background, wrote?: 
       return `scrolled ${args?.direction ?? ""} in the terminal`;
     case "browser_type":
       return `typed "${args?.text ?? ""}" in the preview`;
-    // Conformance tests turned on, the person having asked for them or agreed: where it was written, once it is.
-    case "turn_on_conformance_tests":
-      return wrote !== undefined ? `conformance tests turned on - written in ${wrote}` : "turning on conformance tests";
-    // The functional specs named, or every one of the module's with scenarios.
-    case "conform":
+    // The functional specs named - written again, those whose tests are written, which the call alone does not say - or
+    // every one of the module's with scenarios; or, from scratch, its tests folder written again, its whole chain's too.
+    case "conform": {
+      const module = String(args?.plain_file ?? "").split("/").at(-1)?.replace(/\.plain$/, "") || "the module";
+      if (args?.from_scratch === "chain") return `writing ${module}'s conformance tests and its whole chain's again, from scratch`;
+      if (args?.from_scratch === "module") return `writing ${module}'s conformance tests again, from scratch`;
       return `conformance testing ${Array.isArray(args?.funcIds) && args.funcIds.length > 0 ? args.funcIds.join(", ") : (args?.plain_file ?? "the functional specs with scenarios")}`;
-    case "evaluate_tests":
-      return `evaluating testing scenarios for ${Array.isArray(args?.funcIds) ? args.funcIds.join(", ") : "functional specs"}, in the background`;
+    }
+    // Pulses in every tense: one, a look ahead at a module - planned, nothing started - or all of them.
+    case "pulses":
+      if (typeof args?.job_id === "string") return `looked up ${args.job_id}`;
+      if (typeof args?.plain_file === "string") return `looked ahead at ${args.plain_file} - planned, nothing started`;
+      return typeof args?.runs === "number" ? `listed the pulses, and ${args.runs} earlier run${args.runs === 1 ? "" : "s"}` : "listed the pulses";
     case "cultivate": {
       // A skill started in the background says what it writes, once its result says so; the others, the skill.
       const what = background?.kind !== undefined ? `the ${SCRIPT[background.kind]}${background.plainFile !== undefined ? ` for ${background.plainFile}` : ""}` : undefined;
@@ -1058,12 +1050,11 @@ function ActionAsked({ item, waiting }: { item: Extract<ChatItem, { role: "actio
 }
 
 /**
- * The ***plain a tool call changed, as a diff: change_plain's own - shown as turri writes it - or an edit of a .plain
- * file's patch, once made. None for a change that failed: turri undid it.
+ * The ***plain a tool call changed, as a diff: an edit of a .plain file's patch, once made - the chat changes the ***plain
+ * with its file tools alone. None for a change that failed.
  */
 function plainDiffOf(tool: { name: string; args: any }, result?: Extract<ChatItem, { role: "toolResult" }>): string | null {
   if (result?.isError) return null;
-  if (tool.name === "change_plain" && typeof tool.args?.diff === "string" && tool.args.diff.trim() !== "") return tool.args.diff;
   if (tool.name === "edit" && /\.plain$/.test(String(tool.args?.path ?? "")) && result?.patch) return result.patch;
   return null;
 }
@@ -1075,7 +1066,7 @@ function ToolCall({ tool, result, running }: { tool: { id: string; name: string;
     <div className={`tool-call ${result?.isError ? "error" : ""}`}>
       <button onClick={() => setOpen(!open)}>
         {running ? <Spinner /> : result?.isError ? <Icon name="warn" size={13} /> : <Icon name="check" size={13} />}
-        <span>{describeTool(tool.name, tool.args, result?.background, result?.file)}</span>
+        <span>{describeTool(tool.name, tool.args, result?.background)}</span>
       </button>
       {open && (
         <div className="tool-detail">
@@ -1480,7 +1471,7 @@ function ChatTabs({ chats, chatId, asking, onShowChat, onCloseChat, onNewChat }:
 }
 
 /** turri's other agents, by their role, as the meter names them: a skill's has none. */
-const OTHER_NAMES: Record<string, string> = { planner: "planner", advisor: "test advisor", chat: "/btw", diagnosis: "diagnosis", release: "release", "test-reviewer": "test review", reviewer: "review" };
+const OTHER_NAMES: Record<string, string> = { planner: "planner", chat: "/btw", diagnosis: "diagnosis", release: "release", "test-reviewer": "test review", reviewer: "review" };
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 
 /** What the project has spent since it opened, by part - and, of turri's other agents, which, the most first. */
@@ -1493,7 +1484,7 @@ function spendingParts(spending: Spending): { total: number; parts: Array<{ name
       { name: "chat", cost: spending.chat, about: "the conversations' own replies" },
       { name: "regeneration", cost: spending.regeneration, about: "the pulses, regenerating and conformance testing" },
       { name: "sentinel", cost: spending.sentinel, about: "checking each pulse" },
-      { name: "other", cost: other, about: agents.length > 0 ? agents.join(" · ") : "turri's other agents - the planner, the test advisor, skills, /btw" },
+      { name: "other", cost: other, about: agents.length > 0 ? agents.join(" · ") : "turri's other agents - the planner, skills, /btw" },
     ],
   };
 }

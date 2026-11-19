@@ -52,11 +52,11 @@ export type NoticeShown = { notice: Notice; ended?: NoticeState };
 const EMPTY: ChatState = { items: [], queued: [], actionsWaiting: [], restored: null, streaming: null, busy: false, working: null, preparing: null, tools: new Map(), triedAt: 0, statuses: {}, questions: [], progress: null, model: null, unreachable: null, stats: null, notices: new Map(), over: new Map() };
 
 /**
- * What turri says in a chat that is the status panel's notifications, not the conversation: the test advisor's no and a
- * testing script written in the background - turri's own lines - and its notifies' warnings and errors, what failed.
+ * What turri says in a chat that is the status panel's notifications, not the conversation: a testing script written in
+ * the background - turri's own line - and its notifies' warnings and errors, what failed.
  * Its info notifies stay: a command's output. Told live, each is a notification; in a chat's history, left out.
  */
-const NOTIFIED = new Set(["turri_advisor", "turri_skill_run"]);
+const NOTIFIED = new Set(["turri_skill_run"]);
 const notified = (item: ChatItem) => item.role === "note" && NOTIFIED.has(item.customType ?? "");
 /** A pulse's end, which the window's own notification says - with the way to it - whichever chat asked for it. */
 const leftOut = (item: ChatItem) => notified(item) || item.role === "job";

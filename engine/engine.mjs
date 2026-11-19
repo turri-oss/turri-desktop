@@ -6,6 +6,7 @@
 import turri, { turriFrom } from "./turri.mjs";
 import { busy, MANY_CHATS, SENTINEL, startSession } from "./chat.mjs";
 import { ACTION_KINDS } from "./entries.mjs";
+import { conformFromScratch } from "./commands.mjs";
 import { CLAUDE_CODE, createAuth, viaClaudeCode } from "./auth.mjs";
 import { conformanceTestsOn as conformanceOf, said, standing } from "./describe.mjs";
 import { Worker } from "node:worker_threads";
@@ -32,9 +33,9 @@ let projectDir;
 let session;
 const registryNow = () => session?.jobs();
 const loopNow = () => session?.loop();
-/** A loop of the engine's own that starts nothing: what is left to regenerate, read without the session's - made when first asked. */
+/** A loop of the engine's own, only ever asked drift - which plans and starts nothing: what is left to regenerate, read without the session's - made when first asked. */
 let looker;
-const lookerNow = () => (looker ??= turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir, dryRun: true }));
+const lookerNow = () => (looker ??= turri.createWorkLoop({ registry: turri.createJobRegistry(), cwd: projectDir }));
 /** A chat by its id - the one shown, when none is named: so is a message sent before the window has read its chats. */
 function chatOf(id) {
   const chat = id === undefined || id === null ? session.shown() : session.chat(id);
@@ -69,7 +70,7 @@ const host = {
 
 // ---------- what the project has spent since it opened ----------
 
-/** What turri's own agents outside any pulse have spent - the planner, the test advisor, skills, /btw - by role. */
+/** What turri's own agents outside any pulse have spent - the planner, skills, /btw - by role. */
 const otherSpent = new Map();
 
 /**
@@ -133,7 +134,7 @@ async function open({ dir }) {
   turri.onModelEvent((event) => {
     const line = turri.describeTurnIncident(event);
     if (line !== undefined) emit("incident", { job: event.job, text: line });
-    // A call of one of turri's own agents outside any pulse - the planner, the test advisor, a skill, /btw: spent.
+    // A call of one of turri's own agents outside any pulse - the planner, a skill, /btw: spent.
     if (event.kind === "call" && event.job === undefined && event.usage?.cost > 0) {
       const role = event.role ?? null;
       otherSpent.set(role, (otherSpent.get(role) ?? 0) + event.usage.cost);
@@ -277,7 +278,6 @@ function watchSpecs() {
   let filesTimer;
   let configTimer;
   let historyTimer;
-  const advisorTimers = new Map();
   watch(projectDir, { recursive: true }, (_type, name) => {
     if (name === null) return;
     const parts = name.split(sep);
@@ -299,19 +299,6 @@ function watchSpecs() {
         emit("files", { paths: [...changed] });
         changed.clear();
       }, 250);
-    }
-    // The test advisor's file of a module - it took up a functional spec, or came to a verdict: the module sent again.
-    if (parts[0] === ".turri" && parts[1] === "advisor" && name.endsWith(".json")) {
-      const module = basename(name, ".json");
-      clearTimeout(advisorTimers.get(module));
-      advisorTimers.set(
-        module,
-        setTimeout(() => {
-          advisorTimers.delete(module);
-          const file = plainFiles(projectDir).find((each) => basename(each, ".plain") === module);
-          if (file !== undefined) emit("spec", { file, text: readFileSync(file, "utf8"), spec: describeSpec(file) });
-        }, 150),
-      );
     }
     if (!name.endsWith(".plain") || parts.some((part) => skip.has(part) || part.startsWith("."))) return;
     const file = join(projectDir, name);
@@ -778,10 +765,12 @@ function summary() {
     },
     // A setting's values whole - every model signed in to - or, on a turri before its settingChoices, the first forty.
     // And whether the sentinel can be asked to check something, beside the pulses it checks: on a turri with its check.
-    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined, check: session?.check !== undefined },
+    // And whether the plan can be previewed: once the session's work loop is up, which looks ahead.
+    offers: { ...offers(), chats: MANY_CHATS, sentinel: SENTINEL, settingChoices: session?.settingChoices !== undefined, check: session?.check !== undefined, lookAhead: typeof loopNow()?.lookAhead === "function" },
     // Each module as last read - or, not read yet, only its file: what it says follows, and how it stands.
     specs: inBuildOrder(plainFiles(projectDir)).map((file) => known.get(file) ?? unread(file)),
     testPlainFiles: graphSoon() !== undefined ? testPlainFiles() : [],
+    configWarnings: configWarnings(),
     // The modules' test folders, by their paths in the project: a pulse's ***plain diff tells a test plain file by them.
     testDirs: testDirsOf(plainFiles(projectDir)).map((dir) => relative(projectDir, dir)),
   };
@@ -1005,15 +994,9 @@ function readSpec({ file }) {
 function writeSpec({ file, text }) {
   writeFileSync(file, text);
   forgetGraph();
-  const described = describePlain(file);
-  // A ***plain that changes while the session's loop looks after its module is work: the loop is told, as a chat's watch
-  // does - of the module a test plain file's scenarios are of, for a test plain file.
-  const module = isTestPlainFile(file) ? testPlainFiles().find((each) => each.file === file)?.moduleFile : file;
-  const loop = loopNow();
-  if (described.ok && module && loop !== undefined && loop.status().some((status) => status.plainFile === module)) {
-    loop.bringUp(module, { specChange: true }).then(() => emit("status", statusNow())).catch((error) => emit("log", { level: "error", text: String(error) }));
-  }
-  return described;
+  // Saved, it is not asked for: turri's loop sees the change at its next look - a pulse ending, Regenerate - as it sees
+  // one written anywhere, a person's halt and a look ahead's plan held through it. Regenerate What Changed asks for it.
+  return describePlain(file);
 }
 
 /**
@@ -1039,10 +1022,13 @@ function roleOf({ text, scopes }) {
 function statusNow() {
   const registry = registryNow();
   const loop = loopNow();
+  const planned = loop?.planned() ?? [];
+  // A module looked ahead at waits for Regenerate to start its plan - each of its rows marked so by turri (`lookedAhead`).
+  const held = new Set(planned.filter((job) => job.lookedAhead === true).map((job) => job.module));
   return {
-    modules: loop?.status() ?? [],
+    modules: (loop?.status() ?? []).map((status) => (held.has(status.module) ? { ...status, lookedAhead: true } : status)),
     jobs: (registry?.list() ?? []).filter((job) => job.replacedBy === undefined).map(jobView),
-    planned: (loop?.planned() ?? []).map(jobView),
+    planned: planned.map(jobView),
   };
 }
 
@@ -1092,18 +1078,24 @@ function regenerate({ file, funcIds, scratch, chain, guidance }) {
 }
 
 /**
- * The test advisor asked whether functional specs of a module need testing scenarios - a button's, as turri's host
- * entry has it (evaluateTests): it answers at once with what it started, and each verdict comes to the chat shown.
+ * Conformance tests written and run: the functional specs named, or the module's - asked in words, as conform's button.
+ * From scratch - its whole chain's too - is /conform's, as the window chose it: the tests folder where the module's code
+ * lives taken out and written again, the code untouched; the chat shows its box, as regenerate from scratch's, and the
+ * command runs under it. Functional specs named and from scratch together turri refuses: never sent.
  */
-function evaluateTests({ file, funcIds }) {
-  if (session.evaluateTests === undefined) throw new Error("the turri running has no test advisor.");
-  if (!Array.isArray(funcIds) || funcIds.length === 0 || funcIds.some((funcId) => typeof funcId !== "string" || funcId === "")) throw new Error("Which functional specs?");
-  const module = basename(inProject(file), ".plain");
-  return session.evaluateTests(funcIds.map((funcId) => `${module}:${funcId}`));
-}
-
-function conform({ file, funcIds }) {
+function conform({ file, funcIds, scratch, chain }) {
   const module = basename(file, ".plain");
+  if (scratch) {
+    if (funcIds?.length) throw new Error("Name functional specs or write the tests again from scratch, not both: from scratch writes every one of them again.");
+    chatOf().run({
+      kind: "conform",
+      title: chain ? `${module} and its whole chain, from scratch` : `${module}, from scratch`,
+      detail: chain ? "the conformance tests of every module in its chain written again from nothing - the code untouched" : "its conformance tests deleted and written again - the code untouched",
+      command: conformFromScratch(relative(projectDir, inProject(file)), chain === true),
+      working: chain ? "deleting the chain's conformance tests, then planning them again" : "deleting the conformance tests, then planning them again",
+    });
+    return true;
+  }
   const names = funcIds?.length ? funcIds.map((funcId) => `${module}:${funcId}`).join(", ") : module;
   chatOf().act({ kind: "conform", title: names, prompt: `Write and run the conformance tests for ${names}.` });
   return true;
@@ -1189,7 +1181,7 @@ const conformanceTestsOn = (file) => conformanceOf(turri, file);
 
 /**
  * Conformance tests turned on from the window - beside a module, or the settings' switch: written where the module's
- * value comes from and every chat's tools switched (turri's turnOnConformanceTests), or, on a turri before it,
+ * value comes from, the chats' conform no longer refused (turri's turnOnConformanceTests), or, on a turri before it,
  * /turri-config, which writes config.turri.yaml alone. What it turns on is tested at once - turning them on is the
  * person's yes: each module that was off, its functional specs with scenarios whose code is built and not tested yet
  * sent to the chat as conform's words. Says the file written and what is being tested.
@@ -1212,6 +1204,20 @@ async function turnOnConformance({ file } = {}) {
     testing.push(...funcIds.map((funcId) => `${spec.module}:${funcId}`));
   }
   return { file: written, testing };
+}
+
+/**
+ * What turri's banner said of the project's config as the newest chat started - a line for each config file with keys
+ * turri does not read: a setting it no longer has (test-advisor), or one misspelt - in turri's words. The app draws no
+ * banner: the window says them.
+ */
+function configWarnings() {
+  for (const { id } of [...(session?.chats() ?? [])].reverse()) {
+    const entries = session.chat(id)?.session.sessionManager.getEntries?.() ?? [];
+    const banner = entries.findLast((entry) => entry.type === "custom" && entry.customType === "turri_banner");
+    if (banner !== undefined) return Array.isArray(banner.data?.config) ? banner.data.config.filter((line) => typeof line === "string") : [];
+  }
+  return [];
 }
 
 /** A setting's value as the window shows it and /turri-config takes it back: a list by commas, the rest as written. */
@@ -1367,24 +1373,27 @@ function focusChat({ chat }) {
   return true;
 }
 
-/** What regenerating would do, planned on a loop of its own that starts nothing - `turri glimpse`. */
-async function glimpse({ file }) {
-  const project = turri.readProjectConfig(projectDir);
-  const models = turri.projectModels(project);
-  const planner = turri.modelSpec(models.harness);
-  const dry = turri.createWorkLoop({
-    registry: turri.createJobRegistry(),
-    cwd: projectDir,
-    dryRun: true,
-    modelFor: () => turri.modelSpec(models.coding),
-    ...(planner !== undefined ? { plannerModel: planner } : {}),
-  });
-  const statuses = await dry.bringUp(file);
+/**
+ * What Regenerate would do, before anything starts - turri's look ahead (`turri regenerate --dry-run`): the module planned
+ * on the session's own loop as Regenerate would plan it, and held there, nothing started, until Regenerate, conform or
+ * /regenerate asks for it - which then runs this plan as it is, unless the ***plain or the steering changed since. With
+ * each codebase's next pulse as turri tells it (`plannedPulse`): the whole prompt its coding agent will get, or why none
+ * is shown.
+ */
+async function lookAhead({ file }) {
+  const loop = loopNow();
+  if (typeof loop?.lookAhead !== "function") throw new Error("turri's session is not up yet: preview the plan once it is.");
+  const statuses = await loop.lookAhead(inProject(file));
   const firsts = [];
-  for (const first of dry.firsts()) {
-    firsts.push({ module: first.module, title: first.planned.title, reason: first.planned.reason, track: first.planned.track, prompt: first.planned.track === "code" ? ((await turri.promptOf(first)) ?? null) : null });
+  for (const status of statuses) {
+    const row = status.planned[0];
+    if (row === undefined || row.afterCode || row.planning) continue;
+    const next = await loop.plannedPulse(`planned-${status.module}-1`);
+    if (next === undefined) continue;
+    firsts.push({ module: next.module, title: next.title, track: next.track, cases: next.cases, prompt: next.task ?? null, why: next.why ?? null });
   }
-  return { statuses, firsts, drift: dry.drift(file) };
+  emit("status", statusNow());
+  return { statuses, firsts };
 }
 
 /**
@@ -1400,7 +1409,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, evaluateTests, investigate, sentinelCheck, glimpse, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, investigate, sentinelCheck, lookAhead, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.

@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ElectronApplication, Locator, Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { entryItem, normalise } from "../engine/entries.mjs";
 import { clickMenu, expect, tellChat, test } from "./app.ts";
 import { keys } from "./keys.ts";
@@ -14,25 +14,6 @@ async function modClick(window: Page, piece: Locator) {
   const area = window.locator(".editor textarea");
   const box = (await area.boundingBox())!;
   await area.click({ position: { x: at.x - box.x + at.width / 2, y: at.y - box.y + at.height / 2 }, modifiers: ["ControlOrMeta"] });
-}
-
-/**
- * The engine's evaluateTests answered by the test - the real one starts the advisor, which calls a model - with what
- * the window asked kept, to read back.
- */
-async function evaluationsTaken(app: ElectronApplication, outcome: object): Promise<() => Promise<unknown[]>> {
-  await app.evaluate(({ ipcMain }, outcome) => {
-    const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown> })._invokeHandlers;
-    const real = handlers.get("engine:call")!;
-    const taken: unknown[] = [];
-    (globalThis as unknown as { taken: unknown[] }).taken = taken;
-    handlers.set("engine:call", (event, method, params) => {
-      if (method !== "evaluateTests") return real(event, method, params);
-      taken.push(params);
-      return outcome;
-    });
-  }, outcome);
-  return () => app.evaluate(() => (globalThis as unknown as { taken: unknown[] }).taken);
 }
 
 /** The tree opened down to hello's test folder, and a file in it. */
@@ -129,10 +110,10 @@ test.describe("test plain files", () => {
     };
     await expect(await hover()).toContainText("no scenarios - not tested");
     await window.mouse.move(0, 0);
-    // Its menu: nothing to conform, no scenarios to open.
+    // Its menu: not built, nothing to conform yet - built, conform has its scenarios written first - and none to open.
     await window.locator(".editor-colours .mark").first().click();
     await expect(window.getByRole("menuitem", { name: /conform/ })).toBeDisabled();
-    await expect(window.getByRole("menuitem", { name: /conform/ })).toContainText("it has no scenarios");
+    await expect(window.getByRole("menuitem", { name: /conform/ })).toContainText("once it is built");
     await expect(window.getByRole("menuitem", { name: "open its scenarios" })).toHaveCount(0);
     await window.keyboard.press("Escape");
 
@@ -248,69 +229,15 @@ test.describe("the steps of adding tests, and the old ***plain", () => {
   });
 });
 
-test.describe("the test advisor", () => {
-  test("maps its no and its yes from the transcript", () => {
-    const no = "hello:print-hello doesn't need testing scenarios - nothing silent to get wrong.";
-    expect(entryItem({ type: "custom", customType: "turri_advisor", data: { text: no } })).toEqual({ role: "note", customType: "turri_advisor", text: no });
-    // The yes, hidden: the turn it starts is the chat's - only where it came from is marked.
-    expect(entryItem({ type: "custom_message", customType: "turri_advisor_verdict", display: false, content: "The test advisor found…", details: { specs: ["hello:print-hello"] } })).toEqual({ role: "advisorVerdict", specs: ["hello:print-hello"] });
-  });
-
-  test("says its no as a notification - not in the chat - and marks where its yes starts the chat's turn", async ({ launched: { app, window } }) => {
-    await tellChat(app, window, "chat:message", { role: "note", customType: "turri_advisor", text: "hello:print-hello doesn't need testing scenarios - nothing silent to get wrong." });
-    await expect(window.locator(".status-said")).toHaveText("hello:print-hello doesn't need testing scenarios - nothing silent to get wrong.");
-    await expect(window.getByRole("button", { name: /^notifications:/ })).toHaveAccessibleName("notifications: 1 unread");
-    await expect(window.locator(".chat-body .msg.note")).toHaveCount(0);
-    await tellChat(app, window, "chat:message", { role: "advisorVerdict", specs: ["hello:print-hello"] });
-    await expect(window.locator(".msg.advisor-verdict")).toHaveText("testing scenarios evaluated · hello:print-hello");
-  });
-
-  test("is asked of a functional spec with no scenarios from its mark - at once, its verdict coming to the chat", async ({ launched: { app, window, spec } }) => {
+test.describe("a functional spec with no scenarios", () => {
+  test("offers to have them written, and nothing of a test advisor - turri has none", async ({ launched: { window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
-    const taken = await evaluationsTaken(app, { started: ["hello:print-hello"], already: [], scenarios: [], missing: [] });
     await window.locator(".editor-colours .mark").first().click();
-    await window.getByRole("menuitem", { name: "evaluate testing scenarios" }).click();
-    await expect(window.locator(".status-said")).toHaveText("testing scenarios for hello:print-hello are being evaluated - the verdict comes to the chat.");
-    expect(await taken()).toEqual([{ file: spec, funcIds: ["print-hello"] }]);
-  });
-
-  test("shows a functional spec with no scenarios being evaluated, and its verdict - only while it is about the text there", async ({ launched: { window, project } }) => {
-    await expect(window.locator(".chat-model")).toBeVisible();
-    // turri's own hash of the functional spec's text - what an entry is current for.
-    const { default: turri } = await import("../engine/turri.mjs");
-    const hash = turri.textHash(':Greeter: prints "hello, world" and exits with 0.');
-    mkdirSync(join(project, ".turri", "advisor"), { recursive: true });
-    const advise = (entry: object) =>
-      writeFileSync(join(project, ".turri", "advisor", "hello.json"), JSON.stringify({ module: "hello", plainFile: "hello.plain", entries: { "print-hello": { funcId: "print-hello", at: new Date().toISOString(), ...entry } } }));
-    const heading = window.locator(".editor-colours > div", { hasText: "# print-hello" });
-    const chip = heading.locator(".advisor-chip");
-    await expect(heading.locator(".mark")).toBeVisible();
-    // Of another text: nothing.
-    advise({ hash: "0000000000000000", state: "pending" });
-    await window.waitForTimeout(800);
-    await expect(chip).toHaveCount(0);
-    advise({ hash, state: "pending" });
-    await expect(chip).toHaveText("evaluating testing scenarios");
-    advise({
-      hash,
-      state: "yes",
-      undelivered: true,
-      report: { verdict: "yes", questions: [{ question: "silent-failure", evidence: "printing hello world without the comma looks right" }], inputs: [{ input: "no arguments", agreed: "hello, world" }] },
-    });
-    await expect(chip).toHaveText("needs testing scenarios");
-    const box = (await heading.boundingBox())!;
-    await window.mouse.move(box.x + 30, box.y + box.height / 2);
-    await window.mouse.move(box.x + 40, box.y + box.height / 2);
-    const card = window.getByRole("tooltip");
-    await expect(card).toContainText("needs testing scenarios, covering 1 input - the chat writes them at turri's next start.");
-    await expect(card).toContainText("a wrong implementation could look right - printing hello world without the comma looks right");
-    await window.mouse.move(0, 0);
-    // A no: nothing beside it - its card says so.
-    advise({ hash, state: "no", report: { verdict: "no", questions: [], inputs: [] } });
-    await expect(chip).toHaveCount(0);
-    await window.mouse.move(box.x + 30, box.y + box.height / 2);
-    await window.mouse.move(box.x + 40, box.y + box.height / 2);
-    await expect(window.getByRole("tooltip")).toContainText("doesn't need testing scenarios.");
+    const menu = window.getByRole("menu");
+    // Not built yet: conform waits for its code.
+    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "conform - once it is built", "write testing scenarios"]);
+    await window.keyboard.press("Escape");
+    await expect(window.locator(".advisor-chip")).toHaveCount(0);
   });
 });
 

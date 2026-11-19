@@ -4,7 +4,7 @@
 // (electron/main.ts) know the same kinds.
 
 /** The kinds of a button's action. */
-export type ActionKind = "try" | "convert" | "scenarios" | "start" | "investigate" | "conform" | "regenerate";
+export type ActionKind = "try" | "convert" | "scenarios" | "start" | "investigate" | "conform" | "regenerate" | "config";
 
 /** What a button asks: its kind, what the chat shows of it - a title and, if it says more, a detail - and the prompt turri hears. */
 export interface Action {
@@ -29,6 +29,7 @@ export const ACTION_LOOK: Record<ActionKind | DecisionKind, { name: string; icon
   investigate: { name: "investigate", icon: "eye", tone: "var(--red)" },
   conform: { name: "conform", icon: "checks", tone: "var(--tested)" },
   regenerate: { name: "regenerate", icon: "reload", tone: "var(--built)" },
+  config: { name: "config", icon: "file", tone: "var(--amber)" },
   chose: { name: "you chose", icon: "check", tone: "var(--green)" },
   said: { name: "you said what to do", icon: "check", tone: "var(--green)" },
 };

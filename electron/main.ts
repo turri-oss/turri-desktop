@@ -263,6 +263,8 @@ interface Workspace {
   chats: number;
   /** Whether its turri opens more chats than one: ⌘T is offered only then. */
   manyChats: boolean;
+  /** Whether its turri's session can look ahead - planning what Regenerate would run, starting nothing: Preview the Plan is offered only then. */
+  lookAhead: boolean;
   /** The project open in it, once one is. */
   readonly dir: string | undefined;
   /** The project being opened in it, while it is. */
@@ -469,6 +471,7 @@ function createWorkspace(): Workspace {
     changed: false,
     chats: 0,
     manyChats: false,
+    lookAhead: false,
     get dir() {
       return dir;
     },
@@ -544,6 +547,7 @@ function createWorkspace(): Workspace {
         engineHasProject = false;
         workspace.running = 0;
         workspace.chats = 0;
+        workspace.lookAhead = false;
         showRunning();
         send("engine:exit", { code });
         buildMenu();
@@ -599,6 +603,7 @@ function createWorkspace(): Workspace {
       terminal.setDir(next);
       const summary = await call("open", { dir: next });
       workspace.manyChats = (summary as { offers: { chats?: boolean } }).offers.chats === true;
+      workspace.lookAhead = (summary as { offers: { lookAhead?: boolean } }).offers.lookAhead === true;
       dir = next;
       name = (summary as { name: string }).name;
       writeFileSync(RECENTS_FILE, JSON.stringify([next, ...recents().filter((other) => other !== next)].slice(0, RECENTS_KEPT)));
@@ -949,8 +954,11 @@ function buildMenu() {
       submenu: [
         { label: "Regenerate…", click: menuAction("regenerate-how"), enabled: ready },
         { label: "Regenerate What Changed", accelerator: "CmdOrCtrl+Shift+R", click: menuAction("regenerate"), enabled: ready && front?.changed === true },
-        { label: "Preview the Plan", click: menuAction("glimpse"), enabled: ready },
+        // A look ahead plans on turri's session's own loop: offered once it is up.
+        { label: "Preview the Plan", click: menuAction("look-ahead"), enabled: ready && front?.lookAhead === true },
         { label: "Write Conformance Tests", click: menuAction("conform"), enabled: ready },
+        // From scratch: the module's tests folder, or its whole chain's, written again - the code untouched.
+        { label: "Conform…", click: menuAction("conform-how"), enabled: ready },
         { type: "separator" },
         // The stdlib view, here rather than among the views' tabs: turri's standard library to look through.
         { label: "Standard Library", accelerator: "CmdOrCtrl+4", click: menuAction("view:stdlib"), enabled: ready },
@@ -1011,7 +1019,7 @@ function noticeAnswer(answer: unknown): { action: number } | { steer: string } |
 }
 
 /** The kinds of a button's action, as the engine knows them (engine/entries.mjs) and the window draws them (src/actions.ts). */
-const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform", "regenerate"]);
+const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investigate", "conform", "regenerate", "config"]);
 
 /** What the window asks of its engine, checked where a method takes more than the engine can check itself. */
 function engineParams(method: string, params: unknown): unknown {

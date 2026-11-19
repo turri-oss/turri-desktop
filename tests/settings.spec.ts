@@ -158,10 +158,10 @@ test.describe("a project's settings", () => {
     const sheet = page.getByRole("dialog", { name: "project settings" });
     // As config.turri.yaml has them, the models among turri's own choices.
     await expect(sheet.getByRole("combobox", { name: "harness-model", exact: true })).toHaveValue("anthropic/claude-sonnet-5-5");
-    // Conformance tests on or off, a switch - on, as the fixture has them - beside the test advisor's start and the test
-    // plain files' folder.
+    // Conformance tests on or off, a switch - on, as the fixture has them - beside the test plain files' folder; no test
+    // advisor, which turri has no more.
     await expect(sheet.getByRole("switch", { name: "conformance-tests" })).toHaveAttribute("aria-checked", "true");
-    await expect(sheet.getByRole("switch", { name: "test-advisor" })).toHaveAttribute("aria-checked", "true");
+    await expect(sheet.getByRole("switch", { name: "test-advisor" })).toHaveCount(0);
     await expect(sheet.getByLabel("test-dir", { exact: true })).toBeVisible();
     // Every setting of the file, as /turri-config knows them - not only the ones the sidebar used to show.
     await expect(sheet.getByRole("switch", { name: "mutation-testing" })).toBeVisible();

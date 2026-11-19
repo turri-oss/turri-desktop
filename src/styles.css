@@ -1145,29 +1145,6 @@ code {
   border-color: var(--line);
   color: var(--fg-3);
 }
-/* No scenarios, and the test advisor on it: evaluating, or found it needs testing scenarios - out of the flow too. */
-.advisor-chip {
-  position: absolute;
-  z-index: 1;
-  margin-left: 1ch;
-  padding: 0 6px;
-  border: 1px dashed color-mix(in srgb, var(--tested) 60%, transparent);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg-2);
-  font: 11px/1.5 var(--body);
-  white-space: nowrap;
-}
-.advisor-chip .spinner {
-  vertical-align: -2px;
-}
-.advisor-chip.yes {
-  border-style: solid;
-  color: var(--tested);
-}
-.advisor-chip .icon {
-  vertical-align: -1px;
-}
 .scenario-chip .icon {
   vertical-align: -1px;
 }
@@ -2268,16 +2245,16 @@ code {
 .msg.note.error {
   color: var(--red);
 }
-/* Where the chat's own turn on a yes of the test advisor's starts - or on a testing script not written in the background: a
-   mark, as the sentinel's conclusion is a line. */
-.msg.advisor-verdict {
+/* Where the chat's own turn on a testing script not written in the background starts: a mark, as the sentinel's
+   conclusion is a line. */
+.msg.skill-run {
   align-self: flex-start;
   padding: 2px 8px;
   border-left: 3px solid var(--tested);
   color: var(--tested);
   font-size: 12px;
 }
-.msg.advisor-verdict .icon {
+.msg.skill-run .icon {
   vertical-align: -2px;
 }
 .msg.note.warning {
@@ -3473,6 +3450,13 @@ code {
   line-height: 1.5;
 }
 
+/* ---------- conform, from scratch ---------- */
+
+/* Beside regenerate…, in what is conformance tested's colour. */
+.toolbar-actions .conform-open:not(:disabled) {
+  color: var(--tested);
+}
+
 /* ---------- the welcome screen's recent projects ---------- */
 
 .recents-search {
@@ -3979,17 +3963,6 @@ code {
   }
 }
 /* Its scenarios, by kind: each its id and first line - or none, and it is not tested. */
-.spec-pop-advisor {
-  margin-top: 8px;
-  font-size: 12px;
-}
-.spec-pop-advisor.yes > span {
-  color: var(--tested);
-}
-.spec-pop-advisor ul {
-  margin: 4px 0 0;
-  padding-left: 16px;
-}
 .spec-pop-scenarios {
   margin-top: 8px;
   font-size: 12px;
@@ -4369,6 +4342,10 @@ code {
 }
 .module-plan-head .started-from {
   margin-left: 8px;
+}
+/* Looked ahead at: its plan kept, waiting for regenerate - not stuck, so not in a warning's colour. */
+.module-plan-head .tag.looked-ahead {
+  color: var(--accent);
 }
 
 /* What a project's code starts from: in the empty view, and as a new project is made. */

@@ -11,8 +11,9 @@ turri is an agent: to write your \*\*\*plain with you and build its code, it sen
 - what you say in the chat, and the conversation so far - with the images you attach to it, and the files you attach when turri reads them;
 - your \*\*\*plain files, and the files of the project turri and its agents read - code, tests, templates, config;
 - what commands and test runs print, and what the preview's terminal shows when turri reads it;
-- the preview's pages when turri tries them - their text, controls and console, and screenshots of them;
-- in the background, each functional spec you add or change that has no scenarios - with its module, and your project's `AGENTS.md` - for turri's test advisor to judge whether it needs testing scenarios, on the model `models.advisor` names. `test-advisor: false` in the project settings stops it doing so by itself; it then runs only when you or turri ask for it.
+- the preview's pages when turri tries them - their text, controls and console, and screenshots of them.
+
+Nothing of your \*\*\*plain goes to a model in the background: with conformance tests on, the chat itself judges which functional specs need testing scenarios, and writes them as any \*\*\*plain change, in the conversation.
 
 Check This Machine's **ask the models too** sends each model a word, to see that it answers.
 
@@ -26,6 +27,6 @@ Check This Machine's **ask the models too** sends each model a word, to see that
 ## On this machine only
 
 - What you sign in with - tokens and API keys - in pi's `auth.json` (`~/.pi/agent/`), where the turri command line keeps it too.
-- The conversations, in pi's sessions there; each pulse's ledger and logs, and what the test advisor made of each functional spec, in the project's `.turri` folder.
+- The conversations, in pi's sessions there; each pulse's ledger and logs, and why each pulse that failed or did not land did (`.turri/pulses/<id>.md`, whatever the debug setting), in the project's `.turri` folder.
 - The preview's cookies and storage, in memory - gone when the project closes.
 - The app's own settings (`settings.json`, `appearance.json`) and recent projects, in its folder of the system's application support (`turri-app`).

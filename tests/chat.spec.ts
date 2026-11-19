@@ -30,40 +30,20 @@ test.describe("the chat", () => {
     await expect(done.locator(".thinking")).toContainText("the greeter first");
   });
 
-  test("shows the ***plain diff of every change turri makes - change_plain's, and an edit's of a .plain file - but not of one refused", async ({ launched: { app, window } }) => {
+  test("shows the ***plain diff of every change turri makes - an edit's of a .plain file - but not of one refused", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
-    // Two files in one git diff: the second's headers are headers, not lines taken out.
-    const diff = [
-      "diff --git a/hello.plain b/hello.plain",
-      "--- a/hello.plain",
-      "+++ b/hello.plain",
-      "@@ -6,1 +6,1 @@",
-      "-- :Greeter: greets.",
-      "+- :Greeter: greets the person by name.",
-      "diff --git a/tests/hello/print-hello.plain b/tests/hello/print-hello.plain",
-      "--- a/tests/hello/print-hello.plain",
-      "+++ b/tests/hello/print-hello.plain",
-      "@@ -3,1 +3,1 @@",
-      "-# says-hello",
-      "+# says-hello-by-name",
-    ].join("\n");
-    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_c", name: "change_plain", args: { plain_file: "hello.plain", diff } }] });
-    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_c", name: "change_plain", text: "Written, and its build started.", isError: false });
-    const changed = window.locator(".tool-call", { hasText: "changed hello.plain" });
-    await expect(changed.locator(".tool-diff pre.diff .line.add .plain-concept")).toHaveText(":Greeter:");
-    await expect(changed.locator(".tool-diff pre.diff .line.file")).toHaveCount(6);
-    await expect(changed.locator(".tool-diff pre.diff .line.del")).toHaveCount(2);
-
     // An edit of a .plain file: the patch its result carries, mapped from pi's result as the engine maps it.
     const patch = "--- hello.plain\n+++ hello.plain\n@@ -6,1 +6,1 @@\n-- :Greeter: greets the person by name.\n+- :Greeter: greets the person by their name.\n";
     expect(normalise({ role: "toolResult", toolCallId: "call_e", toolName: "edit", content: [{ type: "text", text: "Successfully replaced 1 block(s)." }], details: { diff: "", patch } })).toMatchObject({ role: "toolResult", patch });
     await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_e", name: "edit", args: { path: "hello.plain" } }] });
     await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_e", name: "edit", text: "Successfully replaced 1 block(s).", isError: false, patch });
-    await expect(window.locator(".tool-call", { hasText: "edited hello.plain" }).locator(".tool-diff pre.diff .line.add")).toHaveText("+- :Greeter: greets the person by their name.");
+    const edited = window.locator(".tool-call", { hasText: "edited hello.plain" });
+    await expect(edited.locator(".tool-diff pre.diff .line.add")).toHaveText("+- :Greeter: greets the person by their name.");
+    await expect(edited.locator(".tool-diff pre.diff .line.add .plain-concept")).toHaveText(":Greeter:");
 
-    // Refused - the ***plain would no longer check: nothing was written, and no diff is shown.
-    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_r", name: "change_plain", args: { plain_file: "hello.plain", diff } }] });
-    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_r", name: "change_plain", text: "Nothing was written: with this change the ***plain no longer checks.", isError: true });
+    // Refused: nothing was written, and no diff is shown.
+    await tellChat(app, window, "chat:message", { role: "assistant", text: "", tools: [{ id: "call_r", name: "edit", args: { path: "hello.plain" } }] });
+    await tellChat(app, window, "chat:message", { role: "toolResult", id: "call_r", name: "edit", text: "Could not find the text to replace.", isError: true, patch });
     await expect(window.locator(".tool-call.error .tool-diff")).toHaveCount(0);
   });
 
@@ -666,7 +646,7 @@ test.describe("what the project has spent", () => {
 test.describe("the spending's parts", () => {
   test("are each a line in a card above the meter, on hover or focus - chat, regeneration, sentinel, and turri's other agents by name", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-meter")).toBeVisible();
-    const spending = { chat: 0.18, regeneration: 0.04, sentinel: 0.13, other: [{ role: "planner", cost: 0.01 }, { role: null, cost: 0.43 }, { role: "advisor", cost: 0.4 }, { role: "chat", cost: 0.04 }] };
+    const spending = { chat: 0.18, regeneration: 0.04, sentinel: 0.13, other: [{ role: "planner", cost: 0.01 }, { role: null, cost: 0.43 }, { role: "diagnosis", cost: 0.4 }, { role: "chat", cost: 0.04 }] };
     const card = window.getByRole("tooltip");
     // Sent, and read, until it holds: the engine says its own, $0.00, as the project opens - and may again a moment later.
     await expect(async () => {
@@ -679,7 +659,7 @@ test.describe("the spending's parts", () => {
           "chat$0.18the conversations' own replies",
           "regeneration$0.04the pulses, regenerating and conformance testing",
           "sentinel$0.13checking each pulse",
-          "other$0.88skills $0.43 · test advisor $0.40 · /btw $0.04 · planner $0.01",
+          "other$0.88skills $0.43 · diagnosis $0.40 · /btw $0.04 · planner $0.01",
         ],
         { timeout: 1_000 },
       );

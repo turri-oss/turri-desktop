@@ -17,24 +17,6 @@ export interface FunctionalSpec {
   /** Its test plain file - none, and it is not tested - and the scenarios in it. */
   testPlainFile: string | null;
   scenarios: { conformance: Scenario[]; acceptance: Scenario[] };
-  /** What the test advisor made of it, as it reads now - none when it has not looked at this text. */
-  advisor: Advisor | null;
-}
-
-/**
- * The test advisor on a functional spec: being evaluated (`pending`), a verdict - it needs testing scenarios or it does
- * not - or `failed`, with why. A yes holds what it found: the questions that were a yes, with their evidence, and the
- * inputs the scenarios are to cover; `undelivered` while no chat has had it yet.
- */
-export interface Advisor {
-  state: "pending" | "yes" | "no" | "failed";
-  report?: {
-    verdict: "yes" | "no";
-    questions: Array<{ question: "silent-failure" | "divergence" | "revisited" | "cost"; evidence: string }>;
-    inputs: Array<{ input: string; agreed: string } | { input: string; readings: string[] }>;
-  };
-  undelivered?: boolean;
-  reason?: string;
 }
 
 export interface Spec {
@@ -98,7 +80,9 @@ export interface Project {
   /** What of ***plain the turri it runs gives the window: the stdlib view, what a ***plain links, its concepts, its linked resources. */
   /** What the turri running gives the window - several chats among it. */
   /** What the turri running gives the window: its standard library, the graph, concepts, several chats, a sentinel. */
-  offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; sentinel?: boolean; check?: boolean };
+  offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; sentinel?: boolean; check?: boolean; lookAhead?: boolean };
+  /** turri's words for each config file with keys it does not read - a setting it no longer has, one misspelt - as it started. */
+  configWarnings?: string[];
   /** A project just started: what turri said of the config it wrote for it - its models, and how to sign in. */
   setup?: string;
   /** A project just made: the base folder chosen for it, by its path from the project's folder - written once it opens. */
@@ -227,6 +211,8 @@ export interface ModuleStatus {
   renames?: string[];
   /** The base folder its codebase started from - as base-folder: named it - and how many of its files the code has still. */
   base?: { folder: string; files: number };
+  /** Planned by a look ahead (Preview the Plan) and held there: nothing starts until Regenerate asks for it. */
+  lookedAhead?: true;
 }
 
 /** A pure rename turri made: a func-id or a scenario-id, of `spec` (`module:func-id`, as it is named now), nothing regenerated. */

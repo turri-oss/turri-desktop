@@ -127,6 +127,7 @@ export function WorkView({
   sentinelRunning,
   notices,
   onShowNotice,
+  onRegenerate,
 }: {
   status: Status;
   jobs: Job[];
@@ -158,6 +159,8 @@ export function WorkView({
   /** turri's notices - open, or ended this session - each of the pulse it names: listed on its card, shown in the notifications. */
   notices: NoticeShown[];
   onShowNotice: (id: string) => void;
+  /** Regenerate a module looked ahead at - `/regenerate <file>`, which runs the plan kept. */
+  onRegenerate?: (plainFile: string) => void;
 }) {
   const toggle = onToggle;
   const partOf = (id: string) => (name: string) => ({ open: opened.has(`${id}/${name}`), onToggle: () => toggle(`${id}/${name}`) });
@@ -195,7 +198,14 @@ export function WorkView({
               <Icon name="layers" />
               <strong>{module.module}</strong>
               {module.stack && <span className="tag">{module.stack}</span>}
+              {/* Looked ahead at: planned, and waiting for Regenerate - which runs the plan as it is - not stuck. */}
+              {module.lookedAhead && <span className="tag looked-ahead">waiting for regenerate</span>}
               {module.why && <span className="muted"> - {withPlain(turriSays(module.why))}</span>}
+              {module.lookedAhead && onRegenerate && (
+                <button className="link" onClick={() => onRegenerate(module.plainFile)}>
+                  <Icon name="play" size={12} /> regenerate
+                </button>
+              )}
               {module.base && <StartedFrom base={module.base} />}
             </div>
             {/* Pure renames: made by turri, nothing regenerated - waiting for the running pulse, or made this session. */}

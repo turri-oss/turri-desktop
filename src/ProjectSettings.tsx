@@ -161,8 +161,8 @@ export function ChooseFolder({ root, onChosen, label = "choose…" }: { root: st
 }
 
 /** One setting: its control by its kind, what it does and when a change takes effect, and what wins over it. */
-/** The settings that do nothing while conformance tests are off: the test advisor, and the script that runs the tests. */
-const CONFORMANCE_ONLY = new Set(["test-advisor", "conformance-tests-script"]);
+/** The settings that do nothing while conformance tests are off: the script that runs the tests. */
+const CONFORMANCE_ONLY = new Set(["conformance-tests-script"]);
 
 function SettingRow({ setting, onChange, dir, conformanceOff }: { setting: Setting; onChange: (value: string) => void; dir: string; conformanceOff: boolean }) {
   const [choices, setChoices] = useState<string[] | null>(setting.kind === "choice" && setting.options.length > 0 ? setting.options : null);

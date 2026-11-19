@@ -166,8 +166,6 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     canDecline: typeof session.decline === "function",
     decline: (id) => session.decline(id),
     notices: () => (SENTINEL ? session.notices() : []),
-    // The test advisor asked about functional specs, as a host asks it: at once, the verdicts coming to the chat shown.
-    evaluateTests: typeof session.evaluateTests === "function" ? (funcIds, options) => session.evaluateTests(funcIds, options) : undefined,
     // What the person decided, kept in the chat it sets to work as their box - written before turri's own hidden message
     // for the turn, so it comes first - then answered.
     answerNotice: (id, answer) => {
@@ -179,8 +177,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     // A setting's values whole - every model signed in to, not the forty a terminal's autocomplete shows - on a turri
     // that gives them (its settingChoices).
     settingChoices: typeof session.settingChoices === "function" ? (key, typed) => session.settingChoices(key, typed) : undefined,
-    // Conformance tests turned on, as the chat's turn_on_conformance_tests does - where the module's value comes from, every
-    // chat's tools switched - on a turri that can (its turnOnConformanceTests).
+    // Conformance tests turned on, as /conform does before it tests - where the module's value comes from, the chats'
+    // conform no longer refused - on a turri that can (its turnOnConformanceTests).
     turnOnConformanceTests: typeof session.turnOnConformanceTests === "function" ? (plainFile) => session.turnOnConformanceTests(plainFile) : undefined,
     // The sentinel asked to check functional specs in a module's release - on a turri that can (its check).
     check: typeof session.check === "function" ? (request) => session.check(request) : undefined,

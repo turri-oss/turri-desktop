@@ -28,21 +28,13 @@ export function said(turri, projectDir, file, graph) {
   if (!result.ok) return { ...base, error: result.error, ...(result.nextStep !== undefined ? { nextStep: result.nextStep } : {}), functionalSpecs: [] };
   // Each functional spec's test plain file and its scenarios, as turri's graph binds them: none, and it is not tested.
   const graphed = new Map(graph.items.filter((item) => item.file === file && item.funcId !== undefined).map((item) => [item.funcId, item]));
-  // What the test advisor made of each, as it reads now: an entry of another text - its hash not this one's - is none.
-  // On a turri before its test advisor's records (readAdvisor, textHash), none: no functional spec looked at.
-  const advised = (turri.textHash !== undefined && turri.readAdvisor?.(projectDir, result.moduleName)?.entries) || {};
-  const advisorOf = (funcId, item) => {
-    const entry = advised[funcId];
-    if (entry === undefined || item === undefined || entry.hash !== turri.textHash(item.text)) return null;
-    return { state: entry.state, ...(entry.report !== undefined ? { report: entry.report } : {}), ...(entry.undelivered === true ? { undelivered: true } : {}), ...(entry.reason !== undefined ? { reason: entry.reason } : {}) };
-  };
   const functionalSpecs = [];
   try {
     const [, tree] = turri.plainFileParser(basename(file), turri.resolveTemplateDirs(file), { allowNoFunctionalities: true });
     for (const { funcId, specifications } of turri.iterateFunctionalSpecs(tree, false)) {
       const item = graphed.get(funcId);
       const scenarios = { conformance: item?.scenarios?.conformance ?? [], acceptance: item?.scenarios?.acceptance ?? [] };
-      functionalSpecs.push({ funcId, text: specifications[turri.FUNCTIONAL_REQUIREMENTS]?.at(-1) ?? "", built: false, conformed: false, testPlainFile: item?.testPlainFile ?? null, scenarios, advisor: advisorOf(funcId, item) });
+      functionalSpecs.push({ funcId, text: specifications[turri.FUNCTIONAL_REQUIREMENTS]?.at(-1) ?? "", built: false, conformed: false, testPlainFile: item?.testPlainFile ?? null, scenarios });
     }
   } catch (error) {
     return { ...base, ok: false, error: error instanceof Error ? error.message : String(error), functionalSpecs: [] };

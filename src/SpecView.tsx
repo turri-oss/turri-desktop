@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
-import type { Advisor, FunctionalSpec, Job, Spec, TestPlainFile } from "./types.ts";
+import type { FunctionalSpec, Job, Spec, TestPlainFile } from "./types.ts";
 import { Icon, PlainMark, PlainName, Spinner, StartedFrom, withPlain } from "./ui.tsx";
 import { type Point, pointNow, relocate } from "./PulseSpec.tsx";
 import { followAt, PlainLinks, useModHeld, usePlainLinks, type Followed, type OpenLink } from "./PlainLinks.tsx";
@@ -157,8 +157,7 @@ export function SpecView(props: {
   conformanceTests: boolean;
   /** Conformance tests turned on for the module - and what it already has scenarios and code for, tested. */
   onTurnOnConformance: () => void;
-  /** The test advisor asked whether a functional spec with no scenarios needs them - and they written, asked of the chat. */
-  onEvaluate: (funcId: string) => void;
+  /** Testing scenarios for a functional spec with none, written - asked of the chat. */
   onWriteScenarios: (funcId: string) => void;
   /** A module it imports or requires, or a .plain that requires or imports it: the stdlib view's, or the project's file. */
   onOpen: OpenLink;
@@ -445,7 +444,6 @@ export function SpecView(props: {
           onConform={() => props.onConform([markMenu.funcId])}
           conformanceTests={props.conformanceTests}
           onOpenTests={(file, line) => props.onOpenTests(file, line)}
-          onEvaluate={() => props.onEvaluate(markMenu.funcId)}
           onWriteScenarios={() => props.onWriteScenarios(markMenu.funcId)}
           onPoint={setPointed}
           onClose={() => {
@@ -672,9 +670,9 @@ export function SpecView(props: {
  * neither yet.
  */
 /**
- * What a functional spec's mark offers: regenerate it, or conform it once it is built and has scenarios - that
- * functional spec alone - and open its scenarios, when it has a test plain file. With conformance tests off, nothing that
- * tests or evaluates - turning them on is the header's, as it is more than this functional spec's. Regenerate and conform are lit as they are pointed at, or reached with the
+ * What a functional spec's mark offers: regenerate it, or conform it once it is built - that functional spec alone:
+ * conform again when its tests are written, deleted and written anew; with no scenarios, the chat writes them first -
+ * and open its scenarios, when it has a test plain file, or have them written, when it has none. With conformance tests off, nothing that tests - turning them on is the header's, as it is more than this functional spec's. Regenerate and conform are lit as they are pointed at, or reached with the
  * arrow keys, in their kind's colour - and the functional spec with them. Escape, a click elsewhere or the window left
  * closes it.
  */
@@ -686,7 +684,6 @@ function MarkMenu(props: {
   onConform: () => void;
   conformanceTests: boolean;
   onOpenTests: (file: string, line: number) => void;
-  onEvaluate: () => void;
   onWriteScenarios: () => void;
   onPoint: (item: "regenerate" | "conform" | null) => void;
   onClose: () => void;
@@ -739,8 +736,10 @@ function MarkMenu(props: {
         regenerate
       </button>
       {props.conformanceTests && (
-        <button role="menuitem" className="conform" disabled={!built || !tested} onClick={choose(props.onConform)} {...aim("conform")}>
-          conform{!tested ? <span className="muted"> - it has no scenarios</span> : !built && <span className="muted"> - once it is built</span>}
+        <button role="menuitem" className="conform" disabled={!built} onClick={choose(props.onConform)} {...aim("conform")}>
+          {/* Its tests written already: conform again deletes them and writes them anew, its code untouched. */}
+          {built && tested && props.entry?.conformed ? "conform again" : "conform"}
+          {!built ? <span className="muted"> - once it is built</span> : !tested && <span className="muted"> - its scenarios written first</span>}
         </button>
       )}
       {props.entry?.testPlainFile && (
@@ -749,14 +748,9 @@ function MarkMenu(props: {
         </button>
       )}
       {props.conformanceTests && props.entry !== undefined && !tested && (
-        <>
-          <button role="menuitem" className="evaluate" disabled={props.entry.advisor?.state === "pending"} onClick={choose(props.onEvaluate)}>
-            evaluate testing scenarios{props.entry.advisor?.state === "pending" && <span className="muted"> - being evaluated</span>}
-          </button>
-          <button role="menuitem" className="write-scenarios" onClick={choose(props.onWriteScenarios)}>
-            write testing scenarios
-          </button>
-        </>
+        <button role="menuitem" className="write-scenarios" onClick={choose(props.onWriteScenarios)}>
+          write testing scenarios
+        </button>
       )}
     </div>
   );
@@ -774,28 +768,11 @@ function firstScenarioLine(entry: FunctionalSpec): number {
 /**
  * A functional spec's scenarios, at the end of its heading's line - out of the flow, so the two layers wrap alike: how
  * many of each kind, conformance and acceptance, and a click opens its test plain file there. One with none is not
- * tested, and that is no fault of it: nothing - but while the test advisor evaluates whether it needs testing
- * scenarios, and when it found it does, until the chat has written them.
+ * tested, and that is no fault of it: nothing.
  */
 function ScenarioChip({ entry, onOpen, tested }: { entry: FunctionalSpec | undefined; onOpen: (file: string, line: number) => void; tested: boolean }) {
   if (entry === undefined) return null;
-  if (entry.testPlainFile === null || scenarioCount(entry) === 0) {
-    // With conformance tests off, the test advisor is off too: what it said before is not said.
-    if (!tested) return null;
-    if (entry.advisor?.state === "pending")
-      return (
-        <span className="advisor-chip pending">
-          <Spinner /> evaluating testing scenarios
-        </span>
-      );
-    if (entry.advisor?.state === "yes")
-      return (
-        <span className="advisor-chip yes">
-          <Icon name="test" size={11} /> needs testing scenarios
-        </span>
-      );
-    return null;
-  }
+  if (entry.testPlainFile === null || scenarioCount(entry) === 0) return null;
   const { conformance, acceptance } = entry.scenarios;
   const count = (n: number, kind: string) => `${n} ${kind} scenario${n === 1 ? "" : "s"}`;
   const said = `${count(conformance.length, "conformance")}, ${count(acceptance.length, "acceptance")}${tested ? "" : " - not tested: conformance tests are off"} - open its test plain file`;
@@ -803,49 +780,6 @@ function ScenarioChip({ entry, onOpen, tested }: { entry: FunctionalSpec | undef
     <button className={`scenario-chip${tested ? "" : " untested"}`} title={said} aria-label={`${entry.funcId}: ${said}`} onClick={() => onOpen(entry.testPlainFile!, firstScenarioLine(entry))}>
       <Icon name="test" size={11} /> {conformance.length} · {acceptance.length}
     </button>
-  );
-}
-
-/** The test advisor's four questions, as a yes to each reads. */
-const QUESTION_SAID: Record<NonNullable<Advisor["report"]>["questions"][number]["question"], string> = {
-  "silent-failure": "a wrong implementation could look right",
-  divergence: "it can be read two ways",
-  revisited: "it is likely to be changed or built on",
-  cost: "a bug in it would cost much",
-};
-
-/**
- * What the test advisor made of a functional spec with no scenarios, in its card: evaluating it, or its verdict - on a
- * yes, the questions that were a yes with their evidence, and how many inputs the scenarios are to cover.
- */
-function AdvisorSaid({ advisor }: { advisor: Advisor }) {
-  const inputs = advisor.report?.inputs.length ?? 0;
-  return (
-    <div className={`spec-pop-advisor ${advisor.state}`}>
-      {advisor.state === "pending" ? (
-        <span>testing scenarios being evaluated, in the background.</span>
-      ) : advisor.state === "yes" ? (
-        <>
-          <span>
-            needs testing scenarios{inputs > 0 ? `, covering ${inputs} input${inputs === 1 ? "" : "s"}` : ""} -{" "}
-            {advisor.undelivered ? "the chat writes them at turri's next start." : "the chat writes them."}
-          </span>
-          <ul>
-            {advisor.report?.questions.map((answer) => (
-              <li key={answer.question}>
-                {QUESTION_SAID[answer.question]} <span className="muted">- {answer.evidence}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : advisor.state === "no" ? (
-        <span>doesn't need testing scenarios.</span>
-      ) : (
-        <span>
-          its testing scenarios could not be evaluated{advisor.reason ? <span className="muted"> - {advisor.reason}</span> : null}.
-        </span>
-      )}
-    </div>
   );
 }
 
@@ -876,7 +810,6 @@ function SpecStatePop(props: { funcId: string; x: number; y: number; state: Stat
         <strong>{title}</strong>
       </div>
       {detail !== null && <div className="spec-pop-detail">{withPlain(detail)}</div>}
-      {!props.isNew && !tested && !off && entry?.advisor && <AdvisorSaid advisor={entry.advisor} />}
       {!props.isNew && (
         <div className="spec-pop-scenarios">
           {!tested ? (
