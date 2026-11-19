@@ -286,10 +286,10 @@ function watchSpecs() {
       clearTimeout(historyTimer);
       historyTimer = setTimeout(readStanding, 300);
     }
-    // The project's config - /turri-config writes it from the chat: the window shows its settings again.
+    // The project's config - /settings writes it from the chat: the window shows its settings again.
     if (CONFIG_FILE.test(name)) {
       clearTimeout(configTimer);
-      // harness-model changed: every chat of the person's on it, not only the one /turri-config ran in.
+      // harness-model changed: every chat of the person's on it, not only the one /settings ran in.
       configTimer = setTimeout(() => (emit("config", null), readStanding(), void onHarnessModel().catch(() => {})), 250);
     }
     if (!parts.some((part) => UNLISTED.has(part))) {
@@ -319,7 +319,7 @@ function watchSpecs() {
 
 // ---------- the project's files ----------
 
-/** The project's config at its root: config.turri.yaml, a stack's config.turri.<stack>.yaml, or the older config.yaml. */
+/** The project's config at its root: config.turri.yaml, a module's own config.turri.<module>.yaml, or the older config.yaml. */
 const CONFIG_FILE = /^config(\.turri(\.[^./\\]+)?)?\.yaml$/;
 
 /** What the tree leaves out: version control's own, installed packages and caches nobody reads. */
@@ -752,7 +752,6 @@ function summary() {
     dir: projectDir,
     name: basename(projectDir),
     hasConfig: turri.hasProjectConfig(projectDir),
-    stacks: turri.stacksOf(projectDir),
     settings: {
       "harness-model": turri.modelSpec(models.harness) ?? null,
       "coding-model": turri.modelSpec(models.coding) ?? null,
@@ -778,7 +777,7 @@ function summary() {
 
 /**
  * Every module of the project: its .plain files outside plain_modules and the folders nobody writes ***plain in - and
- * outside each module's test folder (turri's testDirOf: test-dir, a stack's own or the project's), whose .plain files
+ * outside each module's test folder (turri's testDirOf: test-dir, a module's own config's or the project's), whose .plain files
  * are test plain files, not modules.
  */
 function plainFiles(dir) {
@@ -797,7 +796,7 @@ function inBuildOrder(files) {
   }
 }
 
-/** The test folders of these modules, as turri has them (testDirOf) - each module's, its stack's or the project's. */
+/** The test folders of these modules, as turri has them (testDirOf) - each module's, its own config's or the project's. */
 const testDirsOf = (modules) => (turri.testDirOf === undefined ? [] : [...new Set(modules.map((file) => turri.testDirOf(file)))]);
 const inTestDir = (file, testDirs) => testDirs.some((testDir) => file.startsWith(`${testDir}${sep}`));
 
@@ -1176,13 +1175,13 @@ function commands() {
 /** Whether the turri running gives every setting of config.turri.yaml (after 0.1.12): else the window has summary's few. */
 const KNOWS_SETTINGS = typeof turri.configSettings === "function";
 
-/** Whether a module's functional specs are conformance tested: its stack's conformance-tests: over the project's, as turri reads it. */
+/** Whether a module's functional specs are conformance tested: its own config's conformance-tests: over the project's, as turri reads it. */
 const conformanceTestsOn = (file) => conformanceOf(turri, file);
 
 /**
  * Conformance tests turned on from the window - beside a module, or the settings' switch: written where the module's
  * value comes from, the chats' conform no longer refused (turri's turnOnConformanceTests), or, on a turri before it,
- * /turri-config, which writes config.turri.yaml alone. What it turns on is tested at once - turning them on is the
+ * /settings, which writes config.turri.yaml alone. What it turns on is tested at once - turning them on is the
  * person's yes: each module that was off, its functional specs with scenarios whose code is built and not tested yet
  * sent to the chat as conform's words. Says the file written and what is being tested.
  */
@@ -1192,7 +1191,7 @@ async function turnOnConformance({ file } = {}) {
   const before = new Set(modules.filter(conformanceTestsOn));
   let written = "config.turri.yaml";
   if (session.turnOnConformanceTests !== undefined) written = session.turnOnConformanceTests(plainFile);
-  else await chatOf().session.prompt("/turri-config conformance-tests true", { streamingBehavior: "followUp" });
+  else await chatOf().session.prompt("/settings conformance-tests true", { streamingBehavior: "followUp" });
   const testing = [];
   for (const module of modules) {
     if (before.has(module) || !conformanceTestsOn(module)) continue;
@@ -1220,11 +1219,11 @@ function configWarnings() {
   return [];
 }
 
-/** A setting's value as the window shows it and /turri-config takes it back: a list by commas, the rest as written. */
+/** A setting's value as the window shows it and /settings takes it back: a list by commas, the rest as written. */
 const typedValue = (value) => (Array.isArray(value) ? value.join(", ") : typeof value === "object" && value !== null ? JSON.stringify(value) : String(value));
 
 /**
- * Every setting of the project's config.turri.yaml, as /turri-config knows it - what it does and takes, what it is
+ * Every setting of the project's config.turri.yaml, as /settings knows it - what it does and takes, what it is
  * unset, when a change takes effect, what wins over it - with what the file has now, null for unset. Null from a turri
  * that does not say them.
  */
@@ -1258,17 +1257,17 @@ function modelChoiceOf(config, key) {
 }
 
 /**
- * What /turri-config offers for a setting's value, as typing it in the chat would - turri's own choices, never the
+ * What /settings offers for a setting's value, as typing it in the chat would - turri's own choices, never the
  * window's: `harness-model ` the models reachable here, `harness-model <model>:` how hard it can think, `review ` true or
  * false. Unset is left out: the window offers it in its own way.
  */
 async function configChoices({ typed }) {
   if (session === undefined) return [];
-  // A setting's values, whole, on a turri that gives them so; else what /turri-config completes, cut at forty.
+  // A setting's values, whole, on a turri that gives them so; else what /settings completes, cut at forty.
   const space = typed.indexOf(" ");
   // Never Claude Code's models: the app leaves the Claude subscription out (auth.mjs).
   if (space !== -1 && session.settingChoices !== undefined) return (await session.settingChoices(typed.slice(0, space), typed.slice(space + 1))).filter((value) => !viaClaudeCode(value));
-  const items = await chatOf().completions("turri-config", typed);
+  const items = await chatOf().completions("settings", typed);
   return items.map((item) => item.value.slice(item.value.indexOf(" ") + 1)).filter((value) => value !== "unset" && !viaClaudeCode(value));
 }
 

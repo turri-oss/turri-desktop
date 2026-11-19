@@ -349,10 +349,10 @@ export function App() {
     setPane("home");
     following.current = false;
     // A project just started opens on what turri said of its config: its models, and how to sign in to them.
-    // Its base folder, chosen as it was made: written as the person would type it - /turri-config - once its chats are read,
+    // Its base folder, chosen as it was made: written as the person would type it - /settings - once its chats are read,
     // so turri says so there.
     void chats.reset(summary.setup ? [{ role: "note", text: summary.setup, level: "info" }] : []).then(() => {
-      if (summary.startFrom !== undefined) void window.turri.call("sendChat", { text: `/turri-config base-folder ${summary.startFrom}` }).catch(() => {});
+      if (summary.startFrom !== undefined) void window.turri.call("sendChat", { text: `/settings base-folder ${summary.startFrom}` }).catch(() => {});
     });
     // Its models just chosen and its config written: whether this machine is ready for it, and the models answer - said
     // only when something wants seeing to, as a project that is ready needs nothing of you.
@@ -418,7 +418,7 @@ export function App() {
       window.turri.on("engine:standing", (next: Spec) =>
         setProject((now) => (now === null || !now.specs.some((entry) => entry.file === next.file) ? now : { ...now, specs: now.specs.map((entry) => (entry.file === next.file ? next : entry)) })),
       ),
-      // The config changed - /turri-config, say: its settings in the sidebar, and the model the chat runs on now.
+      // The config changed - /settings, say: its settings in the sidebar, and the model the chat runs on now.
       window.turri.on("engine:config", () => void refreshProject()),
       // turri works in the preview with its browser or terminal tools: the preview glows, inviting the person to watch -
       // the window stays where they are, in the dive too.
@@ -1151,7 +1151,7 @@ export function App() {
               project.specs.length === 0 && (
                 <Empty icon="doc" title="no ***plain yet">
                   tell turri what you want to build. it writes the first <PlainName /> with you, then builds the code from it.
-                  {/* What its code starts from: an existing codebase, files to use - base-folder:, through /turri-config. */}
+                  {/* What its code starts from: an existing codebase, files to use - base-folder:, through /settings. */}
                   <span className="empty-start">
                     {typeof project.settings["base-folder"] === "string" ? (
                       <>
@@ -1163,7 +1163,7 @@ export function App() {
                     <ChooseFolder
                       root={project.dir}
                       label={typeof project.settings["base-folder"] === "string" ? "another folder…" : "start from a folder…"}
-                      onChosen={(path) => void window.turri.call("sendChat", { text: `/turri-config base-folder ${path}` }).catch((error) => say(engineSaid(error), "error"))}
+                      onChosen={(path) => void window.turri.call("sendChat", { text: `/settings base-folder ${path}` }).catch((error) => say(engineSaid(error), "error"))}
                     />
                   </span>
                 </Empty>

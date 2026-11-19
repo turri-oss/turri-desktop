@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { basename, relative } from "node:path";
 
-/** Whether a module's functional specs are conformance tested: its stack's conformance-tests: over the project's, as turri reads it. */
+/** Whether a module's functional specs are conformance tested: its own config's conformance-tests: (config.turri.<module>.yaml, or a required module's) over the project's, as turri reads it. */
 export function conformanceTestsOn(turri, file) {
   try {
     return turri.configForSpec(file).conformanceTests === true;

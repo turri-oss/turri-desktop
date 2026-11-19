@@ -75,7 +75,7 @@ export function FileTree(props: {
     }
   }, [root, open]);
 
-  // Debug mode switched - /turri-config debug, the settings' switch: every folder listed is listed again.
+  // Debug mode switched - /settings debug, the settings' switch: every folder listed is listed again.
   const debugBefore = useRef(props.debug);
   useEffect(() => {
     if (debugBefore.current === props.debug) return;

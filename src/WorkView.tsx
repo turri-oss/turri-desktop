@@ -197,7 +197,8 @@ export function WorkView({
             <div className="module-plan-head">
               <Icon name="layers" />
               <strong>{module.module}</strong>
-              {module.stack && <span className="tag">{module.stack}</span>}
+              {/* Built with a module's own config - its own, or one it requires: config.turri.<module>.yaml. */}
+              {module.configModule && <span className="tag" title={`built with config.turri.${module.configModule}.yaml, over config.turri.yaml`}>config.turri.{module.configModule}.yaml</span>}
               {/* Looked ahead at: planned, and waiting for Regenerate - which runs the plan as it is - not stuck. */}
               {module.lookedAhead && <span className="tag looked-ahead">waiting for regenerate</span>}
               {module.why && <span className="muted"> - {withPlain(turriSays(module.why))}</span>}

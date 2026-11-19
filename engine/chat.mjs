@@ -30,7 +30,7 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const chats = new Map();
   /** A chat's events, each with its id. */
   const says = (id) => (event, data) => emit(event, { chat: id, data });
-  // The window is told when a chat's model changes - /turri-config switches it as it runs.
+  // The window is told when a chat's model changes - /settings switches it as it runs.
   const modelWatch = (api) =>
     api.on("model_select", ({ model }, ctx) => {
       const chat = [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
@@ -270,7 +270,7 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
 function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlier = [] }) {
   // The chat runs on harness-model, as `turri` starts pi with it - read from the project's config each time, so a chat
   // opened after it changed starts on the new one - and is put on it after a sign-in, when it could not be before, and
-  // when it changes: every chat of the person's goes with it, not only the one /turri-config ran in. A model chosen in
+  // when it changes: every chat of the person's goes with it, not only the one /settings ran in. A model chosen in
   // one chat stays until harness-model changes again.
   let onHarness;
   // harness-model as it cannot be reached here, while it cannot - no credentials for its provider, or no such model: the
@@ -297,7 +297,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       const why = provider === CLAUDE_CODE ? "subscription" : found === undefined ? "unknown" : "signed-out";
       return reach({ model: spec, provider: why === "signed-out" ? provider : null, name, why });
     }
-    // On it already - the chat /turri-config ran in, switched by turri: not switched again.
+    // On it already - the chat /settings ran in, switched by turri: not switched again.
     if (session.model?.provider !== found.provider || session.model?.id !== found.id) await session.setModel(found);
     onHarness = wanted;
     reach(null);
@@ -460,7 +460,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
       if (item) emit("chat:message", item);
     },
     /**
-     * The commands typing / offers, as pi has them: the extension's - /turri-config, /regenerate, /stack - its prompt
+     * The commands typing / offers, as pi has them: the extension's - /settings, /regenerate, /conform - its prompt
      * templates, and its skills as /skill:<name>. /halt is left out: halting a pulse is turri's alone, not the window's.
      * So is /pulses, whose description speaks of the terminal's side panel and its key: the regen view is the window's.
      */
@@ -473,7 +473,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
         .filter((command) => command.name !== "halt" && command.name !== "pulses")
         .map((command) => ({ name: `/${command.name}`, description: command.description ?? "" }))
         .concat({ name: "/login", description: "sign in to a model provider - with an API key, or a subscription in the browser" }),
-    /** What a command offers as its argument is typed - /turri-config's settings and their values - as pi's editor has it. */
+    /** What a command offers as its argument is typed - /settings' settings and their values - as pi's editor has it. */
     completions: async (name, prefix) => {
       const command = session.extensionRunner.getRegisteredCommands().find((each) => each.invocationName === name);
       return (await command?.getArgumentCompletions?.(prefix)) ?? [];

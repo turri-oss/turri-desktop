@@ -418,7 +418,7 @@ test.describe("the sentinel", () => {
     await expect(tabs.locator(".chat-tab-close")).toHaveCount(0);
   });
 
-  test("is a setting of the project's, turned off through /turri-config, and has a model of its own", async ({ launched: { app, window, project } }) => {
+  test("is a setting of the project's, turned off through /settings, and has a model of its own", async ({ launched: { app, window, project } }) => {
     test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
     await window.locator(".chat-model").waitFor();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send("menu", "project-settings"));

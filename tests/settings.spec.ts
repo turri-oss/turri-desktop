@@ -147,7 +147,7 @@ test.describe("the window's reach", () => {
 });
 
 test.describe("a project's settings", () => {
-  test("are in the menu bar, File > Project Settings…, and changed through /turri-config", async ({ launched: { app, window: page, project } }) => {
+  test("are in the menu bar, File > Project Settings…, and changed through /settings", async ({ launched: { app, window: page, project } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
     // Not in the window's toolbar: in the menu bar, and chosen there - sent as the menu sends it, as a hidden window is
     // never the one in front, which the menu acts on (and enables it for).
@@ -163,7 +163,7 @@ test.describe("a project's settings", () => {
     await expect(sheet.getByRole("switch", { name: "conformance-tests" })).toHaveAttribute("aria-checked", "true");
     await expect(sheet.getByRole("switch", { name: "test-advisor" })).toHaveCount(0);
     await expect(sheet.getByLabel("test-dir", { exact: true })).toBeVisible();
-    // Every setting of the file, as /turri-config knows them - not only the ones the sidebar used to show.
+    // Every setting of the file, as /settings knows them - not only the ones the sidebar used to show.
     await expect(sheet.getByRole("switch", { name: "mutation-testing" })).toBeVisible();
     await expect(sheet.getByRole("switch", { name: "release-after-pulse" })).toBeVisible();
     const review = sheet.getByRole("switch", { name: "review" });
@@ -213,7 +213,7 @@ test.describe("harness-model", () => {
     await expect(page.locator(".chat-body")).toContainText("harness-model: anthropic/claude-opus-5-5");
     await page.keyboard.press("Escape");
     await expect(page.locator(".chat-model")).toHaveText("claude-opus-5-5");
-    // The other chat, which /turri-config did not run in.
+    // The other chat, which /settings did not run in.
     await tabs.nth(1).click();
     await expect(page.locator(".chat-model")).toHaveText("claude-opus-5-5");
     // And a chat opened since.
@@ -245,7 +245,7 @@ test.describe("a folder setting", () => {
     await pick.click();
     await expect(row.getByRole("alert")).toContainText("that is turri's own");
 
-    // One in it: sent as /turri-config, written by turri, by its path from the project's folder.
+    // One in it: sent as /settings, written by turri, by its path from the project's folder.
     await answer(join(project, "assets"));
     await pick.click();
     await expect(row.getByRole("alert")).toHaveCount(0);
@@ -316,7 +316,7 @@ test.describe("the files' sidebar", () => {
       for (const path of ["plain_modules", "plain_modules/hello", ".turri", ".turri/debug"]) await page.locator(`.tree-row[title="${path}"]`).click();
       await expect.poll(names).toEqual(expect.arrayContaining(["debug", "coding-agent.log", "hello", "main.py"]));
       expect(await names()).not.toContain("HEAD");
-      // Off - /turri-config debug false writes it so: the ***plain alone, the folders open listed again.
+      // Off - /settings debug false writes it so: the ***plain alone, the folders open listed again.
       const config = join(project, "config.turri.yaml");
       writeFileSync(config, readFileSync(config, "utf8").replace("debug: true", "debug: false"));
       await expect.poll(names).toEqual(["hello.plain"]);
@@ -424,7 +424,7 @@ test.describe("a project just started", () => {
     await expect(page.locator(".bedrock-note")).not.toContainText("set AWS_REGION");
   });
 
-  test("starts from a folder chosen as it is made - written as base-folder: through /turri-config, said in its empty view", async ({ launched: { app, window: page }, scratch }) => {
+  test("starts from a folder chosen as it is made - written as base-folder: through /settings, said in its empty view", async ({ launched: { app, window: page }, scratch }) => {
     const dir = join(scratch, "on-legacy");
     mkdirSync(join(scratch, "legacy"), { recursive: true });
     // The save sheet answers with the new folder, the folder sheet with one beside it; the doctor finds nothing.

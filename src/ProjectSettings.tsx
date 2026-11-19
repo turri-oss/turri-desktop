@@ -4,7 +4,7 @@ import { Spinner, withPlain } from "./ui.tsx";
 
 type Value = string | number | boolean | null;
 
-/** A setting of config.turri.yaml as the engine gives it - turri's /turri-config catalogue, with what the file has now. */
+/** A setting of config.turri.yaml as the engine gives it - turri's /settings catalogue, with what the file has now. */
 type Setting = {
   key: string;
   about: string;
@@ -15,17 +15,17 @@ type Setting = {
   effect: string;
   /** Its words (choice), or the values offered first. */
   options: string[];
-  /** What the file has, as /turri-config takes it back - null for unset. */
+  /** What the file has, as /settings takes it back - null for unset. */
   value: string | null;
   /** A model's, as turri reads it: the model, and how hard it thinks - null for unset. */
   choice?: { model: string | null; thinking: string | null } | null;
-  /** What wins over it: models.chat over harness-model, a stack's file. */
+  /** What wins over it: models.chat over harness-model, a module's own config.turri.<module>.yaml. */
   over: string[];
 };
 
 /**
  * A turri that does not give every setting (0.1.12 and before): the ones the summary has, so the sheet still changes
- * them. Their words and models are asked of /turri-config, as for every setting.
+ * them. Their words and models are asked of /settings, as for every setting.
  */
 function fromSummary(settings: Record<string, Value>): Setting[] {
   const few: Array<Omit<Setting, "value" | "over" | "effect" | "options">> = [
@@ -38,7 +38,7 @@ function fromSummary(settings: Record<string, Value>): Setting[] {
   return few.filter(({ key }) => key in settings).map((each) => ({ ...each, effect: "", options: [], over: [], value: settings[each.key] === null ? null : String(settings[each.key]) }));
 }
 
-/** What /turri-config offers for what is typed after it - turri's own choices, asked of the engine. */
+/** What /settings offers for what is typed after it - turri's own choices, asked of the engine. */
 const choicesFor = (typed: string) => window.turri.call<string[]>("configChoices", { typed }).catch(() => [] as string[]);
 
 /**
@@ -213,8 +213,8 @@ function SettingRow({ setting, onChange, dir, conformanceOff }: { setting: Setti
 }
 
 /**
- * The project's settings - every one of its config.turri.yaml, as /turri-config knows them - behind the sidebar's gear.
- * Each change is sent as the person would type it, /turri-config review false: turri checks it, writes it into the file
+ * The project's settings - every one of its config.turri.yaml, as /settings knows them - behind the sidebar's gear.
+ * Each change is sent as the person would type it, /settings review false: turri checks it, writes it into the file
  * with its comments kept, and says in the chat when it takes effect. The sheet reads the file again once it changes.
  */
 export function ProjectSettingsSheet({
@@ -250,7 +250,7 @@ export function ProjectSettingsSheet({
   const change = (key: string, value: string) => {
     setSent((before) => ({ ...before, [key]: value }));
     if (key === "conformance-tests" && value === "true") return onTurnOnConformance();
-    void window.turri.call("sendChat", { text: `/turri-config ${key} ${value}` });
+    void window.turri.call("sendChat", { text: `/settings ${key} ${value}` });
   };
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = (all ?? [])
@@ -258,7 +258,7 @@ export function ProjectSettingsSheet({
     .filter((setting) => words.every((word) => `${setting.key} ${setting.about}`.toLowerCase().includes(word)));
   const main = shown.filter((setting) => !setting.key.startsWith("models."));
   const byRole = shown.filter((setting) => setting.key.startsWith("models."));
-  // Off as the project's file has it, unset meaning off - a stack's own file may say otherwise, as its note says.
+  // Off as the project's file has it, unset meaning off - a module's own config file may say otherwise, as its note says.
   const conformance = shown.find((setting) => setting.key === "conformance-tests");
   const conformanceOff = conformance !== undefined && (conformance.value ?? conformance.unset) !== "true";
   const row = (setting: Setting) => <SettingRow key={setting.key} setting={setting} dir={dir} conformanceOff={conformanceOff} onChange={(value) => change(setting.key, value)} />;
@@ -267,7 +267,7 @@ export function ProjectSettingsSheet({
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet preferences project-settings" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="project settings">
         <h2>project settings</h2>
-        <p className="muted small">this project's config.turri.yaml. a change is sent to turri as /turri-config, and it says in the chat when it takes effect.</p>
+        <p className="muted small">this project's config.turri.yaml. a change is sent to turri as /settings, and it says in the chat when it takes effect.</p>
         <input className="settings-filter" type="search" placeholder="find a setting" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="find a setting" />
         {all === null ? (
           <p className="muted">

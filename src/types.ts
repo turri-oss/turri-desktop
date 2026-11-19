@@ -38,7 +38,7 @@ export interface Spec {
   /** How its codebase's base folder stands against what the codebase started from, when they do not agree: drift's line. */
   baseFolder?: string;
   conformanceTested?: number;
-  /** Whether its functional specs are conformance tested - conformance-tests:, its stack's over the project's. Off, their scenarios are kept and not tested. */
+  /** Whether its functional specs are conformance tested - conformance-tests:, its own config's over the project's. Off, their scenarios are kept and not tested. */
   conformanceTests?: boolean;
   functionalSpecs: FunctionalSpec[];
 }
@@ -71,7 +71,6 @@ export interface Project {
   name: string;
   turriHome: string;
   hasConfig: boolean;
-  stacks: string[];
   settings: Record<string, string | number | boolean | null>;
   specs: Spec[];
   testPlainFiles: TestPlainFile[];
@@ -206,7 +205,8 @@ export interface ModuleStatus {
   planned: Array<{ title: string; cases?: JobCases; track: "code" | "conformance"; planning?: true; afterCode?: true; specs?: string[] }>;
   planNotes?: string[];
   why?: string;
-  stack?: string;
+  /** The module whose config file it is built with - config.turri.<module>.yaml - its own or one it requires; none, the project's alone. */
+  configModule?: string;
   /** Pure renames turri makes once the running pulse ends - a func-id or a scenario-id, nothing else with it. */
   renames?: string[];
   /** The base folder its codebase started from - as base-folder: named it - and how many of its files the code has still. */

@@ -244,7 +244,7 @@ export function NewProject({ onOpened, onDone }: { onOpened: (project: Project) 
                 ))}
               </div>
             )}
-            {/* What its codebase starts from: nothing, or a folder - written as base-folder: once it opens, through /turri-config. */}
+            {/* What its codebase starts from: nothing, or a folder - written as base-folder: once it opens, through /settings. */}
             <div className="new-project-start">
               <div className="bedrock-row">
                 <span className="muted">start from</span>

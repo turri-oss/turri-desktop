@@ -27,8 +27,8 @@ test.describe("a chat whose harness-model is a Claude subscription's", () => {
     await expect(box).toHaveValue("what does this project do?");
     await expect(window.locator(".composer-actions .button.primary")).toBeDisabled();
     await expect(window.locator(".chat-body .msg.user")).toHaveCount(0);
-    // A command goes: /turri-config puts it on a model it can reach, and it talks again.
-    await box.fill("/turri-config harness-model anthropic/claude-sonnet-5-5");
+    // A command goes: /settings puts it on a model it can reach, and it talks again.
+    await box.fill("/settings harness-model anthropic/claude-sonnet-5-5");
     await box.press("Enter");
     await expect(card).toHaveCount(0);
     await expect(window.locator(".chat-model")).toHaveText("claude-sonnet-5-5");

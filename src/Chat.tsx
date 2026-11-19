@@ -353,7 +353,7 @@ export function Chat(props: {
   };
   const hasFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files");
 
-  // harness-model out of reach: only a command goes - /turri-config, /login - and what reaches a model stays in the box.
+  // harness-model out of reach: only a command goes - /settings, /login - and what reaches a model stays in the box.
   const held = props.unreachable !== null && !draft.trim().startsWith("/");
   const send = () => {
     const text = draft.trim();

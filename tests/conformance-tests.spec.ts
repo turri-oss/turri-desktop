@@ -37,7 +37,7 @@ test.describe("conformance tests off", () => {
     await page.locator(".conformed-count.off").getByRole("button", { name: "turn on" }).click();
     await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^conformance-tests: true$/m);
     await expect(page.locator(".status-said")).toHaveText("conformance tests turned on - written in config.turri.yaml.");
-    // By turri itself, as its tool does it - not /turri-config's words in the chat.
+    // By turri itself, as its tool does it - not /settings's words in the chat.
     await expect(page.locator(".chat-body")).not.toContainText("written to config.turri.yaml");
     // On: counted as turri counts it - nothing built, so nothing tested yet.
     await expect(page.locator(".conformed-count")).toHaveText(/0 of 1 conformed/);
