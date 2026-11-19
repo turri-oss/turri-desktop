@@ -178,7 +178,7 @@ test.describe("config keys turri does not read", () => {
     const line = "config.turri.yaml has a key turri does not read - test-advisor: no setting turri has, so it does nothing. Take it out, or see docs/config.md for the spelling.";
     const summary = await page.evaluate(() => window.turri.call<Record<string, unknown>>("summary"));
     const taken = await answering(app, { sendAction: true });
-    await send(app, "project:opened", { ...summary, configWarnings: [line] });
+    await send(app, "project:opened", { ...summary, configLines: [{ kind: "unknown", text: line }] });
     await page.getByRole("button", { name: /^notifications:/ }).click();
     const note = page.locator(".notification.warning", { hasText: "test-advisor" });
     await expect(note).toContainText(`turri warns · ${line}`);
@@ -188,7 +188,7 @@ test.describe("config keys turri does not read", () => {
 
   test("are read from turri's banner - none in a project whose config turri reads whole", async ({ launched: { window: page } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
-    expect(await page.evaluate(() => window.turri.call<{ configWarnings: string[] }>("summary").then((summary) => summary.configWarnings))).toEqual([]);
+    expect(await page.evaluate(() => window.turri.call<{ configLines: unknown[] }>("summary").then((summary) => summary.configLines))).toEqual([]);
   });
 });
 
@@ -197,8 +197,8 @@ test.describe("config keys turri does not read, in a project that still has test
 
   test("are said from the banner of the chat turri started, in its words", async ({ launched: { window: page } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
-    const warnings = await page.evaluate(() => window.turri.call<{ configWarnings: string[] }>("summary").then((summary) => summary.configWarnings));
-    expect(warnings).toEqual([expect.stringMatching(/^config\.turri\.yaml has a key turri does not read - test-advisor/)]);
+    const lines = await page.evaluate(() => window.turri.call<{ configLines: unknown[] }>("summary").then((summary) => summary.configLines));
+    expect(lines).toEqual([{ kind: "unknown", text: expect.stringMatching(/^config\.turri\.yaml has a key turri does not read - test-advisor/) }]);
     await page.getByRole("button", { name: /^notifications:/ }).click();
     await expect(page.locator(".notification.warning", { hasText: "test-advisor" }).getByRole("button", { name: "take it out" })).toBeVisible();
   });

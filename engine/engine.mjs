@@ -66,7 +66,42 @@ const host = {
     readEarlier();
   },
   onPlanChange: () => emit("status", statusNow()),
+  // A launch asked for, started or ended (turri's docs/launch.md): the window shows what runs, and how each went.
+  onLaunch: (launch) => {
+    const view = launchView(launch);
+    launches.set(view.id, view);
+    emit("launch", view);
+  },
 };
+
+/** This session's launches, by id, as the window shows them: turri stops what they started as the session ends. */
+const launches = new Map();
+
+/**
+ * A launch as the window shows it: its codebase and commit, how it stands, why it was asked for, and what it said - where
+ * it runs, or why it did not come up. Copied: turri changes its own as the launch goes on.
+ */
+function launchView(launch) {
+  const { id, codebase, commit, short, status, cause, summary, supersededBy, replacedBy, already, queuedAt, startedAt, finishedAt } = launch;
+  return {
+    id,
+    codebase,
+    commit,
+    short,
+    status,
+    cause: "pulse" in (cause ?? {}) ? { pulse: cause.pulse, title: cause.title } : { ...(cause?.chat !== undefined ? { chat: cause.chat } : {}) },
+    ...(summary !== undefined ? { summary } : {}),
+    ...(supersededBy !== undefined ? { supersededBy } : {}),
+    ...(replacedBy !== undefined ? { replacedBy } : {}),
+    ...(already === true ? { already: true } : {}),
+    queuedAt,
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(finishedAt !== undefined ? { finishedAt } : {}),
+  };
+}
+
+/** This session's launches, the oldest first: for a window drawn again. */
+const launchesNow = () => [...launches.values()];
 
 // ---------- what the project has spent since it opened ----------
 
@@ -769,7 +804,7 @@ function summary() {
     // Each module as last read - or, not read yet, only its file: what it says follows, and how it stands.
     specs: inBuildOrder(plainFiles(projectDir)).map((file) => known.get(file) ?? unread(file)),
     testPlainFiles: graphSoon() !== undefined ? testPlainFiles() : [],
-    configWarnings: configWarnings(),
+    configLines: configLines(),
     // The modules' test folders, by their paths in the project: a pulse's ***plain diff tells a test plain file by them.
     testDirs: testDirsOf(plainFiles(projectDir)).map((dir) => relative(projectDir, dir)),
   };
@@ -1113,9 +1148,9 @@ async function investigate({ id, module, pulse, kind, why }) {
 }
 
 /**
- * Functional specs checked by the sentinel in a module's release - released first when what runs is behind - as it
- * checks a pulse: what it finds comes as notices and a conclusion. Each by its module:func-id, of that module or one it
- * is built on. On a turri with its check.
+ * Functional specs checked by the sentinel in what is launched of a module - it launches nothing: with nothing of the
+ * module launched, the check ends unchecked - as it checks a pulse: what it finds comes as notices and a conclusion. Each
+ * by its module:func-id, of that module or one it is built on. On a turri with its check.
  */
 function sentinelCheck({ module, funcIds }) {
   if (session?.check === undefined) throw new Error("This turri's sentinel checks only the pulses that finish.");
@@ -1206,15 +1241,18 @@ async function turnOnConformance({ file } = {}) {
 }
 
 /**
- * What turri's banner said of the project's config as the newest chat started - a line for each config file with keys
- * turri does not read: a setting it no longer has (test-advisor), or one misspelt - in turri's words. The app draws no
- * banner: the window says them.
+ * What turri's banner said of the project's config files as the newest chat started, a line each with its kind (turri's
+ * ConfigLine): `renamed`, a key turri renamed there itself - information; `old-beside-new`, an old name left beside its
+ * new one; `unknown`, keys it does not read - a setting it no longer has (test-advisor), or one misspelt - in turri's
+ * words. The app draws no banner: the window says them, by their kind.
  */
-function configWarnings() {
+function configLines() {
   for (const { id } of [...(session?.chats() ?? [])].reverse()) {
     const entries = session.chat(id)?.session.sessionManager.getEntries?.() ?? [];
     const banner = entries.findLast((entry) => entry.type === "custom" && entry.customType === "turri_banner");
-    if (banner !== undefined) return Array.isArray(banner.data?.config) ? banner.data.config.filter((line) => typeof line === "string") : [];
+    if (banner === undefined) continue;
+    const lines = Array.isArray(banner.data?.config) ? banner.data.config : [];
+    return lines.filter((line) => typeof line?.text === "string" && typeof line?.kind === "string").map(({ kind, text }) => ({ kind, text }));
   }
   return [];
 }
@@ -1408,7 +1446,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, investigate, sentinelCheck, lookAhead, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, investigate, sentinelCheck, launches: launchesNow, lookAhead, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.
@@ -1417,7 +1455,7 @@ const BEFORE_A_PROJECT = new Set(["open", "vendors", "initConfig", "doctor", ...
 // The app gone - quit, crashed, killed - the engine goes with it: never a chat left running with no window.
 process.on("disconnect", () => {
   stopHearing();
-  // What turri started - a release, say - stopped with it, as long as that takes a moment.
+  // What turri started - a launch's servers - stopped with it (its dispose), as long as that takes a moment.
   const gone = setTimeout(() => process.exit(0), 2000);
   Promise.resolve(session?.dispose())
     .catch(() => {})

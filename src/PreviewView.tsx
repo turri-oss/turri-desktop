@@ -3,10 +3,11 @@ import type { PreviewState } from "../electron/preview.ts";
 import type { TerminalState } from "../electron/terminal.ts";
 import { TerminalPane } from "./Terminal.tsx";
 import { PreviewHome } from "./PreviewHome.tsx";
-import type { Pane, Spec } from "./types.ts";
+import type { Launch, Pane, Spec } from "./types.ts";
 import { Empty, Icon, Jellyfish } from "./ui.tsx";
 import type { Action } from "./actions.ts";
 import { Prose } from "./Chat.tsx";
+import { LaunchLine } from "./launches.tsx";
 
 /** Who is testing in the preview, and the pulse it tests: its name and its ***plain diff - none known, only who. */
 export type Tested = { who: string; pulse: { id: string; title: string; diff: string } | null };
@@ -43,7 +44,8 @@ function addressOf(typed: string): string {
  * (electron/preview.ts). Nothing of the window can draw over it, so it is taken away while something should: a sheet
  * open over the window, nothing loaded to show, or the terminal in its place. The terminal: a shell in the project's
  * folder (electron/terminal.ts), for a CLI. turri drives both with its browser and terminal tools, and the window comes
- * to the one it uses - edged in blue while it does, and the bar saying so.
+ * to the one it uses - edged in blue while it does, and the bar saying so. Under the bar, in all three, what turri
+ * launches: each codebase's launch under way, or how its last one ended.
  */
 /** When a key was last pressed in the window, and how long after it the person is still typing. */
 let lastKey = 0;
@@ -56,6 +58,7 @@ export function PreviewView({
   pane,
   onPane,
   specs,
+  launches,
   onTry,
   onSentinel,
   testing,
@@ -68,9 +71,11 @@ export function PreviewView({
   onPane: (pane: Pane) => void;
   /** The project's modules, for the home to say what there is to try. */
   specs: Spec[];
+  /** This session's launches, as turri told of them: said under the bar, and what the sentinel can check in. */
+  launches: Launch[];
   /** try it, from the home: what it asks turri, as a button's action. */
   onTry: (action: Action) => void;
-  /** Something chosen on the home for the sentinel to check, in a module's release - none on a turri whose sentinel cannot be asked. */
+  /** Something chosen on the home for the sentinel to check, in what is launched of a module - none on a turri whose sentinel cannot be asked. */
   onSentinel?: (module: string, names: string[]) => void;
   /** turri testing in the pane shown: edged in blue. */
   testing: boolean;
@@ -215,7 +220,8 @@ export function PreviewView({
     return (
       <div className="preview">
         <div className="preview-bar">{switcher}</div>
-        <PreviewHome specs={specs} sentinel={onSentinel !== undefined} onAsk={onTry} onSentinel={(module, names) => onSentinel?.(module, names)} />
+        <LaunchLine launches={launches} />
+        <PreviewHome specs={specs} launches={launches} sentinel={onSentinel !== undefined} onAsk={onTry} onSentinel={(module, names) => onSentinel?.(module, names)} />
       </div>
     );
 
@@ -232,6 +238,7 @@ export function PreviewView({
             <Icon name="reload" />
           </button>
         </div>
+        <LaunchLine launches={launches} />
         {diff}
         <TerminalPane onState={setShell} />
       </div>
@@ -279,6 +286,7 @@ export function PreviewView({
         {badge}
         {state.loading && <span className="preview-loading" />}
       </div>
+      <LaunchLine launches={launches} />
       {diff}
       <div className="preview-page" ref={page}>
         {!state.url ? (
@@ -294,7 +302,7 @@ export function PreviewView({
           </Empty>
         ) : state.error !== null ? (
           <Empty icon="warn" title="nothing answers there">
-            {state.error}. Start the app - or ask turri to release it - then reload.
+            {state.error}. Start the app - or ask turri to launch it - then reload.
             <span className="preview-retry">
               <button className="button" onClick={() => void window.turri.preview.go("reload")}>
                 <Icon name="reload" /> reload

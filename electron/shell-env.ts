@@ -9,7 +9,7 @@ import { userInfo } from "node:os";
  * person's terminal has.
  *
  * Started from a terminal - TERM is set - the app has a shell's environment already, and keeps it as it is: what was
- * set for this one run (TURRI_DEV=...) or activated in that terminal (a virtualenv) stays.
+ * set for this one run (TURRI_DEV=...) or turned on in that terminal (a virtualenv) stays.
  */
 
 /** Marks around what `env` prints: whatever the shell's startup files print themselves is left outside them. */

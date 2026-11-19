@@ -1,7 +1,8 @@
 import { useState } from "react";
-import type { Spec } from "./types.ts";
+import type { Launch, Spec } from "./types.ts";
 import { Empty, Icon, PlainMark } from "./ui.tsx";
 import type { Action } from "./actions.ts";
+import { checkable } from "./launches.tsx";
 
 /** A functional spec as turri names it outside its module. */
 const nameOf = (module: string, funcId: string) => `${module}:${funcId}`;
@@ -9,7 +10,7 @@ const nameOf = (module: string, funcId: string) => `${module}:${funcId}`;
 /** `a`, `a and b`, `a, b and c`. */
 const listOf = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
 
-/** A module and every module it is built on, as turri's requires have them: what its release holds. */
+/** A module and every module it is built on, as turri's requires have them: what its codebase holds. */
 function builtOn(specs: Spec[], module: string, seen = new Set<string>()): Set<string> {
   if (seen.has(module)) return seen;
   seen.add(module);
@@ -17,8 +18,8 @@ function builtOn(specs: Spec[], module: string, seen = new Set<string>()): Set<s
   return seen;
 }
 
-/** The newest built module whose release holds `module`: the last built, in build order, built on it. */
-function releaseOf(specs: Spec[], module: string): Spec | undefined {
+/** The newest built module whose codebase holds `module`: the last built, in build order, built on it - what is launched to try it. */
+function codebaseOf(specs: Spec[], module: string): Spec | undefined {
   return specs.filter((spec) => spec.ok && spec.functionalSpecs.some((entry) => entry.built) && builtOn(specs, spec.module).has(module)).at(-1);
 }
 
@@ -27,11 +28,13 @@ const upTo = (spec: Spec) => spec.functionalSpecs.filter((entry) => entry.built)
 
 /**
  * The preview's home: what there is to try, as the ***plain has it - each module's functional specs in the order they
- * are built, the built ones to choose - and two ways to try what is chosen, each in one release: the newest built
- * module's that holds it, released first when what runs is behind. turri tries it in the chat, as the person watches;
- * the sentinel checks it in the background, on a turri whose sentinel can be asked.
+ * are built, the built ones to choose - and two ways to try what is chosen, each in one codebase: the newest built
+ * module's that holds it. try it asks turri in the chat to launch it - out already when what runs is its last commit -
+ * and say how to try it, as the person watches. use sentinel has the sentinel check it in the background, on a turri
+ * whose sentinel can be asked - in what is launched: the sentinel launches nothing, so it is offered only once something
+ * of the codebase runs, or is being launched (`launches`, as turri told of them), and says why not when nothing does.
  */
-export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spec[]; sentinel: boolean; onAsk: (action: Action) => void; onSentinel: (module: string, names: string[]) => void }) {
+export function PreviewHome({ specs, launches, sentinel, onAsk, onSentinel }: { specs: Spec[]; launches: Launch[]; sentinel: boolean; onAsk: (action: Action) => void; onSentinel: (module: string, names: string[]) => void }) {
   const modules = specs.filter((spec) => spec.ok && spec.functionalSpecs.length > 0);
   const [chosen, setChosen] = useState<Array<{ module: string; funcId: string }>>([]);
   // What is chosen and still there to try - not gone from the ***plain since, nor regenerated away.
@@ -46,35 +49,37 @@ export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spe
       </div>
     );
 
-  // Each release what is chosen is tried in, with what of it: one, unless the project has chains that build on nothing of each other.
-  const releases = new Map<string, { release: Spec; chosen: Array<{ module: string; funcId: string }> }>();
+  // Each codebase what is chosen is tried in, with what of it: one, unless the project has chains that build on nothing of each other.
+  const codebases = new Map<string, { codebase: Spec; chosen: Array<{ module: string; funcId: string }> }>();
   for (const each of trying) {
-    const release = releaseOf(specs, each.module);
-    if (release === undefined) continue;
-    const found = releases.get(release.module) ?? { release, chosen: [] };
+    const codebase = codebaseOf(specs, each.module);
+    if (codebase === undefined) continue;
+    const found = codebases.get(codebase.module) ?? { codebase, chosen: [] };
     found.chosen.push(each);
-    releases.set(release.module, found);
+    codebases.set(codebase.module, found);
   }
-  // Said of the release: what is chosen is tried in - or, with nothing chosen, the newest of all.
-  const said = releases.size > 0 ? [...releases.values()].map((each) => each.release) : [modules.filter((spec) => spec.functionalSpecs.some((entry) => entry.built)).at(-1)!];
+  // Said of the codebase: what is chosen is tried in - or, with nothing chosen, the newest of all.
+  const said = codebases.size > 0 ? [...codebases.values()].map((each) => each.codebase) : [modules.filter((spec) => spec.functionalSpecs.some((entry) => entry.built)).at(-1)!];
+  // Whether the sentinel can check each: something of it runs, or is being launched - else why not.
+  const unready = [...codebases.keys()].map((codebase) => checkable(launches, codebase)).find((each) => !each.ok);
 
   const isChosen = (module: string, funcId: string) => trying.some((each) => each.module === module && each.funcId === funcId);
   const toggle = (module: string, funcId: string) =>
     setChosen((now) => (isChosen(module, funcId) ? now.filter((each) => each.module !== module || each.funcId !== funcId) : [...now, { module, funcId }]));
   const tryIt = () => {
-    // Theirs to try: turri opens the release - released first only if what runs is behind - and says how, testing none of it.
-    const tried = [...releases.values()].map(({ release, chosen }) => ({ release: release.module, names: listOf(chosen.map((one) => nameOf(one.module, one.funcId))) }));
-    const each = tried.map(({ release, names }) => `the release of ${release} for me to try ${names}`);
+    // Theirs to try: turri launches it - out already when what runs is its last commit - and once it is up says how, testing none of it.
+    const tried = [...codebases.values()].map(({ codebase, chosen }) => ({ codebase: codebase.module, names: listOf(chosen.map((one) => nameOf(one.module, one.funcId))) }));
+    const each = tried.map(({ codebase, names }) => `${codebase} for me to try ${names}`);
     onAsk({
       kind: "try",
-      title: listOf(tried.map(({ release, names }) => `${names} in the release of ${release}`)),
-      prompt: `Open ${listOf(each)} - its last commit, released first only if what runs is not - then tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.`,
+      title: listOf(tried.map(({ codebase, names }) => `${names}, launched from ${codebase}`)),
+      prompt: `Launch ${listOf(each)} - its last commit, out already if that is what runs - and once it is up, open it and tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.`,
     });
     setChosen([]);
   };
   const check = () => {
-    // One check for each release: what is chosen of it, by its module:func-id - of that module or one it is built on.
-    for (const { release, chosen } of releases.values()) onSentinel(release.module, chosen.map((one) => nameOf(one.module, one.funcId)));
+    // One check for each codebase: what is chosen of it, by its module:func-id - of that module or one it is built on.
+    for (const { codebase, chosen } of codebases.values()) onSentinel(codebase.module, chosen.map((one) => nameOf(one.module, one.funcId)));
     setChosen([]);
   };
 
@@ -101,18 +106,20 @@ export function PreviewHome({ specs, sentinel, onAsk, onSentinel }: { specs: Spe
         ))}
       </div>
       <div className="preview-home-foot">
-        <span className="preview-home-release">
-          latest release:{" "}
-          {said.map((release, index) => (
-            <span key={release.module}>
+        <span className="preview-home-launch">
+          tried in:{" "}
+          {said.map((codebase, index) => (
+            <span key={codebase.module}>
               {index > 0 && ", "}
-              <code>{nameOf(release.module, upTo(release))}</code>
+              <code>{nameOf(codebase.module, upTo(codebase))}</code>
             </span>
           ))}{" "}
           <span className="muted">- the codebase as built up to it</span>
         </span>
+        {/* The sentinel tests what is launched, and launches nothing: with nothing of it running, said why - try it first. */}
+        {sentinel && unready !== undefined && !unready.ok && <span className="preview-home-why muted">{unready.why}</span>}
         {sentinel && (
-          <button className="button sentinel" disabled={trying.length === 0} onClick={check}>
+          <button className="button sentinel" disabled={trying.length === 0 || unready !== undefined} onClick={check} title={unready !== undefined && !unready.ok ? unready.why : "the sentinel checks it in what is launched, in the background"}>
             use sentinel
           </button>
         )}

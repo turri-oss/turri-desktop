@@ -568,8 +568,9 @@ function createWorkspace(): Workspace {
     send(`engine:${event}`, data);
     // A sign-in's page, opened in the person's browser - the window shows the address too, for when it does not open.
     if (event === "auth:event" && data.event.type === "auth_url" && /^https?:\/\//.test(data.event.url)) void shell.openExternal(data.event.url);
-    // New code under the preview: it is loaded again.
-    if (event === "finished" && data.status === "succeeded") preview.reloadSoon();
+    // New code under the preview - a launch came up with it, after a pulse or asked for: it is loaded again. One that found
+    // its code out already changed nothing.
+    if (event === "launch" && data.status === "launched" && data.already !== true) preview.reloadSoon();
     // turri's session ended - ctrl+c in a chat doing nothing, as it leaves turri in a terminal: its window closes.
     if (event === "ended" && !window.isDestroyed()) window.close();
     // How many chats there are, for ⌘W to close one or the window: the sentinel's shown closes, as one of two would.
@@ -1023,7 +1024,7 @@ const ACTION_KINDS = new Set(["try", "convert", "scenarios", "start", "investiga
 
 /** What the window asks of its engine, checked where a method takes more than the engine can check itself. */
 function engineParams(method: string, params: unknown): unknown {
-  // A sentinel check: the module whose release is checked, by name, and functional specs, each by its module:func-id.
+  // A sentinel check: the module whose launch is checked, by name, and functional specs, each by its module:func-id.
   if (method === "sentinelCheck") {
     const { module, funcIds } = (params ?? {}) as { module?: unknown; funcIds?: unknown };
     if (typeof module !== "string" || module === "") throw new Error("Which module does the sentinel check?");

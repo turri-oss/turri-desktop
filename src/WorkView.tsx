@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import type { Failure, Job, PastPulse, PastRun, Renamed, Spec, Status } from "./types.ts";
+import type { Failure, Job, Launch, PastPulse, PastRun, Renamed, Spec, Status } from "./types.ts";
 import { cost, elapsed, Empty, Fold, type Folded, Icon, PlainName, Spinner, StartedFrom, tokens, useTick, withPlain } from "./ui.tsx";
 import { type PlainTests, PulseSpec, type ReadPlain, type ShowInSpec, turriSays } from "./PulseSpec.tsx";
 import { type ChatItem, type Conclusion, Prose, Transcript } from "./Chat.tsx";
 import type { NoticeShown } from "./chats.ts";
+import { inOrder, PulseLaunch } from "./launches.tsx";
 
 /** Earlier sessions' runs shown at first: the last few, and more on asking. */
 const RUNS_SHOWN = 3;
@@ -41,21 +42,24 @@ export function short(text: string): string {
 
 /**
  * What the sentinel did of a pulse: its part of the sentinel's conversation - from turri's brief of the pulse to the
- * next one's - and where it is with it: checking it now, done - all well, or something wrong - or left off unconcluded,
- * a newer pulse of its module taking its place.
+ * next one's - and where it is with it: checking it now, paused while its codebase is launched again, done - all well,
+ * or something wrong - not checked, turri's word (what runs could not hold the pulse's commit), or left off with no
+ * conclusion: the sentinel closed under it.
  */
 export interface SentinelWork {
   items: ChatItem[];
-  state: "checking" | "holds" | "wrong" | "unconcluded";
+  state: "checking" | "waiting" | "holds" | "wrong" | "unchecked" | "unconcluded";
   /** What it concluded: what it checked and what it found. */
   summary?: string;
 }
 
 /**
  * Each pulse the sentinel worked on, by its id: its conversation cut where turri briefs it of each pulse - what it is
- * writing now, while it works, the last pulse's - with what it concluded of each, as the person's chats were told.
+ * writing now, while it works, the last pulse's - with what it concluded of each, as the person's chats were told. Its
+ * being told to carry on after a launch is no new pulse: it stays in the one it is on. The last, not concluded and the
+ * sentinel not at work, is waiting while its codebase is launched again (`launchingFor`).
  */
-export function sentinelByPulse(items: ChatItem[], streaming: ChatItem | null, busy: boolean, concluded: ReadonlyMap<string, Conclusion>): Map<string, SentinelWork> {
+export function sentinelByPulse(items: ChatItem[], streaming: ChatItem | null, busy: boolean, concluded: ReadonlyMap<string, Conclusion>, launchingFor: (job: string) => boolean = () => false): Map<string, SentinelWork> {
   const parts = new Map<string, ChatItem[]>();
   let now: string | null = null;
   for (const item of items) {
@@ -66,11 +70,10 @@ export function sentinelByPulse(items: ChatItem[], streaming: ChatItem | null, b
   }
   if (now !== null && streaming !== null) parts.get(now)!.push(streaming);
   const work = new Map<string, SentinelWork>();
-  // Unchecked is a check's alone, never a pulse's: read as left off.
-  const stateOf = (conclusion: Conclusion) => (conclusion.verdict === "unchecked" ? "unconcluded" : conclusion.verdict);
+  const stateOf = (conclusion: Conclusion): SentinelWork["state"] => conclusion.verdict;
   for (const [job, part] of parts) {
     const conclusion = concluded.get(job);
-    const state = conclusion !== undefined ? stateOf(conclusion) : busy && job === now ? "checking" : "unconcluded";
+    const state = conclusion !== undefined ? stateOf(conclusion) : job === now && busy ? "checking" : job === now && launchingFor(job) ? "waiting" : "unconcluded";
     work.set(job, { items: part, state, ...(conclusion !== undefined ? { summary: conclusion.summary } : {}) });
   }
   // Concluded with nothing of its conversation here - its chat read before turri marked its briefs: the conclusion alone.
@@ -81,9 +84,11 @@ export function sentinelByPulse(items: ChatItem[], streaming: ChatItem | null, b
 /** Where the sentinel is with a pulse, in a word or two. */
 const SENTINEL_SAYS: Record<SentinelWork["state"], string> = {
   checking: "checking it",
+  waiting: "paused while it is launched again - it carries on once it is up",
   holds: "checked, it holds",
   wrong: "found something wrong",
-  unconcluded: "left off - a newer pulse took its place",
+  unchecked: "not checked",
+  unconcluded: "left off, with nothing concluded",
 };
 
 /** A failed pulse, as a chat is asked to investigate it: what turri looks it up by, and what it said of why it failed. */
@@ -128,6 +133,7 @@ export function WorkView({
   notices,
   onShowNotice,
   onRegenerate,
+  launches,
 }: {
   status: Status;
   jobs: Job[];
@@ -159,10 +165,14 @@ export function WorkView({
   /** turri's notices - open, or ended this session - each of the pulse it names: listed on its card, shown in the notifications. */
   notices: NoticeShown[];
   onShowNotice: (id: string) => void;
+  /** This session's launches, as turri told of them: a pulse's - launched after it landed - said on its card. */
+  launches: Launch[];
   /** Regenerate a module looked ahead at - `/regenerate <file>`, which runs the plan kept. */
   onRegenerate?: (plainFile: string) => void;
 }) {
   const toggle = onToggle;
+  // A pulse's launch after it landed: the last asked for with its commit - one, but for a launch asked again.
+  const launchOf = (id: string) => inOrder(launches.filter((launch) => "pulse" in launch.cause && launch.cause.pulse === id)).at(-1);
   const partOf = (id: string) => (name: string) => ({ open: opened.has(`${id}/${name}`), onToggle: () => toggle(`${id}/${name}`) });
   const [runsShown, setRunsShown] = useState(RUNS_SHOWN);
   useEffect(() => {
@@ -244,7 +254,7 @@ export function WorkView({
           </div>
         )}
         {jobs.map((job) => (
-          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} notices={notices.filter((shown) => shown.notice.job === job.id)} onShowNotice={onShowNotice} />
+          <JobCard key={job.id} job={job} open={opened.has(job.id)} marked={job.id === focus?.id} onToggle={() => toggle(job.id)} part={partOf(job.id)} debug={debug} specs={specs} tests={tests} onShowInSpec={onShowInSpec} readPlain={readPlain} onInvestigate={onInvestigate} sentinel={sentinel.get(job.id)} sentinelRunning={sentinelRunning} notices={notices.filter((shown) => shown.notice.job === job.id)} onShowNotice={onShowNotice} launch={launchOf(job.id)} launches={launches} />
         ))}
 
         {earlier.length > 0 && <div className="sidebar-section inline">earlier sessions</div>}
@@ -339,6 +349,8 @@ function JobCard({
   sentinelRunning,
   notices,
   onShowNotice,
+  launch,
+  launches,
 }: Shown & {
   job: Job;
   debug: boolean;
@@ -351,6 +363,9 @@ function JobCard({
   sentinelRunning: Map<string, boolean>;
   notices: NoticeShown[];
   onShowNotice: (id: string) => void;
+  /** Its launch, once it landed under launch-after-pulse - and every launch, for the one that superseded it. */
+  launch?: Launch;
+  launches: Launch[];
 }) {
   // Open, what a pulse that ended reports, and what it found the ***plain does not say - closed, its head says how it
   // went without them. A failed one's report is not read here: investigate hands it to a chat.
@@ -391,7 +406,7 @@ function JobCard({
         {/* The sentinel on it, by its eye: in its indigo once all is well, red once it found something wrong. */}
         {sentinel !== undefined && (
           <span className={`job-sentinel-mark ${sentinel.state}`} title={`sentinel: ${SENTINEL_SAYS[sentinel.state]}`} aria-label={`sentinel: ${SENTINEL_SAYS[sentinel.state]}`}>
-            {sentinel.state === "checking" ? <Spinner /> : <Icon name="eye" size={14} />}
+            {sentinel.state === "checking" ? <Spinner /> : sentinel.state === "waiting" ? <Icon name="clock" size={14} /> : <Icon name="eye" size={14} />}
           </span>
         )}
       </CardHead>
@@ -402,6 +417,8 @@ function JobCard({
           <InvestigateButton failed={{ id: job.id, module: job.module, pulse: job.pulse, kind: job.kind, why: report }} onInvestigate={onInvestigate} />
         </div>
       )}
+      {/* Its launch, open or closed: why a pulse that landed runs, or does not - a newer one's launch holding its code. */}
+      {launch !== undefined && <PulseLaunch launch={launch} launches={launches} />}
       {open && (
         <div className="job-body">
           {/* Failed with no diagnosis - stopped before it started, its base folder not there, say: turri's reason, whole. */}
@@ -499,7 +516,7 @@ function Trace({ job, folded }: { job: Job; folded: Folded }) {
       )}
       {job.agents.length > 0 && (
         <div className="agents">
-          {/* An agent turri started without a label - its release agent - is named for what it is. */}
+          {/* An agent turri started without a label is named for what it is. */}
           {job.agents.map((agent, index) => (
             <span key={agent.label ?? index} className="agent-chip" title={agent.model}>
               {withPlain(turriSays(agent.label ?? "agent"))} · {agent.turns} turn{agent.turns === 1 ? "" : "s"}

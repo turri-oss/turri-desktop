@@ -46,7 +46,7 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   // turri is told it is in the app: the window's views in place of the terminal's, and what the person has open now.
   const told = { surface: APP_SURFACE, systemPrompt: (prompt) => withWhere(prompt, whereNow()) };
   // The preview's tools, made once: every chat has them, and the sentinel - which turri refuses any tool not its own or
-  // given it - is given the same, to test a release with. pi keeps the first registered under a name, so in its chat
+  // given it - is given the same, to test what is launched with. pi keeps the first registered under a name, so in its chat
   // the two are one.
   const browsing = browserTools(browser);
   // A command line turri types at the terminal's prompt is checked as one it runs: it installs nothing.
@@ -95,6 +95,8 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     ...told,
     onJobChange: host.onJobChange,
     onPlanChange: host.onPlanChange,
+    // Each launch as it is asked for, starts and ends - after a pulse, or the chat's: the window shows what runs.
+    onLaunch: host.onLaunch,
     // A chat's questions, put in the window - a choice of options, or words to type - with the chat they are of. Each is
     // turri's to decline (ctrl+c), and over when its signal says so - declined, or its turn stopped.
     dialogs: (id) => ({
@@ -180,7 +182,7 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
     // Conformance tests turned on, as /conform does before it tests - where the module's value comes from, the chats'
     // conform no longer refused - on a turri that can (its turnOnConformanceTests).
     turnOnConformanceTests: typeof session.turnOnConformanceTests === "function" ? (plainFile) => session.turnOnConformanceTests(plainFile) : undefined,
-    // The sentinel asked to check functional specs in a module's release - on a turri that can (its check).
+    // The sentinel asked to check functional specs in what is launched of a module - on a turri that can (its check).
     check: typeof session.check === "function" ? (request) => session.check(request) : undefined,
     spending,
     dispose: () => session.dispose(),
@@ -578,7 +580,7 @@ function skillProgress(factory, theme, emit) {
 }
 
 /**
- * The progress line read back: `release   ✓ check ━━━━ ⠋ build ──── ○ publish   phase 2 of 3`, and
+ * The progress line read back: `cultivate   ✓ check ━━━━ ⠋ build ──── ○ publish   phase 2 of 3`, and
  * under it `build - what this phase does`. A skill of one phase is its spinner and name.
  */
 function readProgress([line = "", under = ""]) {

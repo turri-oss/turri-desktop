@@ -110,7 +110,9 @@ export type ChatItem =
   | { role: "noticeOver"; state: NoticeState; summary: string }
   | { role: "concluded"; conclusion: Conclusion }
   /** Where the sentinel's work on a pulse starts, in its chat: turri's brief of it, which the person does not read. */
-  | { role: "sentinelPulse"; job: string | null }
+  | { role: "sentinelPulse"; job: string | null; check?: string; module?: string }
+  /** The sentinel's check paused while its codebase was launched again, and told to carry on - in the same conversation: no new pulse. */
+  | { role: "sentinelResume" }
   /** Background runs that did not do their work, which start the turn that says so: each its skill, and what it was to write. */
   | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> }
   /** What a button asked turri in the person's place: its kind and what it asked - the prompt turri heard, hidden. */
@@ -150,7 +152,11 @@ export type NoticeState = "open" | "accepted" | "steered" | "dismissed" | "ignor
  */
 export type NoticeAnswer = { action: number } | { steer: string } | { dismiss: true } | { ignore: true };
 
-/** The sentinel done with a pulse (`job`) or a check asked of it (`check`) - unchecked: a check that never ran, turri's word. */
+/**
+ * The sentinel done with a pulse (`job`) or a check asked of it (`check`). Unchecked is turri's word, never the
+ * sentinel's: a check that never ran - nothing of its module launched, the sentinel not started or closed - or a pulse
+ * turri would not brief it of, what runs not holding the pulse's commit; the summary says why.
+ */
 export type Conclusion = { job?: string; check?: string; verdict: "holds" | "wrong" | "unchecked"; summary: string; module?: string; pulse?: number };
 
 /** A skill running in the chat, where it is in its phases: what turri's terminal draws above its input. */
@@ -739,6 +745,13 @@ function Message({
   // ***plain, its card in regen: the chat stays a conversation.
   // Where a turn of the chat's own comes from when nobody typed - a background run that did not do its work: the chat
   // says what went wrong.
+  // The sentinel told to carry on with a pulse, its codebase launched again meanwhile: a mark where it picked up again.
+  if (item.role === "sentinelResume")
+    return (
+      <div className="msg sentinel-resume">
+        <Icon name="clock" size={13} /> paused while it was launched again - carrying on
+      </div>
+    );
   if (item.role === "skillRun")
     return (
       <div className="msg skill-run">
@@ -1471,7 +1484,7 @@ function ChatTabs({ chats, chatId, asking, onShowChat, onCloseChat, onNewChat }:
 }
 
 /** turri's other agents, by their role, as the meter names them: a skill's has none. */
-const OTHER_NAMES: Record<string, string> = { planner: "planner", chat: "/btw", diagnosis: "diagnosis", release: "release", "test-reviewer": "test review", reviewer: "review" };
+const OTHER_NAMES: Record<string, string> = { planner: "planner", chat: "/btw", diagnosis: "diagnosis", launch: "launch", "test-reviewer": "test review", reviewer: "review" };
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 
 /** What the project has spent since it opened, by part - and, of turri's other agents, which, the most first. */

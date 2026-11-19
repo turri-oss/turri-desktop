@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./types.ts";
-import type { Concept, Job, Pane, PastRun, Project, Renamed, Spec, Status, StdlibModule, View } from "./types.ts";
+import type { Concept, Job, Launch, Pane, PastRun, Project, Renamed, Spec, Status, StdlibModule, View } from "./types.ts";
 import { Welcome } from "./Welcome.tsx";
 import { buildingIn, SpecView } from "./SpecView.tsx";
 import { newestJobs, newestRuns, sentinelByPulse, WorkView } from "./WorkView.tsx";
@@ -30,6 +30,7 @@ import { StatusPanel, type Notification, type Problem } from "./StatusPanel.tsx"
 import { type Tone, useChats } from "./chats.ts";
 import { keys, withMod } from "./platform.ts";
 import type { Action } from "./actions.ts";
+import { launching, pulseLaunchPending } from "./launches.tsx";
 
 /** The views, as the toolbar has them, left to right: ctrl+tab goes along them. regen is the dive's. */
 const VIEWS: View[] = ["spec", "preview"];
@@ -114,6 +115,11 @@ export function App() {
   const [template, setTemplate] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>(EMPTY_STATUS);
   const [jobs, setJobs] = useState<Map<string, Job>>(new Map());
+  // What turri launched this session, by id, as it told of each - asked for, started, ended: what runs, in the preview.
+  const [launches, setLaunches] = useState<Map<string, Launch>>(new Map());
+  const launchList = useMemo(() => [...launches.values()], [launches]);
+  // The checks asked of the sentinel that it concluded, by id: one paused for a launch is not, until then.
+  const [checksDone, setChecksDone] = useState<ReadonlySet<string>>(new Set());
   /** Earlier sessions' pulses, from the ledger: read when the project opens and again as each pulse ends. */
   const [earlier, setEarlier] = useState<PastRun[]>([]);
   // What the window was told or found, this project's, for the status panel: kept until dismissed.
@@ -241,8 +247,15 @@ export function App() {
     (conclusion: Conclusion) => {
       const pulse = conclusion.module || (conclusion.job !== undefined ? "the pulse" : "the check");
       const job = conclusion.job;
+      const check = conclusion.check;
+      if (check !== undefined) setChecksDone((done) => new Set(done).add(check));
+      // Not checked - turri's word, never the sentinel's: a check with nothing of its module launched, or a pulse what runs
+      // cannot hold - the sentinel did nothing of it, so its pulse is shown, not what it did.
+      if (conclusion.verdict === "unchecked") {
+        const why = conclusion.summary.replace(/^not (checked|tested):\s*/i, "");
+        return say(`sentinel · ${pulse} · not checked - ${why}`, job !== undefined ? "warning" : "info", job !== undefined ? { label: "show the pulse", run: () => openPulse.current(job) } : undefined, "sentinel");
+      }
       const action = job !== undefined ? { label: "see what it did", run: () => showSentinel.current(job) } : undefined;
-      if (conclusion.verdict === "unchecked") return say(`sentinel · ${pulse} · not checked - ${conclusion.summary}`, "info", action, "sentinel");
       const holds = conclusion.verdict === "holds";
       say(holds ? `sentinel · ${pulse} · it holds` : `sentinel · ${pulse} · found something wrong - ${conclusion.summary}`, holds ? "info" : "warning", action, "sentinel");
     },
@@ -321,12 +334,18 @@ export function App() {
     setGuide(false);
     setRenamed([]);
     setNotifications([]);
-    // turri's banner, which the window does not draw: config keys it does not read - a setting gone, like test-advisor,
-    // or one misspelt - said as it started, with the way to have the chat take them out.
-    for (const line of summary.configWarnings ?? []) {
-      say(`turri warns · ${line}`, "warning", {
+    // turri's banner, which the window does not draw: what it says of the project's config files as it started, by its
+    // kind. A key it renamed there itself - release-after-pulse, launch-after-pulse now - is only said; a key it does not
+    // read (a setting gone, like test-advisor, or one misspelt), or an old name beside its new one, is a warning, with the
+    // way to have the chat take it out.
+    for (const { kind, text } of summary.configLines ?? []) {
+      if (kind === "renamed") {
+        say(`turri says · ${text}`, "info");
+        continue;
+      }
+      say(`turri warns · ${text}`, "warning", {
         label: "take it out",
-        run: () => void act({ kind: "config", title: "keys turri does not read", detail: line, prompt: `Take out of the project's config what turri does not read, as it says: ${line}` }),
+        run: () => void act({ kind: "config", title: "keys turri does not read", detail: text, prompt: `Take out of the project's config what turri says to, as it says: ${text}` }),
       });
     }
     setPutAway(new Set());
@@ -337,6 +356,9 @@ export function App() {
     setTemplate(null);
     setStatus(EMPTY_STATUS);
     setJobs(new Map());
+    setLaunches(new Map());
+    setChecksDone(new Set());
+    void window.turri.call<Launch[]>("launches").then((all) => setLaunches(new Map(all.map((launch) => [launch.id, launch]))), () => {});
     knownFailed.current = new Set();
     setOpenPulses(new Set());
     setFocusPulse(undefined);
@@ -374,6 +396,8 @@ export function App() {
   useEffect(() => {
     const off = [
       window.turri.on("engine:job", (job: Job) => setJobs((all) => new Map(all).set(job.id, job))),
+      // A launch asked for, started or ended: the preview's bar and the pulse's card say it.
+      window.turri.on("engine:launch", (launch: Launch) => setLaunches((all) => new Map(all).set(launch.id, launch))),
       window.turri.on("engine:spending", (next: Spending) => setSpending(next)),
       window.turri.on("engine:status", (next: Status) => {
         setStatus(next);
@@ -391,6 +415,8 @@ export function App() {
       window.turri.on("engine:renamed", (rename: Renamed) => setRenamed((now) => [...now, rename])),
       window.turri.on("engine:exit", () => {
         setStopped("stopped");
+        // What its launches started went with it: nothing of them runs.
+        setLaunches(new Map());
         // Its pulses went with it: none is running or waiting any more, whatever they last said.
         setJobs((all) => {
           const now = Date.now();
@@ -811,22 +837,42 @@ export function App() {
   const allJobs = useMemo(() => newestJobs(jobs.values()), [jobs]);
   // What the sentinel did of each pulse, for regen: its conversation, cut by pulse, and what it concluded of each.
   const sentinelChat = chats.sentinel;
-  const sentinelWork = useMemo(
-    () => sentinelByPulse(sentinelChat?.items ?? [], sentinelChat?.streaming ?? null, sentinelChat?.busy === true, chats.concluded),
-    [sentinelChat?.items, sentinelChat?.streaming, sentinelChat?.busy, chats.concluded],
+  // A pulse whose codebase is being launched now: the sentinel waits for it to settle before it checks it, or carries on.
+  const launchingFor = useCallback(
+    (job: string) => {
+      const module = jobs.get(job)?.module;
+      return module !== undefined && launching(launchList, module);
+    },
+    [jobs, launchList],
   );
-  // What the sentinel is doing now, while it works: the pulse its last brief is of - or a check asked of it - for its tab
-  // to say, as clearing its notifications takes nothing of its work away.
-  const sentinelNow = useMemo(() => {
-    if (sentinelChat?.busy !== true) return null;
+  const sentinelWork = useMemo(
+    () => sentinelByPulse(sentinelChat?.items ?? [], sentinelChat?.streaming ?? null, sentinelChat?.busy === true, chats.concluded, launchingFor),
+    [sentinelChat?.items, sentinelChat?.streaming, sentinelChat?.busy, chats.concluded, launchingFor],
+  );
+  // What the sentinel is doing now: the pulse its last brief is of - or a check asked of it - for its tab to say, as
+  // clearing its notifications takes nothing of its work away. It checks every pulse, each once its codebase's launches
+  // are settled: while one runs it waits - paused on the pulse it was on, or before the next it has not been told of -
+  // which is said as waiting, not as work that does not move.
+  const sentinelNow = useMemo((): { job: string | null; title: string; waiting?: "paused" | "launch" } | null => {
+    if (sentinelChat === undefined || sentinelChat === null) return null;
+    const titleOf = (job: string | null) => {
+      const pulse = job !== null ? jobs.get(job) : undefined;
+      return pulse !== undefined ? [pulse.module, pulse.pulse !== undefined ? `pulse ${pulse.pulse}` : null, pulse.title].filter(Boolean).join(" · ") : job !== null ? "a pulse" : "what you asked it to check";
+    };
     const brief = [...sentinelChat.items].reverse().find((item) => item.role === "sentinelPulse");
     const job = brief?.role === "sentinelPulse" ? brief.job : null;
-    const pulse = job !== null ? jobs.get(job) : undefined;
-    const title = pulse !== undefined ? [pulse.module, pulse.pulse !== undefined ? `pulse ${pulse.pulse}` : null, pulse.title].filter(Boolean).join(" · ") : job !== null ? "a pulse" : "what you asked it to check";
-    return { job, title };
-  }, [sentinelChat?.busy, sentinelChat?.items, jobs]);
+    if (sentinelChat.busy) return { job, title: titleOf(job) };
+    if (job !== null && sentinelWork.get(job)?.state === "waiting") return { job, title: titleOf(job), waiting: "paused" };
+    // A check asked of it, not concluded, its module being launched again: paused on it.
+    if (brief?.role === "sentinelPulse" && brief.job === null && brief.check !== undefined && !checksDone.has(brief.check) && brief.module !== undefined && launching(launchList, brief.module))
+      return { job: null, title: titleOf(null), waiting: "paused" };
+    // A pulse that landed and that it has not been told of yet, its own launch still to come up: the oldest. One whose
+    // launch has ended, or that had none - landed while the sentinel was off, say - waits for nothing.
+    const next = [...allJobs].reverse().find((pulse) => pulse.status === "succeeded" && !sentinelWork.has(pulse.id) && !chats.concluded.has(pulse.id) && pulseLaunchPending(launchList, pulse.id));
+    return next !== undefined ? { job: next.id, title: titleOf(next.id), waiting: "launch" } : null;
+  }, [sentinelChat?.busy, sentinelChat?.items, sentinelWork, jobs, allJobs, chats.concluded, checksDone, launchList]);
   // Who is testing in the preview, and what pulse of the ***plain: the sentinel on the pulse it checks, a chat of the
-  // person's on the newest that landed - its release is what runs.
+  // person's on the newest that landed - its launch is what runs.
   const tested = useMemo(() => {
     if (!testing || chats.tester === null) return null;
     const sentinel = chats.tester.sentinel;
@@ -1112,7 +1158,7 @@ export function App() {
             {/* In the dive, no view: each comes back as it does from another view. */}
             {dive ? null : view === "preview" ? (
               // A sheet over the window would be under the pane: while one is open, the pane steps aside.
-              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || conformingAgain || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} tested={tested} />
+              <PreviewView key={project.dir} dir={project.dir} covered={plan !== null || doctorOpen || signIn !== null || creating || choosing || conformingAgain || switching !== null || switcher || settingsOpen || projectSettingsOpen || about !== null || guide} pane={pane} onPane={openPane} specs={project.specs} launches={launchList} onTry={(action) => ((following.current = true), void act(action))} onSentinel={project.offers.check === true ? (module, funcIds) => void checkBySentinel(module, funcIds) : undefined} testing={testing && (testingIn === null || testingIn === pane)} testingIn={testing ? testingIn : null} tested={tested} />
             ) : view === "stdlib" ? (
               <StdlibView
                 key={project.dir}
@@ -1377,6 +1423,7 @@ export function App() {
               setChatOpen(true);
               window.turri.call("investigate", failed).catch((error) => say(engineSaid(error), "error"));
             }}
+            launches={launchList}
             onRegenerate={(file) => {
               setChatOpen(true);
               window.turri.call("regenerate", { file }).catch((error) => say(engineSaid(error), "error"));

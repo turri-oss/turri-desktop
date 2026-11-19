@@ -25,8 +25,8 @@ test.describe("the preview", () => {
     const row = window.getByRole("checkbox", { name: "print-hello" });
     await expect(window.locator(".preview-home-module h3")).toHaveText("hello");
     const watch = window.getByRole("button", { name: "try it" });
-    // What is tried: the newest built module's release, said once, as far as it is built.
-    await expect(window.locator(".preview-home-release")).toHaveText("latest release: hello:print-hello - the codebase as built up to it");
+    // What it is tried in: the newest built module's codebase, said once, as far as it is built.
+    await expect(window.locator(".preview-home-launch")).toHaveText("tried in: hello:print-hello - the codebase as built up to it");
     // use sentinel on a turri whose sentinel can be asked - none on one whose cannot.
     const canAsk = summary.offers.check === true;
     await expect(window.getByRole("button", { name: "use sentinel" })).toHaveCount(canAsk ? 1 : 0);
@@ -42,9 +42,9 @@ test.describe("the preview", () => {
     // Asked in the chat - the button's own message: try it, and what, the prompt turri heard behind it - and chosen no longer.
     const asked = window.locator(".chat-body .msg.action");
     await expect(asked.locator(".action-name")).toHaveText("try it");
-    await expect(asked.locator(".action-title")).toHaveText("hello:print-hello in the release of hello");
+    await expect(asked.locator(".action-title")).toHaveText("hello:print-hello, launched from hello");
     await asked.getByRole("button", { name: "what turri was asked" }).click();
-    await expect(asked.locator(".action-prompt")).toHaveText("Open the release of hello for me to try hello:print-hello - its last commit, released first only if what runs is not - then tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.");
+    await expect(asked.locator(".action-prompt")).toHaveText("Launch hello for me to try hello:print-hello - its last commit, out already if that is what runs - and once it is up, open it and tell me in a few steps how to try it and what I should see. Don't test it yourself: I'll try it.");
     await expect(row).toHaveAttribute("aria-checked", "false");
     // turri opens the terminal for it: the preview goes there.
     await send("terminal:reveal", null);
@@ -57,6 +57,8 @@ test.describe("the preview", () => {
       await window.getByRole("tab", { name: "preview" }).click();
       await window.getByRole("tab", { name: "home" }).click();
       await window.getByRole("checkbox", { name: "print-hello" }).click();
+      // Offered once something of it runs: the sentinel launches nothing.
+      await send("engine:launch", { id: "launch-1", codebase: "hello", commit: "3f2a1bc", short: "3f2a1bc", status: "launched", cause: {}, queuedAt: Date.now(), summary: "Runs." });
       await window.getByRole("button", { name: "use sentinel" }).click();
       // An error opens the status panel on itself.
       await expect(window.locator(".notification.error")).toContainText("This turri's sentinel checks only the pulses that finish.");

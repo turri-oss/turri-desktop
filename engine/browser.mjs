@@ -73,7 +73,7 @@ const GUIDELINES = [
   "Prefer browser_read to browser_screenshot: it is text, and costs less. Take a screenshot when how the page looks matters.",
   "browser_click clicks what browser_read numbered, or the text a page shows when it has no number; a point of the screenshot (x and y) for a canvas, or what nothing else reaches.",
   "browser_press presses keys on the page as a keyboard does - a shortcut, Enter in a field, or a game's controls: hold a key for as long as it should act (hold), press keys together (together), and look with browser_screenshot between moves.",
-  "They see only a running app: if nothing answers, start it first (release it, or run it with terminal_run), then open it.",
+  "They see only a running app: if nothing answers, start it first (launch it, or run it with terminal_run), then open it.",
 ];
 
 /** Tools on the preview, each sent as `request(action, params)` and answered with what came of it. */
@@ -172,7 +172,7 @@ export function browserTools(request) {
           hold: { type: "integer", minimum: 0, maximum: 10000, description: "Milliseconds each key is held down - longer for a game's move that lasts while the key is down. 50 unless said." },
           together: { type: "boolean", description: "Press the keys at once - all down, held, then all up - as up and right together for a diagonal." },
           repeat: { type: "integer", minimum: 1, maximum: 100, description: "Press the whole sequence this many times. 1 unless said." },
-          delay: { type: "integer", minimum: 0, maximum: 5000, description: "Milliseconds between one key's release and the next. 50 unless said." },
+          delay: { type: "integer", minimum: 0, maximum: 5000, description: "Milliseconds between one key let go and the next pressed. 50 unless said." },
         },
         required: ["keys"],
         additionalProperties: false,

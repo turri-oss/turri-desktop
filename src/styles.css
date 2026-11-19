@@ -1680,7 +1680,9 @@ code {
 .job-sentinel-mark.wrong {
   color: var(--red);
 }
-.job-sentinel-mark.unconcluded {
+.job-sentinel-mark.unconcluded,
+.job-sentinel-mark.unchecked,
+.job-sentinel-mark.waiting {
   color: var(--fg-3);
 }
 .job-sentinel .part-summary {
@@ -1689,7 +1691,9 @@ code {
 .job-sentinel.wrong .part-summary {
   color: var(--red);
 }
-.job-sentinel.unconcluded .part-summary {
+.job-sentinel.unconcluded .part-summary,
+.job-sentinel.unchecked .part-summary,
+.job-sentinel.waiting .part-summary {
   color: var(--fg-3);
 }
 /* What it concluded, edged in its verdict's colour, over what it did - a long conversation scrolling in its own box. */
@@ -1840,6 +1844,35 @@ code {
 }
 .job-outcome.failed {
   color: var(--red);
+}
+/* How a pulse's launch went, under its head - launched after it landed, the newest commit winning: a line of its own,
+   muted but for one that did not come up. */
+.job-launch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 0 0 56px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.job-launch code {
+  font: 11px var(--mono);
+}
+.job-launch .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-launch.failed {
+  color: var(--amber);
+}
+.job-launch.superseded,
+.job-launch.stopped {
+  color: var(--fg-3);
 }
 .past-more {
   font-size: 12px;
@@ -2255,6 +2288,17 @@ code {
   font-size: 12px;
 }
 .msg.skill-run .icon {
+  vertical-align: -2px;
+}
+/* The sentinel carrying on with a pulse, after its codebase was launched again: a mark in its part, in its indigo. */
+.msg.sentinel-resume {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-left: 3px solid var(--sentinel);
+  color: var(--sentinel);
+  font-size: 12px;
+}
+.msg.sentinel-resume .icon {
   vertical-align: -2px;
 }
 .msg.note.warning {
@@ -3220,6 +3264,41 @@ code {
 .preview-bar .segmented {
   margin-right: 8px;
 }
+/* What turri launches, under the bar in every pane: each codebase's launch under way, or how its last one ended. */
+.preview-launches {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.preview-launch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.preview-launch code {
+  font: 11px var(--mono);
+}
+.preview-launch-said {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-launch.launched .icon {
+  color: var(--green);
+}
+.preview-launch.failed {
+  color: var(--amber);
+}
+.preview-launch.stopped {
+  color: var(--fg-3);
+}
 /* turri testing in the preview, with its browser or terminal tools: a blue edge round the pane, glowing, and a badge
    in the bar above it. The browser's page is a view laid over the window, so it is drawn inside the edge (EDGE in
    PreviewView.tsx), and the edge is drawn over the terminal. */
@@ -3412,12 +3491,16 @@ code {
   border-top: 1px solid var(--line);
   flex: none;
 }
-.preview-home-release {
+.preview-home-launch {
   margin-right: auto;
   font-size: 12px;
 }
-.preview-home-release code {
+.preview-home-launch code {
   font-family: var(--mono);
+}
+/* Why the sentinel cannot check what is chosen - nothing of it launched - beside its button. */
+.preview-home-why {
+  font-size: 12px;
 }
 /* Asking the sentinel: in its indigo, beside try it's pink. */
 .button.sentinel {

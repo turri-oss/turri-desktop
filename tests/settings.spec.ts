@@ -165,7 +165,7 @@ test.describe("a project's settings", () => {
     await expect(sheet.getByLabel("test-dir", { exact: true })).toBeVisible();
     // Every setting of the file, as /settings knows them - not only the ones the sidebar used to show.
     await expect(sheet.getByRole("switch", { name: "mutation-testing" })).toBeVisible();
-    await expect(sheet.getByRole("switch", { name: "release-after-pulse" })).toBeVisible();
+    await expect(sheet.getByRole("switch", { name: "launch-after-pulse" })).toBeVisible();
     const review = sheet.getByRole("switch", { name: "review" });
     await expect(review).toHaveAttribute("aria-checked", "false");
     // Sent as the person would type it - a slash command, no model called - and written into the file, comments kept.

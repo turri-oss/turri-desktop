@@ -37,7 +37,8 @@ export function noticeDecision(notice, answer) {
 
 /**
  * A message turri sends a chat's agent: a note the person sees - or, hidden, nothing, but for the sentinel's brief of a
- * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it - and a
+ * pulse, which marks where its work on that pulse starts: regen shows each pulse what the sentinel did of it - its being
+ * told to carry on after a launch paused it, a mark in that pulse's part - and a
  * background run that did not do its work, which starts the turn that says so: a mark of each run, its skill, the
  * testing script it was to write and the module it was for (on a turri before `runs`, its skill alone).
  */
@@ -48,7 +49,13 @@ function customItem(message) {
   }
   if (message.customType === "turri_sentinel_pulse") return { role: "sentinelPulse", job: message.details?.jobId ?? null };
   // A check the person asked of it: where its work on a pulse ends - what follows is no pulse's.
-  if (message.customType === "turri_sentinel_check") return { role: "sentinelPulse", job: null };
+  if (message.customType === "turri_sentinel_check") {
+    const details = message.details ?? {};
+    return { role: "sentinelPulse", job: null, ...(typeof details.checkId === "string" ? { check: details.checkId } : {}), ...(typeof details.module === "string" ? { module: details.module } : {}) };
+  }
+  // Its check paused while its codebase was launched again, carried on in the same conversation: no new pulse - a mark in
+  // the one it is on.
+  if (message.customType === "turri_sentinel_resume") return { role: "sentinelResume" };
   if (message.customType === "turri_skill_run") {
     const details = message.details ?? {};
     const runs = Array.isArray(details.runs) ? details.runs : Array.isArray(details.skills) ? details.skills.map((skill) => ({ skill })) : [];

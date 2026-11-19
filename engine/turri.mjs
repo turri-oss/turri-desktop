@@ -1,6 +1,6 @@
 // turri's host entry: the published package's - or, for working on turri and the app together, a clone's own sources,
 // which Node runs as they are: TURRI_DEV=<the clone>, relative to where the app is started. Nothing is built or
-// released for it: a change to turri is in the app at the next project opened, as each starts an engine of its own.
+// published for it: a change to turri is in the app at the next project opened, as each starts an engine of its own.
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";

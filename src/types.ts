@@ -80,8 +80,12 @@ export interface Project {
   /** What the turri running gives the window - several chats among it. */
   /** What the turri running gives the window: its standard library, the graph, concepts, several chats, a sentinel. */
   offers: { stdlib: boolean; links: boolean; concepts: boolean; resources: boolean; chats: boolean; sentinel?: boolean; check?: boolean; lookAhead?: boolean };
-  /** turri's words for each config file with keys it does not read - a setting it no longer has, one misspelt - as it started. */
-  configWarnings?: string[];
+  /**
+   * What turri said of the project's config files as it started, a line each by its kind: `renamed`, a key turri renamed
+   * there itself - information; `old-beside-new`, an old name beside its new one, and `unknown`, keys turri does not read
+   * (a setting it no longer has, one misspelt) - each to take out.
+   */
+  configLines?: Array<{ kind: "renamed" | "old-beside-new" | "unknown"; text: string }>;
   /** A project just started: what turri said of the config it wrote for it - its models, and how to sign in. */
   setup?: string;
   /** A project just made: the base folder chosen for it, by its path from the project's folder - written once it opens. */
@@ -130,7 +134,7 @@ export interface Job {
   activity: string[];
   now?: { label: string; since: number };
   usage: Usage;
-  /** Its agents, by label - which turri leaves out for one (its release agent). */
+  /** Its agents, by label - which turri may leave out for one. */
   agents: Array<{ label?: string; model?: string; turns: number; compactions: number; usage: Usage }>;
   report?: string;
   announce?: string;
@@ -258,3 +262,34 @@ export interface StdlibModule {
 }
 /** What the preview shows: its home - what there is to try - or what the app is tried in, a browser pane or a terminal. */
 export type Pane = "home" | "browser" | "terminal";
+
+/** How a launch stands (turri's LaunchStatus): waiting its turn, running, up, did not come up, stopped, or superseded while it waited. */
+export type LaunchStatus = "waiting" | "running" | "launched" | "failed" | "stopped" | "superseded";
+
+/**
+ * A launch, as turri tells its host of it (`onLaunch`, turri's docs/launch.md): a codebase's commit put in dist/<module>
+ * and started, one at a time, the newest commit winning - after a pulse (`cause.pulse`), or a chat's.
+ */
+export interface Launch {
+  id: string;
+  /** The module whose plain_modules/<module> holds the code. */
+  codebase: string;
+  commit: string;
+  short: string;
+  status: LaunchStatus;
+  cause: { pulse: string; title: string } | { chat?: string };
+  /** Where it runs - or why it did not come up. */
+  summary?: string;
+  /** Superseded while it waited: the launch that took its place. */
+  supersededBy?: string;
+  /**
+   * It ended with a newer launch of its codebase waiting, which stops what it started as it starts: the launch that takes
+   * its place. Its own status stays what it was - launched, say - but it is not what runs.
+   */
+  replacedBy?: string;
+  /** Its code was out already: nothing done, what runs left running. */
+  already?: true;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+}

@@ -71,9 +71,10 @@ export function StatusPanel(props: {
   onClear: (tab: "notifications" | "sentinel") => void;
   /**
    * What the sentinel is doing now, while it works: the pulse it checks - by its id and its name - or, `job` null, a
-   * check the person asked for. Said at the top of its tab, which clearing never takes away.
+   * check the person asked for. Said at the top of its tab, which clearing never takes away. `waiting`: it waits while
+   * the pulse's codebase is launched - paused on the pulse it was on, or before one it has not been told of yet.
    */
-  sentinelNow?: { job: string | null; title: string } | null;
+  sentinelNow?: { job: string | null; title: string; waiting?: "paused" | "launch" } | null;
 }) {
   const [open, setOpen] = useState(false);
   // Its height: dragged by its top edge, kept for next time.
@@ -282,10 +283,16 @@ export function StatusPanel(props: {
             <ul className="status-list sentinel" role="tabpanel" aria-label="sentinel" ref={list}>
               {/* What it is doing now: no notification - it is there while it works, whatever is cleared. */}
               {props.sentinelNow && (
-                <li className="sentinel-now" role="status">
-                  <Spinner />
+                <li className={`sentinel-now${props.sentinelNow.waiting ? " waiting" : ""}`} role="status">
+                  {props.sentinelNow.waiting ? <Icon name="clock" size={13} /> : <Spinner />}
                   <span>
-                    the sentinel is checking {withPlain(props.sentinelNow.title)} - still at work
+                    {props.sentinelNow.waiting === "paused" ? (
+                      <>the sentinel paused on {withPlain(props.sentinelNow.title)} while it is launched again - it carries on once it is up</>
+                    ) : props.sentinelNow.waiting === "launch" ? (
+                      <>the sentinel checks {withPlain(props.sentinelNow.title)} once its launch is up</>
+                    ) : (
+                      <>the sentinel is checking {withPlain(props.sentinelNow.title)} - still at work</>
+                    )}
                   </span>
                   {props.sentinelNow.job !== null && (
                     <button className="link" onClick={() => props.onOpenPulse(props.sentinelNow!.job!)} title="what it does, in regen">
@@ -334,9 +341,9 @@ export function StatusPanel(props: {
           className={`status-sentinel ${open && tab === "sentinel" ? "on" : ""} ${unheard.length + fixes.length + waiting.length > 0 ? "unread" : ""}`}
           onClick={() => show("sentinel")}
           title="sentinel"
-          aria-label={`sentinel: ${unheard.length + fixes.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}${props.sentinelNow ? ", at work" : ""}`}
+          aria-label={`sentinel: ${unheard.length + fixes.length} unread${waiting.length > 0 ? `, ${waiting.length} to answer` : ""}${props.sentinelNow ? (props.sentinelNow.waiting ? ", waiting for a launch" : ", at work") : ""}`}
         >
-          {props.sentinelNow ? <Spinner /> : <Icon name="eye" size={13} />}
+          {props.sentinelNow && !props.sentinelNow.waiting ? <Spinner /> : <Icon name="eye" size={13} />}
           {unheard.length + fixes.length + waiting.length > 0 && (
             <span className={`status-count ${waiting.some((shown) => shown.notice.severity === "error") ? "error" : ""}`}>{unheard.length + fixes.length + waiting.length}</span>
           )}

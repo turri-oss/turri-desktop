@@ -199,7 +199,7 @@ export function createPreview({ windowOf, send }: { windowOf: () => BrowserWindo
     tell();
   }
 
-  /** After a pulse lands: the page again, a moment later - its server may restart on the new code first. */
+  /** After a launch comes up: the page again, a moment later - its server may still be starting on the new code. */
   function reloadSoon() {
     const url = view?.webContents.getURL();
     if (url) setTimeout(() => void open(url), 1500);

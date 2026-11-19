@@ -2,7 +2,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { APP_DECISION, entryItem, noticeDecision } from "../engine/entries.mjs";
-import { expect, tellChat, test } from "./app.ts";
+import { expect, leaveRegen, showRegen, tellChat, test } from "./app.ts";
 
 /** A pulse as the engine sends it, done: the sentinel's to check. */
 const pulse = (id: string, title: string, sequence: number) => ({
@@ -93,6 +93,10 @@ test.describe("the sentinel", () => {
     expect(entryItem({ type: "custom", customType: "turri_sentinel_concluded", data: conclusion })).toEqual({ role: "concluded", conclusion });
     // turri's brief of a pulse, hidden from the person: where the sentinel's work on that pulse starts.
     expect(entryItem({ type: "custom_message", customType: "turri_sentinel_pulse", display: false, content: "A pulse finished.", details: { jobId: "j-backend-3", status: "succeeded" } })).toEqual({ role: "sentinelPulse", job: "j-backend-3" });
+    // A check's brief: no pulse's - its id and module, to tell when one is paused.
+    expect(entryItem({ type: "custom_message", customType: "turri_sentinel_check", display: false, content: "Check these.", details: { checkId: "c1", module: "backend", funcIds: ["backend:add"] } })).toEqual({ role: "sentinelPulse", job: null, check: "c1", module: "backend" });
+    // Told to carry on after a launch paused it: no new pulse - a mark in the one it is on.
+    expect(entryItem({ type: "custom_message", customType: "turri_sentinel_resume", display: false, content: "Carry on: backend is launched again." })).toEqual({ role: "sentinelResume" });
   });
 
   test("keeps what the person decided of a notice in the chat, as their box, when it sets the chat to work", async ({ launched: { app, window } }) => {
@@ -128,7 +132,7 @@ test.describe("the sentinel", () => {
     await expect(box.locator(".action-prompt")).toHaveText("Regenerate backend.plain from scratch.");
   });
 
-  test("is told where the person watches it try a release, by the tools it is given", async () => {
+  test("is told where the person watches it try what is launched, by the tools it is given", async () => {
     // The engine's own JavaScript, untyped: what the sentinel is told of the window, and the tools it is given.
     const [app, browser, terminal]: string[] = ["../engine/app.mjs", "../engine/browser.mjs", "../engine/terminal.mjs"];
     const { SENTINEL_SURFACE } = (await import(app)) as { SENTINEL_SURFACE: string };
@@ -355,6 +359,78 @@ test.describe("the sentinel", () => {
     await tell("chat:busy", "s", { busy: false });
     await expect(now).toHaveCount(0);
     await expect(eye.locator(".spinner")).toHaveCount(0);
+  });
+
+  test("says it waits while a pulse's codebase is launched - paused, or before it is told of the next - never as stuck", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    const tell = (event: string, to: string, data: unknown) => app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send(`engine:${sent.event}`, { chat: sent.to, data: sent.data }), { event, to, data });
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    const launch = (id: string, status: string, job: string) => ({ id, codebase: "hello", commit: `${id}c0ffee`, short: "c0ffee1", status, cause: { pulse: job, title: `hello pulse ${job}` }, queuedAt: Date.now() });
+    await send("engine:chats", [
+      { id: chat, title: "new chat", status: "idle", shown: true },
+      { id: "s", title: "sentinel", status: "idle", shown: false, role: "sentinel" },
+    ]);
+    await send("engine:job", pulse("j1", "the greeting by name", 1));
+    await tell("chat:message", "s", { role: "sentinelPulse", job: "j1" });
+    await tell("chat:message", "s", { role: "assistant", text: "Trying the greeting." });
+    // A newer pulse landed and is launched: the sentinel's turn on j1 is stopped, its conversation kept, until it is up.
+    await send("engine:job", pulse("j2", "a farewell", 2));
+    await send("engine:launch", launch("launch-2", "running", "j2"));
+    const eye = window.getByRole("button", { name: /^sentinel:/ });
+    await expect(eye).toHaveAccessibleName(/, waiting for a launch$/);
+    await expect(eye.locator(".spinner")).toHaveCount(0);
+    await eye.click();
+    const now = window.getByRole("tabpanel", { name: "sentinel" }).locator(".sentinel-now");
+    await expect(now).toContainText("the sentinel paused on hello · pulse 1 · the greeting by name while it is launched again - it carries on once it is up");
+    // In regen, the pulse's eye says so too.
+    await showRegen(window);
+    await expect(window.locator(".job", { hasText: "the greeting by name" }).locator(".job-sentinel-mark")).toHaveAttribute("aria-label", "sentinel: paused while it is launched again - it carries on once it is up");
+    await leaveRegen(window);
+    // Up: told to carry on, in the same conversation - no new pulse - and at work again on j1.
+    await send("engine:launch", launch("launch-2", "launched", "j2"));
+    await tell("chat:message", "s", { role: "sentinelResume" });
+    await tell("chat:busy", "s", { busy: true });
+    await expect(now).toContainText("the sentinel is checking hello · pulse 1 · the greeting by name - still at work");
+    // Concluded, and j2 - landed, not told of yet - waits for its codebase's next launch.
+    await transcript(app, window, [{ customType: "turri_sentinel_concluded", data: { job: "j1", verdict: "holds", summary: "it greets by name", module: "hello", pulse: 1 } }]);
+    await tell("chat:busy", "s", { busy: false });
+    await send("engine:launch", launch("launch-3", "running", "j2"));
+    await expect(now).toContainText("the sentinel checks hello · pulse 2 · a farewell once its launch is up");
+    // Its card has the mark where it carried on, in what it did of j1.
+    await showRegen(window);
+    const card = window.locator(".job", { hasText: "the greeting by name" });
+    await card.locator(".job-head").click();
+    await card.locator(".job-sentinel .part-head").click();
+    await expect(card.locator(".msg.sentinel-resume")).toHaveText("paused while it was launched again - carrying on");
+  });
+
+  test("says a check it was asked is paused while its module is launched again - and no pulse it will never get as waiting", async ({ launched: { app, window } }) => {
+    test.skip(!(await hasSentinel(window)), "the turri running has no sentinel");
+    const chat = await shownChat(window);
+    const tell = (event: string, to: string, data: unknown) => app.evaluate(({ BrowserWindow }, sent) => BrowserWindow.getAllWindows()[0]!.webContents.send(`engine:${sent.event}`, { chat: sent.to, data: sent.data }), { event, to, data });
+    const send = (channel: string, data: unknown) => app.evaluate(({ BrowserWindow }, [channel, data]) => BrowserWindow.getAllWindows()[0]!.webContents.send(channel as string, data), [channel, data] as const);
+    const launch = (id: string, status: string, cause: object) => ({ id, codebase: "hello", commit: `${id}c0ffee`, short: "c0ffee1", status, cause, queuedAt: Date.now() });
+    await send("engine:chats", [
+      { id: chat, title: "new chat", status: "idle", shown: true },
+      { id: "s", title: "sentinel", status: "idle", shown: false, role: "sentinel" },
+    ]);
+    // A pulse that landed while the sentinel was off, its own launch done: the sentinel never gets it.
+    await send("engine:job", pulse("j5", "a cheerier greeting", 5));
+    await send("engine:launch", launch("launch-6", "launched", { pulse: "j5", title: "a cheerier greeting" }));
+    // A check asked of it, under way - then the chat launching hello anew: its turn stopped until that is up.
+    await tell("chat:message", "s", { role: "sentinelPulse", job: null, check: "c1", module: "hello" });
+    await tell("chat:message", "s", { role: "assistant", text: "Trying the greeting." });
+    await send("engine:launch", launch("launch-7", "running", { chat }));
+    const eye = window.getByRole("button", { name: /^sentinel:/ });
+    await expect(eye).toHaveAccessibleName(/, waiting for a launch$/);
+    await eye.click();
+    const now = window.getByRole("tabpanel", { name: "sentinel" }).locator(".sentinel-now");
+    await expect(now).toContainText("the sentinel paused on what you asked it to check while it is launched again - it carries on once it is up");
+    // Concluded: nothing waits - j5, whose launch is done, is not said to wait for hello's launch.
+    await tellChat(app, window, "chat:message", { role: "concluded", conclusion: { check: "c1", verdict: "holds", summary: "it greets", module: "hello" } });
+    await expect(now).toHaveCount(0);
+    await expect(eye).toHaveAccessibleName(/unread$/);
   });
 
   test("shows what the sentinel did of each pulse in that pulse's card in regen, opened from a conclusion's notification", async ({ launched: { app, window } }) => {
