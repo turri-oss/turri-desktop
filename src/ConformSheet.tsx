@@ -6,6 +6,7 @@ import { withPlain } from "./ui.tsx";
  * scratch, or its whole chain's - turri's /conform from scratch. Either deletes tests and starts at once - the code
  * untouched: the chat shows its box and the command runs under it. A module that requires none has no chain. One
  * functional spec's tests are its mark's to conform. Never functional specs named with from scratch: turri refuses it.
+ * With conformance tests off for the module, /conform turns them on first - said here, as it is more than this module's.
  */
 export function ConformSheet({ spec, onClose, onConform }: { spec: Spec; onClose: () => void; onConform: (chain: boolean) => void }) {
   const chained = spec.requires.length > 0;
@@ -17,6 +18,7 @@ export function ConformSheet({ spec, onClose, onConform }: { spec: Spec; onClose
           {withPlain("its conformance tests are deleted where its code lives - kept in its history - and written again from its scenarios. its code is untouched, and so is every other module.")}{" "}
           {chained ? `with its whole chain, the tests of the modules it requires - ${spec.requires.join(", ")} - are written again too, from nothing.` : "it requires no other module, so it has no chain."}
         </p>
+        {spec.conformanceTests === false && <p className="regenerate-says conform-turns-on">conformance tests are off for it: they are turned on first - conformance-tests: true - and stay on.</p>}
         <div className="sheet-actions">
           <button className="button" onClick={onClose}>
             cancel

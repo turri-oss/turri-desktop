@@ -6,7 +6,7 @@
 import turri, { turriFrom } from "./turri.mjs";
 import { busy, MANY_CHATS, SENTINEL, startSession } from "./chat.mjs";
 import { ACTION_KINDS } from "./entries.mjs";
-import { conformFromScratch } from "./commands.mjs";
+import { conformFromScratch, conformNamed } from "./commands.mjs";
 import { CLAUDE_CODE, createAuth, viaClaudeCode } from "./auth.mjs";
 import { conformanceTestsOn as conformanceOf, said, standing } from "./describe.mjs";
 import { Worker } from "node:worker_threads";
@@ -1112,26 +1112,35 @@ function regenerate({ file, funcIds, scratch, chain, guidance }) {
 }
 
 /**
- * Conformance tests written and run: the functional specs named, or the module's - asked in words, as conform's button.
- * From scratch - its whole chain's too - is /conform's, as the window chose it: the tests folder where the module's code
- * lives taken out and written again, the code untouched; the chat shows its box, as regenerate from scratch's, and the
- * command runs under it. Functional specs named and from scratch together turri refuses: never sent.
+ * Conformance tests written and run: the functional specs named, or the module's - or, from scratch, the tests folder
+ * where the module's code lives taken out and written again, its whole chain's too, the code untouched. Each is turri's
+ * /conform, as the person would type it: the chat shows its box and the command runs under it. Off for the module, /conform
+ * turns them on first - asking for them is the person's yes - so the window never refuses it. Functional specs named and
+ * from scratch together turri refuses: never sent.
  */
 function conform({ file, funcIds, scratch, chain }) {
   const module = basename(file, ".plain");
+  const rel = relative(projectDir, inProject(file));
+  const turningOn = conformanceTestsOn(inProject(file)) ? undefined : "conformance tests are off: turned on first";
   if (scratch) {
     if (funcIds?.length) throw new Error("Name functional specs or write the tests again from scratch, not both: from scratch writes every one of them again.");
     chatOf().run({
       kind: "conform",
       title: chain ? `${module} and its whole chain, from scratch` : `${module}, from scratch`,
-      detail: chain ? "the conformance tests of every module in its chain written again from nothing - the code untouched" : "its conformance tests deleted and written again - the code untouched",
-      command: conformFromScratch(relative(projectDir, inProject(file)), chain === true),
+      detail: [turningOn, chain ? "the conformance tests of every module in its chain written again from nothing - the code untouched" : "its conformance tests deleted and written again - the code untouched"].filter(Boolean).join(" - "),
+      command: conformFromScratch(rel, chain === true),
       working: chain ? "deleting the chain's conformance tests, then planning them again" : "deleting the conformance tests, then planning them again",
     });
     return true;
   }
-  const names = funcIds?.length ? funcIds.map((funcId) => `${module}:${funcId}`).join(", ") : module;
-  chatOf().act({ kind: "conform", title: names, prompt: `Write and run the conformance tests for ${names}.` });
+  const named = (funcIds ?? []).map((funcId) => `${module}:${funcId}`);
+  chatOf().run({
+    kind: "conform",
+    title: named.length > 0 ? named.join(", ") : module,
+    ...(turningOn !== undefined ? { detail: turningOn } : {}),
+    command: conformNamed(rel, named),
+    working: "starting the conformance tests",
+  });
   return true;
 }
 

@@ -8,3 +8,12 @@
 export function conformFromScratch(file, chain) {
   return `/conform ${file} from scratch${chain ? ", whole chain" : ""}`;
 }
+
+/**
+ * /conform, as the window asks it: the module's conformance tests written and run - the functional specs named, each as
+ * module:func-id, or every one with scenarios. Off for the module, turri turns them on first: the person's /conform is
+ * their yes to them.
+ */
+export function conformNamed(file, named = []) {
+  return ["/conform", file, ...named].join(" ");
+}

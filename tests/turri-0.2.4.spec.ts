@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
-import { conformFromScratch } from "../engine/commands.mjs";
+import { conformFromScratch, conformNamed } from "../engine/commands.mjs";
 import { expect, test } from "./app.ts";
 
 // What the window does with turri 0.2.4's work loop - its look ahead, conformance tests written again, the config keys
@@ -207,12 +207,24 @@ test.describe("config keys turri does not read, in a project that still has test
 test.describe("conform…, with conformance tests off", () => {
   test.use({ conformance: false });
 
-  test("says they are off, with the way to turn them on - no sheet", async ({ launched: { window: page } }) => {
+  test("conforms all the same - /conform turns them on first, as the sheet says - from conform… and Write Conformance Tests", async ({ launched: { app, window: page, spec } }) => {
     await expect(page.locator(".chat-model")).toBeVisible();
     // Once the module is read: until then, whether they are on is not known.
     await expect(page.locator(".editor-pane .conformed-count.off")).toContainText("conformance tests off");
+    const taken = await answering(app, { conform: true });
     await page.locator(".toolbar .conform-open").click();
-    await expect(page.locator(".status-said")).toHaveText("conformance tests are off for hello.plain.");
-    await expect(page.getByRole("dialog", { name: "conform hello" })).toHaveCount(0);
+    const sheet = page.getByRole("dialog", { name: "conform hello" });
+    await expect(sheet.locator(".conform-turns-on")).toHaveText("conformance tests are off for it: they are turned on first - conformance-tests: true - and stay on.");
+    await sheet.getByRole("button", { name: "this module" }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(page.locator(".status-said")).not.toContainText("conformance tests are off");
+    await send(app, "menu", "conform");
+    await expect.poll(taken).toEqual([
+      { method: "conform", params: { file: spec, scratch: true, chain: false } },
+      { method: "conform", params: { file: spec } },
+    ]);
+    // The words the engine has the chat run, as the person would type them: turri's /conform, which turns them on.
+    expect(conformNamed("hello.plain")).toBe("/conform hello.plain");
+    expect(conformNamed("app/todo.plain", ["todo:add-task", "todo:list-tasks"])).toBe("/conform app/todo.plain todo:add-task todo:list-tasks");
   });
 });

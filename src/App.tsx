@@ -560,13 +560,12 @@ export function App() {
 
   /**
    * Conformance tests written and run - the functional specs named, or the module's - or, from scratch, written again:
-   * the module's, or its whole chain's, never with functional specs named.
+   * the module's, or its whole chain's, never with functional specs named. Off for the module, turri's /conform turns
+   * them on first: asking for them is the person's yes.
    */
   const conform = useCallback(
     async (funcIds?: string[], fromScratch?: "module" | "chain") => {
       if (spec === null) return;
-      // Off for the module: nothing to test with - said, with the way to turn them on.
-      if (spec.conformanceTests === false) return say(`conformance tests are off for ${spec.rel}.`, "info", { label: "turn them on", run: () => void turnOnConformance(spec.file) });
       setChatOpen(true);
       try {
         await window.turri.call("conform", fromScratch !== undefined ? { file: spec.file, scratch: true, chain: fromScratch === "chain" } : { file: spec.file, funcIds });
@@ -574,7 +573,7 @@ export function App() {
         say(engineSaid(error), "error");
       }
     },
-    [spec, say, turnOnConformance],
+    [spec, say],
   );
 
   /** A chat with turri beside the others, shown - ⌘T, as a browser opens a tab. */
@@ -658,12 +657,11 @@ export function App() {
     return () => window.removeEventListener("keydown", step, true);
   }, [chats.list, chats.shownId, showChat, chatOpen, stepView]);
 
-  // Conform…: the sheet - or, with conformance tests off for the module, said so, with the way to turn them on.
+  // Conform…: the sheet - with conformance tests off for the module too, which /conform turns on first.
   const openConform = useCallback(() => {
     if (spec === null || !spec.ok) return;
-    if (spec.conformanceTests === false) return say(`conformance tests are off for ${spec.rel}.`, "info", { label: "turn them on", run: () => void turnOnConformance(spec.file) });
     setConformingAgain(true);
-  }, [spec, say, turnOnConformance]);
+  }, [spec]);
 
   // Preview the plan: turri looks ahead - plans the module as Regenerate would, starting nothing, and keeps the plan.
   const lookAhead = useCallback(async () => {
