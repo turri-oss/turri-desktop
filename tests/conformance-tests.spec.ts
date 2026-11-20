@@ -12,7 +12,7 @@ function scenarios(project: string) {
 test.describe("conformance tests off", () => {
   test.use({ conformance: false });
 
-  test("show a module's scenarios as not tested, and offer nothing that tests on its marks", async ({ launched: { window: page, project } }) => {
+  test("show a module's scenarios as not tested - with no way to turn them on but conforming, which its marks offer", async ({ launched: { window: page, project } }) => {
     scenarios(project);
     const header = page.locator(".editor-pane .pane-header");
     await expect(header.locator(".conformed-count.off")).toContainText("conformance tests off");
@@ -21,27 +21,17 @@ test.describe("conformance tests off", () => {
     await expect(chip).toHaveClass(/untested/);
     await expect(chip).toHaveAttribute("title", /not tested: conformance tests are off/);
     await expect(header).not.toContainText("conformed ·");
-    // Its mark offers no conformance testing - nor turning them on, which is more than its own.
+    // No turn on: conforming turns them on.
+    await expect(header.getByRole("button", { name: "turn on" })).toHaveCount(0);
+    // Its mark offers conform all the same - once it is built.
     await page.locator('.editor-colours .mark[aria-label^="functional spec print-hello,"]').click();
     const menu = page.getByRole("menu");
-    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "open its scenarios"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "conform - once it is built", "open its scenarios"]);
     await page.keyboard.press("Escape");
     // The test plain file's mark in the files, grey too.
     await page.locator('.tree-row[title="tests"]').click();
     await page.locator('.tree-row[title="tests/hello"]').click();
     await expect(page.locator(".tree-state.tests")).toHaveClass(/untested/);
-  });
-
-  test("are turned on from the module's header - written in config.turri.yaml, the module tested as before", async ({ launched: { window: page, project } }) => {
-    scenarios(project);
-    await page.locator(".conformed-count.off").getByRole("button", { name: "turn on" }).click();
-    await expect.poll(() => readFileSync(join(project, "config.turri.yaml"), "utf8")).toMatch(/^conformance-tests: true$/m);
-    await expect(page.locator(".status-said")).toHaveText("conformance tests turned on - written in config.turri.yaml.");
-    // By turri itself, as its tool does it - not /settings's words in the chat.
-    await expect(page.locator(".chat-body")).not.toContainText("written to config.turri.yaml");
-    // On: counted as turri counts it - nothing built, so nothing tested yet.
-    await expect(page.locator(".conformed-count")).toHaveText(/0 of 1 conformed/);
-    await expect(page.locator(".scenario-chip")).not.toHaveClass(/untested/);
   });
 
   test("are turned on from the project's settings, which say what does nothing while they are off", async ({ launched: { app, window: page, project } }) => {

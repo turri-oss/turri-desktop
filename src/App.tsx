@@ -542,17 +542,20 @@ export function App() {
   }, [project, selected, act]);
 
   /**
-   * Conformance tests turned on from the window - beside a module, or by its menu: written where the module's value comes
-   * from, and what already has scenarios and code tested at once, the chat asked as conform's button asks it.
+   * Conformance tests turned on from the window - by the project's settings, or a functional spec's conform: written
+   * where the module's value comes from, and - but for a conform, which tests its own - what already has scenarios and
+   * code tested at once, the chat asked as conform's button asks it. Whether they were turned on.
    */
   const turnOnConformance = useCallback(
-    async (file?: string) => {
+    async (file?: string, test = true) => {
       try {
-        const { file: written, testing } = await window.turri.call<{ file: string; testing: string[] }>("turnOnConformance", { file });
+        const { file: written, testing } = await window.turri.call<{ file: string; testing: string[] }>("turnOnConformance", { file, test });
         if (testing.length > 0) setChatOpen(true);
         say(`conformance tests turned on - written in ${written}${testing.length > 0 ? `. testing ${testing.join(", ")}` : ""}.`);
+        return true;
       } catch (error) {
         say(engineSaid(error), "error");
+        return false;
       }
     },
     [say],
@@ -1188,7 +1191,6 @@ export function App() {
                 onRegenerate={() => {}}
                 onConform={() => {}}
                 conformanceTests={project.specs.find((each) => each.file === tests.moduleFile)?.conformanceTests !== false}
-                onTurnOnConformance={() => void turnOnConformance(tests.moduleFile ?? undefined)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(tests.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: tests.module ?? "", stdlib: false })}
@@ -1228,14 +1230,17 @@ export function App() {
                 saveRef={saveRef}
                 onRegenerate={(funcIds) => void regenerate(funcIds?.length ? { how: "again", funcIds } : undefined)}
                 onConform={(funcIds) => {
-                  // One functional spec with no scenarios: the chat writes them first, then conforms it.
+                  // One functional spec with no scenarios: the chat writes them first, then conforms it - conformance
+                  // tests turned on first when they are off, as /conform does, asking for them being the person's yes.
                   const one = funcIds?.length === 1 ? spec.functionalSpecs.find((entry) => entry.funcId === funcIds[0]) : undefined;
                   if (one !== undefined && one.scenarios.conformance.length + one.scenarios.acceptance.length === 0)
-                    void act({ kind: "conform", title: `${spec.module}:${one.funcId}`, detail: "its testing scenarios written first", prompt: `Write testing scenarios for ${spec.module}:${one.funcId}, then write and run its conformance tests.` });
+                    void (async () => {
+                      if (spec.conformanceTests === false && !(await turnOnConformance(spec.file, false))) return;
+                      await act({ kind: "conform", title: `${spec.module}:${one.funcId}`, detail: "its testing scenarios written first", prompt: `Write testing scenarios for ${spec.module}:${one.funcId}, then write and run its conformance tests.` });
+                    })();
                   else void conform(funcIds);
                 }}
                 conformanceTests={spec.conformanceTests !== false}
-                onTurnOnConformance={() => void turnOnConformance(spec.file)}
                 onOpen={openLink}
                 onFollow={(followed, point) => void follow(spec.file, followed, point)}
                 onOpenTests={(file, line) => showAt({ file, line, module: spec.module, stdlib: false })}

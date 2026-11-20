@@ -1229,9 +1229,10 @@ const conformanceTestsOn = (file) => conformanceOf(turri, file);
  * value comes from, the chats' conform no longer refused (turri's turnOnConformanceTests), or, on a turri before it,
  * /settings, which writes config.turri.yaml alone. What it turns on is tested at once - turning them on is the
  * person's yes: each module that was off, its functional specs with scenarios whose code is built and not tested yet
- * sent to the chat as conform's words. Says the file written and what is being tested.
+ * sent to the chat as conform's words - unless `test` is false: a functional spec's conform turning them on, which tests
+ * its own. Says the file written and what is being tested.
  */
-async function turnOnConformance({ file } = {}) {
+async function turnOnConformance({ file, test = true } = {}) {
   const plainFile = typeof file === "string" && file !== "" ? inProject(file) : undefined;
   const modules = plainFiles(projectDir);
   const before = new Set(modules.filter(conformanceTestsOn));
@@ -1239,7 +1240,7 @@ async function turnOnConformance({ file } = {}) {
   if (session.turnOnConformanceTests !== undefined) written = session.turnOnConformanceTests(plainFile);
   else await chatOf().session.prompt("/settings conformance-tests true", { streamingBehavior: "followUp" });
   const testing = [];
-  for (const module of modules) {
+  for (const module of test === false ? [] : modules) {
     if (before.has(module) || !conformanceTestsOn(module)) continue;
     // Which are built and not tested, read now - what drift says is not wanted here.
     const spec = standing(turri, said(turri, projectDir, module, graphNow()), []);

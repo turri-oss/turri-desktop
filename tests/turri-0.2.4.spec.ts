@@ -227,4 +227,26 @@ test.describe("conform…, with conformance tests off", () => {
     expect(conformNamed("hello.plain")).toBe("/conform hello.plain");
     expect(conformNamed("app/todo.plain", ["todo:add-task", "todo:list-tasks"])).toBe("/conform app/todo.plain todo:add-task todo:list-tasks");
   });
+  test("a built functional spec's mark conforms it all the same - by /conform, which turns them on first", async ({ launched: { app, window: page, project, spec } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    await built(app, page, project, { scenarios: true });
+    const taken = await answering(app, { conform: true });
+    await page.locator('.editor-colours .mark[aria-label^="functional spec print-hello,"]').click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "conform again" }).click();
+    expect(await taken()).toEqual([{ method: "conform", params: { file: spec, funcIds: ["print-hello"] } }]);
+  });
+
+  test("one with no scenarios: its mark's conform turns them on - testing nothing else - then has the chat write them and conform it", async ({ launched: { app, window: page, project, spec } }) => {
+    await expect(page.locator(".chat-model")).toBeVisible();
+    await built(app, page, project, { scenarios: false });
+    const taken = await answering(app, { turnOnConformance: { file: "config.turri.yaml", testing: [] }, sendAction: true });
+    await page.locator('.editor-colours .mark[aria-label^="functional spec print-hello,"]').click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitem")).toHaveText(["regenerate", "conform - its scenarios written first", "write testing scenarios"]);
+    await menu.getByRole("menuitem", { name: "conform - its scenarios written first" }).click();
+    await expect.poll(taken).toEqual([
+      { method: "turnOnConformance", params: { file: spec, test: false } },
+      { method: "sendAction", params: { action: { kind: "conform", title: "hello:print-hello", detail: "its testing scenarios written first", prompt: "Write testing scenarios for hello:print-hello, then write and run its conformance tests." } } },
+    ]);
+  });
 });

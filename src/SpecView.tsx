@@ -155,8 +155,6 @@ export function SpecView(props: {
    * a test plain file's, its module's. Off, their scenarios are shown and not tested, and nothing offers to test them.
    */
   conformanceTests: boolean;
-  /** Conformance tests turned on for the module - and what it already has scenarios and code for, tested. */
-  onTurnOnConformance: () => void;
   /** Testing scenarios for a functional spec with none, written - asked of the chat. */
   onWriteScenarios: (funcId: string) => void;
   /** A module it imports or requires, or a .plain that requires or imports it: the stdlib view's, or the project's file. */
@@ -442,7 +440,6 @@ export function SpecView(props: {
           entry={entryFor(markMenu.funcId)}
           onRegenerate={() => props.onRegenerate([markMenu.funcId])}
           onConform={() => props.onConform([markMenu.funcId])}
-          conformanceTests={props.conformanceTests}
           onOpenTests={(file, line) => props.onOpenTests(file, line)}
           onWriteScenarios={() => props.onWriteScenarios(markMenu.funcId)}
           onPoint={setPointed}
@@ -489,12 +486,8 @@ export function SpecView(props: {
               </span>
             )}
             {spec.ok && !props.conformanceTests ? (
-              <span className="conformed-count off" title="its scenarios are not tested, and none are written: conformance-tests is off">
-                <Icon name="checks" size={12} /> conformance tests off ·{" "}
-                <button className="link" onClick={props.onTurnOnConformance} title="turn on conformance tests - and test the functional specs that have scenarios and code">
-                  turn on
-                </button>{" "}
-                <span className="muted">·</span>
+              <span className="conformed-count off" title="its scenarios are not tested until it is conformed - conform turns conformance tests on">
+                <Icon name="checks" size={12} /> conformance tests off <span className="muted">·</span>
               </span>
             ) : (
               spec.ok &&
@@ -672,7 +665,8 @@ export function SpecView(props: {
 /**
  * What a functional spec's mark offers: regenerate it, or conform it once it is built - that functional spec alone:
  * conform again when its tests are written, deleted and written anew; with no scenarios, the chat writes them first -
- * and open its scenarios, when it has a test plain file, or have them written, when it has none. With conformance tests off, nothing that tests - turning them on is the header's, as it is more than this functional spec's. Regenerate and conform are lit as they are pointed at, or reached with the
+ * and open its scenarios, when it has a test plain file, or have them written, when it has none. With conformance tests off
+ * all the same: conform turns them on first. Regenerate and conform are lit as they are pointed at, or reached with the
  * arrow keys, in their kind's colour - and the functional spec with them. Escape, a click elsewhere or the window left
  * closes it.
  */
@@ -682,7 +676,6 @@ function MarkMenu(props: {
   entry: FunctionalSpec | undefined;
   onRegenerate: () => void;
   onConform: () => void;
-  conformanceTests: boolean;
   onOpenTests: (file: string, line: number) => void;
   onWriteScenarios: () => void;
   onPoint: (item: "regenerate" | "conform" | null) => void;
@@ -735,19 +728,17 @@ function MarkMenu(props: {
       <button role="menuitem" className="regenerate" onClick={choose(props.onRegenerate)} {...aim("regenerate")}>
         regenerate
       </button>
-      {props.conformanceTests && (
-        <button role="menuitem" className="conform" disabled={!built} onClick={choose(props.onConform)} {...aim("conform")}>
-          {/* Its tests written already: conform again deletes them and writes them anew, its code untouched. */}
-          {built && tested && props.entry?.conformed ? "conform again" : "conform"}
-          {!built ? <span className="muted"> - once it is built</span> : !tested && <span className="muted"> - its scenarios written first</span>}
-        </button>
-      )}
+      <button role="menuitem" className="conform" disabled={!built} onClick={choose(props.onConform)} {...aim("conform")}>
+        {/* Its tests written already: conform again deletes them and writes them anew, its code untouched. */}
+        {built && tested && props.entry?.conformed ? "conform again" : "conform"}
+        {!built ? <span className="muted"> - once it is built</span> : !tested && <span className="muted"> - its scenarios written first</span>}
+      </button>
       {props.entry?.testPlainFile && (
         <button role="menuitem" className="open-tests" onClick={choose(() => props.onOpenTests(props.entry!.testPlainFile!, firstScenarioLine(props.entry!)))}>
           open its scenarios
         </button>
       )}
-      {props.conformanceTests && props.entry !== undefined && !tested && (
+      {props.entry !== undefined && !tested && (
         <button role="menuitem" className="write-scenarios" onClick={choose(props.onWriteScenarios)}>
           write testing scenarios
         </button>
