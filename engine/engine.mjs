@@ -83,7 +83,10 @@ const launches = new Map();
  * it runs, or why it did not come up. Copied: turri changes its own as the launch goes on.
  */
 function launchView(launch) {
-  const { id, codebase, commit, short, status, cause, summary, supersededBy, replacedBy, already, queuedAt, startedAt, finishedAt } = launch;
+  const { id, codebase, commit, short, status, cause, summary, stopped, supersededBy, replacedBy, already, queuedAt, startedAt, finishedAt } = launch;
+  // The whole of what it said, as the chat reads it - turri's lines for what it stopped, then the agent's - on a turri
+  // that keeps the two apart; before it, its summary held both.
+  const text = turri.launchText !== undefined ? turri.launchText(launch) : undefined;
   return {
     id,
     codebase,
@@ -92,6 +95,8 @@ function launchView(launch) {
     status,
     cause: "pulse" in (cause ?? {}) ? { pulse: cause.pulse, title: cause.title } : { ...(cause?.chat !== undefined ? { chat: cause.chat } : {}) },
     ...(summary !== undefined ? { summary } : {}),
+    ...(stopped !== undefined && stopped.length > 0 ? { stopped: stopped.map((each) => ({ ...each })) } : {}),
+    ...(text !== undefined && text !== "" ? { text } : {}),
     ...(supersededBy !== undefined ? { supersededBy } : {}),
     ...(replacedBy !== undefined ? { replacedBy } : {}),
     ...(already === true ? { already: true } : {}),

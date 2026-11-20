@@ -270,6 +270,27 @@ export type LaunchStatus = "waiting" | "running" | "launched" | "failed" | "stop
  * A launch, as turri tells its host of it (`onLaunch`, turri's docs/launch.md): a codebase's commit put in dist/<module>
  * and started, one at a time, the newest commit winning - after a pulse (`cause.pulse`), or a chat's.
  */
+/**
+ * A process turri stopped for a launch, and why: one of a launch of a module below it in its requires chain, whose code
+ * it holds (`below`); a server of another module's launch that held what it needs (`held`, saying what - "port 5173"); one
+ * an earlier turri session left running (`left-behind`).
+ */
+export interface LaunchStopped {
+  why: "below" | "held" | "left-behind";
+  /** The module whose launch started it. */
+  module: string;
+  /** That launch, of this session - none for an earlier session's. */
+  launch?: string;
+  /** That launch's commit, short, when known. */
+  commit?: string;
+  name: string;
+  pid: number;
+  url?: string;
+  held?: string;
+  /** For `held`: an earlier turri session started it. */
+  earlier?: true;
+}
+
 export interface Launch {
   id: string;
   /** The module whose plain_modules/<module> holds the code. */
@@ -287,6 +308,13 @@ export interface Launch {
    * its place. Its own status stays what it was - launched, say - but it is not what runs.
    */
   replacedBy?: string;
+  /**
+   * What turri stopped for it, a process each, as it stopped them (turri's `LaunchStopped`): never in `summary`, which is
+   * the launch agent's alone. None from a turri before it, whose summary begins with turri's own lines instead.
+   */
+  stopped?: LaunchStopped[];
+  /** The whole of what it said, turri's lines for `stopped` then `summary`, as the chat reads it (turri's `launchText`). */
+  text?: string;
   /** Its code was out already: nothing done, what runs left running. */
   already?: true;
   queuedAt: number;

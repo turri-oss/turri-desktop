@@ -1874,6 +1874,19 @@ code {
 .job-launch.stopped {
   color: var(--fg-3);
 }
+/* What turri stopped for a pulse's launch, under its line: muted. */
+.job-launch-stopped {
+  min-width: 0;
+  margin: 2px 0 0 72px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.job-launch-stopped code {
+  font: 11px var(--mono);
+}
 .past-more {
   font-size: 12px;
   padding: 2px;
@@ -3411,6 +3424,18 @@ button.preview-launch:hover {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* What turri stopped for a launch - launches below it, or one beside it that held what it needed: muted, under its line. */
+.preview-launch-stopped {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 17px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.preview-launch-stopped code {
+  font: 11px var(--mono);
 }
 /* A line with more to say opens into all of it: its chevron at the right, turning down while it is open. */
 .preview-launch-chevron {

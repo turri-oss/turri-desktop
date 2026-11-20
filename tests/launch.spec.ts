@@ -52,6 +52,19 @@ async function built(window: Page) {
   return { ...summary, specs: summary.specs.map((spec) => ({ ...spec, built: true, drifted: false, functionalSpecs: spec.functionalSpecs.map((entry) => ({ ...entry, built: true })) })) };
 }
 
+/**
+ * The project's summary as `built` gives it, with two more modules: upgrades, built on hello - a requires chain - and web,
+ * beside them. upgrades unbuilt, the home tries hello's specs in hello's own codebase.
+ */
+async function chain(window: Page, { upgradesBuilt = true } = {}) {
+  type Entry = { funcId: string; built?: boolean };
+  type Summary = { specs: Array<{ module: string; requires: string[]; functionalSpecs: Entry[] }>; offers: { check?: boolean } };
+  const summary = (await built(window)) as unknown as Summary;
+  const hello = summary.specs.find((spec) => spec.module === "hello")!;
+  const like = (module: string, requires: string[], built: boolean) => ({ ...hello, module, file: `${module}.plain`, requires, functionalSpecs: hello.functionalSpecs.map((entry) => ({ ...entry, funcId: `${module}-${entry.funcId}`, built })) });
+  return { ...summary, specs: [...summary.specs, like("upgrades", ["hello"], upgradesBuilt), like("web", [], true)] };
+}
+
 test.describe("launching", () => {
   test("has no button or menu item of the window's", async ({ launched: { app, window } }) => {
     await expect(window.locator(".toolbar-actions")).toBeVisible();
@@ -234,6 +247,100 @@ test.describe("launching", () => {
     await send(app, "engine:launch", launch("launch-2", "stopped", { summary: "Stopped on request.", finishedAt: Date.now() }));
     await expect(check).toBeDisabled();
     await expect(window.locator(".preview-home-why")).toHaveText("nothing of hello is launched for it to check in - try it first");
+  });
+
+  test("says what turri stopped for a launch under its line - its agent's words on the line, all of it at a click", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await window.getByRole("tab", { name: "preview" }).click();
+    const line = (codebase: string) => window.locator(`.preview-launch[data-codebase='${codebase}']`);
+    const stopped = (codebase: string) => window.locator(`.preview-launch-stopped[data-codebase='${codebase}']`);
+    const below = { why: "below", module: "hello", launch: "launch-1", commit: "1f2a1bc", name: "app", pid: 65442, url: "http://localhost:5173" };
+    const held = { why: "held", module: "web", launch: "launch-2", commit: "2f2a1bc", name: "server", pid: 70001, url: "http://localhost:5173", held: "port 5173" };
+
+    await send(app, "engine:launch", launch("launch-1", "launched", { summary: "Runs at http://localhost:5173.", finishedAt: Date.now() }));
+    await send(app, "engine:launch", launch("launch-2", "launched", { codebase: "web", summary: "Runs at http://localhost:3000.", finishedAt: Date.now() }));
+    await expect(stopped("hello")).toHaveCount(0);
+    // upgrades, built on hello, stops hello's launch as it starts - said under its line while it runs.
+    await send(app, "engine:launch", launch("launch-3", "running", { codebase: "upgrades", startedAt: Date.now(), stopped: [below] }));
+    await send(app, "engine:launch", launch("launch-1", "launched", { summary: "Runs at http://localhost:5173.", replacedBy: "launch-3", finishedAt: Date.now() }));
+    // hello's code runs in upgrades' launch: no line of its own.
+    await expect(line("hello")).toHaveCount(0);
+    await expect(line("upgrades")).toHaveText("launching upgrades at 3f2a1bc…");
+    await expect(stopped("upgrades")).toHaveText("stopped hello's launch at 1f2a1bc - upgrades holds its code");
+    // web, beside it, held the port it needed: stopped too, and its own line says so.
+    await send(app, "engine:launch", launch("launch-3", "running", { codebase: "upgrades", startedAt: Date.now(), stopped: [below, held] }));
+    await send(app, "engine:launch", launch("launch-2", "launched", { codebase: "web", summary: "Runs at http://localhost:3000.", replacedBy: "launch-3", finishedAt: Date.now() }));
+    await expect(line("web")).toHaveText("web at 2f2a1bc was stopped for upgrades' launch at 3f2a1bc, which needed what it held - nothing of it runs");
+    await expect(stopped("upgrades")).toHaveText("stopped hello's launch at 1f2a1bc - upgrades holds its code · stopped web's launch at 2f2a1bc - it held port 5173");
+
+    // Up: the line is where it runs, as its agent said it; all of it - turri's lines too - at a click.
+    const text = "Stopped what hello's launch launch-1 at 1f2a1bc started - app (pid 65442, http://localhost:5173): upgrades is built on hello and holds its code, so this launch takes its place.\nUpgrades runs at http://localhost:5173.";
+    await send(app, "engine:launch", launch("launch-3", "launched", { codebase: "upgrades", summary: "Upgrades runs at http://localhost:5173.", text, stopped: [below, held], finishedAt: Date.now() }));
+    await expect(line("upgrades")).toHaveText("upgrades at 3f2a1bc runs - Upgrades runs at http://localhost:5173.");
+    await expect(line("upgrades")).toHaveAttribute("title", text);
+    await line("upgrades").click();
+    await expect(window.locator(".preview-launch-whole")).toContainText("Stopped what hello's launch launch-1 at 1f2a1bc started");
+    await expect(window.locator(".preview-launch-whole")).toContainText("Upgrades runs at http://localhost:5173.");
+    // Not up: still what runs of hello - nothing older answers there.
+    await send(app, "engine:launch", launch("launch-3", "failed", { codebase: "upgrades", summary: "vite exited: SyntaxError", stopped: [below], finishedAt: Date.now() }));
+    await expect(line("upgrades")).toHaveText("upgrades at 3f2a1bc did not come up - vite exited: SyntaxError");
+    await expect(line("hello")).toHaveCount(0);
+    // What an earlier session left running, said by module.
+    await send(app, "engine:launch", launch("launch-4", "launched", { codebase: "web", summary: "Runs at http://localhost:3000.", stopped: [{ why: "left-behind", module: "web", name: "server", pid: 66816 }], finishedAt: Date.now() }));
+    await expect(stopped("web")).toHaveText("stopped what an earlier session left running of web");
+  });
+
+  test("says on a pulse's card in regen that a module built on its own, or beside it, took its launch's place", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    await send(app, "engine:job", pulse("j1", "the greeting by name", 1));
+    await send(app, "engine:job", pulse("j2", "a farewell", 2));
+    await send(app, "engine:job", { ...pulse("j3", "a web page", 3), module: "web" });
+    await send(app, "engine:job", { ...pulse("j4", "an upgrade", 4), module: "upgrades" });
+    const stopped = [
+      { why: "below", module: "hello", launch: "launch-1", commit: "1f2a1bc", name: "app", pid: 1 },
+      { why: "held", module: "web", launch: "launch-3", commit: "3f2a1bc", name: "server", pid: 3, held: "port 5173" },
+    ];
+    const upgrades = { codebase: "upgrades", cause: { pulse: "j4", title: "upgrades pulse 4" }, stopped };
+    await send(app, "engine:launch", launch("launch-4", "launched", { ...upgrades, summary: "Runs at http://localhost:5173.", finishedAt: Date.now() }));
+    // hello's launch, up, then replaced by upgrades', which holds its code.
+    await send(app, "engine:launch", launch("launch-1", "launched", { cause: { pulse: "j1", title: "hello pulse 1" }, summary: "Runs.", replacedBy: "launch-4", finishedAt: Date.now() }));
+    // hello's next one never launched on its own: upgrades' took its place before it started.
+    await send(app, "engine:launch", launch("launch-2", "superseded", { cause: { pulse: "j2", title: "hello pulse 2" }, supersededBy: "launch-4", finishedAt: Date.now() }));
+    // web's, beside it, stopped for upgrades' launch, which needed its port: it does not hold its code.
+    await send(app, "engine:launch", launch("launch-3", "launched", { codebase: "web", cause: { pulse: "j3", title: "web pulse 3" }, summary: "Runs.", replacedBy: "launch-4", finishedAt: Date.now() }));
+    await showRegen(window);
+    const card = (title: string) => window.locator(".job", { hasText: title }).locator(".job-launch");
+    await expect(card("the greeting by name")).toHaveText("launched at 1f2a1bc, then replaced by upgrades pulse 4's launch of upgrades, which holds its code");
+    await expect(card("a farewell")).toHaveText("not launched on its own - superseded by upgrades pulse 4's launch of upgrades, which holds its code");
+    await expect(card("a web page")).toHaveText("launched at 3f2a1bc, then stopped for upgrades pulse 4's launch of upgrades, which needed what it held");
+    // upgrades' own: where it runs, and under it what turri stopped for it.
+    await expect(card("an upgrade")).toHaveText("launched at 4f2a1bc - Runs at http://localhost:5173.");
+    await expect(window.locator(".job", { hasText: "an upgrade" }).locator(".job-launch-stopped")).toHaveText("stopped hello's launch at 1f2a1bc - upgrades holds its code · stopped web's launch at 3f2a1bc - it held port 5173");
+  });
+
+  test("judges the sentinel's check by the launch that took a module's place - built on it, or beside it", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    const summary = await chain(window, { upgradesBuilt: false });
+    await send(app, "project:opened", { ...summary, offers: { ...summary.offers, check: true } });
+    await window.getByRole("tab", { name: "preview" }).click();
+    await window.getByRole("checkbox", { name: "print-hello built", exact: true }).click();
+    const check = window.getByRole("button", { name: "use sentinel" });
+    const why = window.locator(".preview-home-why");
+    await send(app, "engine:launch", launch("launch-1", "launched", { summary: "Runs.", replacedBy: "launch-2", finishedAt: Date.now() }));
+    // Replaced by upgrades', being launched: offered - turri has the check wait for it.
+    await send(app, "engine:launch", launch("launch-2", "running", { codebase: "upgrades", startedAt: Date.now(), stopped: [{ why: "below", module: "hello", launch: "launch-1", name: "app", pid: 1 }] }));
+    await expect(check).toBeEnabled();
+    // It did not come up: nothing of hello runs either.
+    await send(app, "engine:launch", launch("launch-2", "failed", { codebase: "upgrades", summary: "vite exited", finishedAt: Date.now() }));
+    await expect(check).toBeDisabled();
+    await expect(why).toHaveText("upgrades' launch, which took hello's place, did not come up - try it again first");
+    await send(app, "engine:launch", launch("launch-2", "launched", { codebase: "upgrades", summary: "Runs.", finishedAt: Date.now() }));
+    await expect(check).toBeEnabled();
+    // Stopped for web's launch, beside it, which needed what upgrades' held: nothing of hello runs.
+    await send(app, "engine:launch", launch("launch-2", "launched", { codebase: "upgrades", summary: "Runs.", replacedBy: "launch-3", finishedAt: Date.now() }));
+    await send(app, "engine:launch", launch("launch-3", "launched", { codebase: "web", summary: "Runs.", stopped: [{ why: "held", module: "upgrades", launch: "launch-2", name: "app", pid: 2, held: "port 5173" }], finishedAt: Date.now() }));
+    await expect(check).toBeDisabled();
+    await expect(why).toHaveText("upgrades' launch, which took hello's place, was stopped for web's launch, which needed what it held - try it again first");
   });
 
   test("asks turri on the preview's home to launch what is chosen and say how to try it once it is up", async ({ launched: { app, window } }) => {
