@@ -170,8 +170,8 @@ test.describe("launching", () => {
     // /halt launched hello: the launch that was up comes again, stopped - nothing of it runs.
     await send(app, "engine:launch", launch("launch-7", "stopped", { summary: "Stopped on request.", finishedAt: Date.now() }));
     await expect(line).toHaveText("hello at 7f2a1bc was stopped - nothing of it runs");
-    // Stopped before it came up: the same.
-    await send(app, "engine:launch", launch("launch-5", "stopped", { summary: "Stopped on request.", finishedAt: Date.now() }));
+    // Stopped before it came up: the same. Asked after launch-7 - queued later than its re-sent queuedAt, however soon.
+    await send(app, "engine:launch", launch("launch-5", "stopped", { summary: "Stopped on request.", queuedAt: Date.now() + 100, finishedAt: Date.now() }));
     await expect(line).toHaveText("hello at 5f2a1bc was stopped - nothing of it runs");
     // The engine gone: what its launches started went with it.
     await send(app, "engine:exit", { code: 0 });
