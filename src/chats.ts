@@ -90,13 +90,11 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
   /** The chats read from the engine already: one the engine tells of anew is read once. */
   const known = useRef(new Set<string>());
 
-  /** The chats whose history has been read since the project opened, and what each said before it was. */
-  const read = useRef(new Set<string>());
-  const early = useRef(new Map<string, ChatItem[]>());
   /**
-   * A chat read from the engine: what was said in it, its model, how full it is, and what it asks now - once read. What
-   * it said before - a command typed the moment the project opened, whose output is no message of its history - follows
-   * its history, unless the history has it: never lost under it.
+   * A chat read from the engine: what was said in it, its model, how full it is, and what it asks now. What the window
+   * holds of it already - a command typed the moment the project opened, whose output is no message of its history, or
+   * said while it was read - follows its history, unless the history has it: never lost under it, though a chat the
+   * engine tells of as the project opens is read twice, once for that and once with the project's chats.
    */
   const load = useCallback(
     (id: string): Promise<void> =>
@@ -106,10 +104,15 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
           after.current.delete(id);
           const history = messages.filter((item) => !leftOut(item));
           const had = new Set(history.map((item) => JSON.stringify(item)));
-          const before = (early.current.get(id) ?? []).filter((item) => !had.has(JSON.stringify(item)));
-          early.current.delete(id);
-          read.current.add(id);
-          update(id, () => ({ items: [...history, ...before, ...notes], queued, model, unreachable, stats, questions, notices: new Map(notices.map((notice) => [notice.id, notice])) }));
+          update(id, (state) => ({
+            items: [...history, ...state.items.filter((item) => !had.has(JSON.stringify(item))), ...notes],
+            queued,
+            model,
+            unreachable,
+            stats,
+            questions,
+            notices: new Map(notices.map((notice) => [notice.id, notice])),
+          }));
         },
         () => {},
       ),
@@ -124,8 +127,6 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
     async (notes: ChatItem[] = []) => {
       setStates(new Map());
       after.current.clear();
-      read.current.clear();
-      early.current.clear();
       const chats = inOrder(await window.turri.call<ChatInfo[]>("chats").catch(() => [] as ChatInfo[]));
       setList(chats);
       known.current = new Set(chats.map((chat) => chat.id));
@@ -152,7 +153,6 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
         if (leftOut(item)) return;
         // The sentinel done with a pulse: a notification - kept among the chat's items too, for regen to read, not drawn.
         if (item.role === "concluded") onConcluded(item.conclusion);
-        if (!read.current.has(id)) early.current.set(id, [...(early.current.get(id) ?? []), item]);
         update(id, (state) => ({ items: [...state.items, item] }));
       }),
       on<{ texts: string[] }>("chat:queued", (id, { texts }) => update(id, () => ({ queued: texts }))),
@@ -169,7 +169,6 @@ export function useChats({ onAsk, onNotify, onConcluded }: { onAsk: () => void; 
       on<{ level: string; text: string }>("chat:notify", (id, { level, text }) => {
         if (level === "warning" || level === "error") return onNotify(text, level);
         const note: ChatItem = { role: "note", text, level };
-        if (!read.current.has(id)) early.current.set(id, [...(early.current.get(id) ?? []), note]);
         update(id, (state) => ({ items: [...state.items, note] }));
       }),
       on<SkillProgress | null>("chat:progress", (id, progress) => update(id, () => ({ progress }))),
