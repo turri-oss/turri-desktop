@@ -105,11 +105,14 @@ function filesOf(diff: string, where: Job["diffWhere"]): File[] {
     file.last = at;
   });
   // A section's header none of whose lines are this file's - all from another - is left out of it, and the gaps it leaves
-  // made one.
-  return [...files.values()].map(({ file, lines }) => {
-    const kept = lines.filter((line, at) => !(line.kind === "context" && SECTION.test(line.text.trim()) && (lines[at + 1] === undefined || lines[at + 1]!.kind === "gap" || SECTION.test(lines[at + 1]!.text.trim()))));
-    return { file, lines: kept.filter((line, at) => line.kind !== "gap" || (at > 0 && at < kept.length - 1 && kept[at - 1]!.kind !== "gap")) };
-  });
+  // made one. A file left with no lines - its module's, every line the pulse adds placed in a template or a module below
+  // it, turri placing only the headers there - is left out: there is nothing of the pulse's in it to show.
+  return [...files.values()]
+    .map(({ file, lines }) => {
+      const kept = lines.filter((line, at) => !(line.kind === "context" && SECTION.test(line.text.trim()) && (lines[at + 1] === undefined || lines[at + 1]!.kind === "gap" || SECTION.test(lines[at + 1]!.text.trim()))));
+      return { file, lines: kept.filter((line, at) => line.kind !== "gap" || (at > 0 && at < kept.length - 1 && kept[at - 1]!.kind !== "gap")) };
+    })
+    .filter((file) => file.lines.length > 0);
 }
 
 /**

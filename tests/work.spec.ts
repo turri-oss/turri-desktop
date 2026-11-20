@@ -107,6 +107,45 @@ test.describe("the regen view", () => {
     await expect(card.locator(".pulse-spec")).toHaveCount(0);
   });
 
+  test("shows no line for its module's file when every line the pulse adds is in a template or a module below it", async ({ launched: { app, window } }) => {
+    await expect(window.locator(".chat-model")).toBeVisible();
+    // turri's diff of a module's pulse, as one on top of a chain has it: its headers placed in the module's own file,
+    // what it adds in a template it imports and in the module below it, which holds the functional spec.
+    const diff = [
+      "diff --git a/scenery.plain b/scenery.plain",
+      "--- a/scenery.plain",
+      "+++ b/scenery.plain",
+      "@@ @@",
+      " ***definitions***",
+      "+- :Anglerfish: is a deep-sea predator.",
+      "@@ @@",
+      " ***functional specs***",
+      "+# anglerfish",
+      "+Each level holds one :Anglerfish:.",
+    ].join("\n");
+    const diffWhere = {
+      4: { file: "scenery.plain", line: 12, section: "***definitions***", written: "***definitions***" },
+      5: { file: "template/creatures.plain", line: 24, section: "***definitions***" },
+      7: { file: "scenery.plain", line: 30, section: "***functional specs***", written: "***functional specs***" },
+      8: { file: "bestiary.plain", line: 40, section: "***functional specs***" },
+      9: { file: "bestiary.plain", line: 41, section: "***functional specs***" },
+    };
+    await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), {
+      ...pulse(),
+      module: "scenery",
+      title: "anglerfish lures the jellyfish",
+      diff,
+      diffWhere,
+      cases: { add: [{ module: "bestiary", funcId: "anglerfish" }], patch: [], again: [], delete: [] },
+    });
+    await showRegen(window);
+    const card = await opened(window.locator(".job", { hasText: "anglerfish lures the jellyfish" }));
+    // Only the files that hold what it adds: no empty line for scenery.plain.
+    await expect(card.locator(".part-head")).toHaveText([/template\/creatures\.plain$/, /bestiary\.plain$/]);
+    await unfold(card, "bestiary.plain");
+    await expect(card.locator(".pulse-spec-lines")).toContainText("Each level holds one :Anglerfish:.");
+  });
+
   test("traces a running pulse with debug off, and has no trace once it has ended", async ({ launched: { app, window } }) => {
     await expect(window.locator(".chat-model")).toBeVisible();
     const send = (job: object) => app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), job);
