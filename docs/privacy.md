@@ -29,4 +29,5 @@ Check This Machine's **ask the models too** sends each model a word, to see that
 - What you sign in with - tokens and API keys - in pi's `auth.json` (`~/.pi/agent/`), where the turri command line keeps it too.
 - The conversations, in pi's sessions there; each pulse's ledger and logs, and why each pulse that failed or did not land did (`.turri/pulses/<id>.md`, whatever the debug setting), in the project's `.turri` folder.
 - The preview's cookies and storage, in memory - gone when the project closes.
+- The project as each of turri's replies began and ended - all of it but the code turri builds in `plain_modules` and what turri keeps in `.turri` - to show what each reply changed of the \*\*\*plain: snapshots in a git store of the app's own (`checkpoints`, in its folder of the system's application support), never in the project or a git repository of yours. Those no conversation's card shows any more are let go as the project opens.
 - The app's own settings (`settings.json`, `appearance.json`) and recent projects, in its folder of the system's application support (`turri-app`).

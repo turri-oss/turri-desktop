@@ -6,6 +6,7 @@ import type { Concept } from "./types.ts";
 import type { ChatInfo, Unreachable } from "./chats.ts";
 import type { Attached } from "../electron/preload.ts";
 import { lookOf, type Action } from "./actions.ts";
+import { ReplyChanges, type ChangedFile } from "./Changes.tsx";
 
 /** The concepts the project's ***plain can name, as turri reads them - longest first - to colour where they are said. */
 let conceptNames: string[] = [];
@@ -116,7 +117,9 @@ export type ChatItem =
   /** Background runs that did not do their work, which start the turn that says so: each its skill, and what it was to write. */
   | { role: "skillRun"; runs: Array<{ skill: string } & Omit<Background, "already">> }
   /** What a button asked turri in the person's place: its kind and what it asked - the prompt turri heard, hidden. */
-  | { role: "action"; kind: string; title: string; detail?: string; prompt: string };
+  | { role: "action"; kind: string; title: string; detail?: string; prompt: string }
+  /** What a reply changed of the ***plain: the project's checkpoints as it began and ended, and each file changed between them. */
+  | { role: "changes"; from: string; to: string; files: ChangedFile[] };
 
 /** A skill cultivate started in the background: the testing script it writes and the module it is for - or, running already, nothing new. */
 type Background = { kind?: "unit" | "conformance"; plainFile?: string; already?: true };
@@ -252,6 +255,8 @@ export function Chat(props: {
   spending: Spending | null;
   /** A concept said in the chat, clicked: opened where the ***plain defines it. */
   onShowConcept: (concept: string) => void;
+  /** A file of the project opened in the window, by its path in it: one a reply changed. */
+  onOpenFile: (path: string) => void;
   /** Whether any of the project's ***plain has changed since it was built: only then is regenerating what changed offered. */
   changed: boolean;
 }) {
@@ -510,7 +515,7 @@ export function Chat(props: {
         {/* turri's notices are the status panel's, not the conversation's: answered there, whichever chat they are of. */}
         {props.items.map((item, index) =>
           item.role === "toolResult" || item.role === "notice" || item.role === "noticeOver" || item.role === "concluded" ? null : (
-            <Message key={index} item={item} results={results} running={props.running} />
+            <Message key={index} item={item} results={results} running={props.running} onOpenFile={props.onOpenFile} />
           ),
         )}
         {props.streaming && <Message item={props.streaming} results={results} running={props.running} live />}
@@ -717,11 +722,13 @@ function Message({
   results,
   running,
   live,
+  onOpenFile,
 }: {
   item: ChatItem;
   results: Map<string, Extract<ChatItem, { role: "toolResult" }>>;
   running: Map<string, boolean>;
   live?: boolean;
+  onOpenFile?: (path: string) => void;
 }) {
   // What turri thinks, open - as it thinks it, and after, whatever comes into the chat - until the person folds it.
   const [thinking, setThinking] = useState(true);
@@ -740,6 +747,7 @@ function Message({
     );
   if (item.role === "command") return <div className="msg user command">{item.text}</div>;
   if (item.role === "action") return <ActionAsked item={item} />;
+  if (item.role === "changes") return <ReplyChanges from={item.from} to={item.to} files={item.files} onOpen={onOpenFile} />;
   // A pulse that ended: one line - what it was, how it ended, how long and what it cost - coloured by its kind, as the
   // work view colours it. A click opens what it built in the ***plain view, lit - one that went wrong, or built no
   // ***plain, its card in regen: the chat stays a conversation.

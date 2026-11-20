@@ -32,9 +32,11 @@ interface Options {
    * The chat on a model of the test's own, on this machine - no model called: `silent` takes each request and never
    * answers, a turn that runs until it is stopped; `asks` answers each with an ask_user call, a question numbered by the
    * request, so each answer to one - or a decline - brings the next; `replies` answers each in words, after two seconds,
-   * "reply n" - each costing $1.00, 1000 tokens read at the stub's price.
+   * "reply n" - each costing $1.00, 1000 tokens read at the stub's price; `edits` changes the project with a command
+   * at first (EDITS), then answers "edited", and each request after "reply n" at once; `scripted` runs the commands the
+   * last message names, one after another with bash - each in RUN<<<…>>> - and then answers "done <tag>", for its TAG<tag>.
    */
-  stubModel: false | "silent" | "asks" | "replies" | "runs";
+  stubModel: false | "silent" | "asks" | "replies" | "runs" | "edits" | "scripted";
   /** More of the app's environment, as the person's shell would give it. */
   env: Record<string, string>;
   /** turri's debug mode on for the project: `debug: true` in its config.turri.yaml. */
@@ -105,7 +107,16 @@ export const test = base.extend<Options & { launched: Launched; scratch: string 
 });
 
 /** A model provider of the test's own, in pi's models.json - the project's harness-model (see `stubModel`). */
-async function modelStub(scratch: string, project: string, mode: "silent" | "asks" | "replies" | "runs") {
+/**
+ * What the `edits` stub's first reply runs: a line added to the ***plain, a resource it links written, and files that are
+ * no part of the ***plain - a note, turri's code.
+ */
+export const EDITS = "printf '%s\\n' '- :Greeter: waves as it greets.' >> hello.plain && printf 'greeting: hi\\n' > resources/greeting.yaml && printf 'a note\\n' > notes.txt && mkdir -p plain_modules/hello && printf 'print(1)\\n' > plain_modules/hello/extra.py";
+
+/** A message's text, as an OpenAI-style request carries it. */
+const textOf = (content: unknown): string => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("") : "");
+
+async function modelStub(scratch: string, project: string, mode: "silent" | "asks" | "replies" | "runs" | "edits" | "scripted") {
   const requests: string[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -120,6 +131,24 @@ async function modelStub(scratch: string, project: string, mode: "silent" | "ask
         response.write(": thinking\n\n");
         const usage = { usage: { prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000 } };
         return void setTimeout(() => response.end(chunk({ delta: { role: "assistant", content: `reply ${n}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }, usage) + "data: [DONE]\n\n"), 2000);
+      }
+      if (mode === "scripted") {
+        const { messages } = JSON.parse(body) as { messages: Array<{ role: string; content: unknown }> };
+        let last = -1;
+        messages.forEach((message, at) => message.role === "user" && textOf(message.content).includes("TAG") && (last = at));
+        const said = last === -1 ? "" : textOf(messages[last]!.content);
+        const step = messages.slice(last + 1).filter((message) => message.role === "tool").length;
+        const commands = [...said.matchAll(/RUN<<<([\s\S]*?)>>>/g)].map((match) => match[1]!);
+        if (step < commands.length) {
+          const call = { index: 0, id: `call_${n}`, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: commands[step] }) } };
+          return void response.end(chunk({ delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "tool_calls" }) + "data: [DONE]\n\n");
+        }
+        return void response.end(chunk({ delta: { role: "assistant", content: `done ${/TAG(\w+)/.exec(said)?.[1] ?? ""}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }) + "data: [DONE]\n\n");
+      }
+      if (mode === "edits") {
+        if (n > 1) return void response.end(chunk({ delta: { role: "assistant", content: n === 2 ? "edited" : `reply ${n}` }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "stop" }) + "data: [DONE]\n\n");
+        const call = { index: 0, id: "call_edit", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: EDITS }) } };
+        return void response.end(chunk({ delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }) + chunk({ delta: {}, finish_reason: "tool_calls" }) + "data: [DONE]\n\n");
       }
       // A tool call written slowly, a piece of its arguments at a time, and a command that takes its time - then, told
       // what it said, a reply.

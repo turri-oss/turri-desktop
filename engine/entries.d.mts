@@ -2,6 +2,7 @@
 export function entryItem(entry: { type: string; customType?: string; data?: unknown; content?: unknown; display?: boolean; details?: Record<string, unknown> }): unknown;
 export function normalise(message: { role: string; [key: string]: unknown } | null | undefined): unknown;
 export const APP_COMMAND: string;
+export const APP_CHANGES: string;
 export function withoutEchoes<T>(items: T[]): T[];
 export const APP_DECISION: string;
 export function noticeDecision(

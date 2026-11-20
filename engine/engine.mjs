@@ -5,7 +5,8 @@
 // `turri`.
 import turri, { turriFrom } from "./turri.mjs";
 import { busy, MANY_CHATS, SENTINEL, startSession } from "./chat.mjs";
-import { ACTION_KINDS } from "./entries.mjs";
+import { ACTION_KINDS, APP_CHANGES } from "./entries.mjs";
+import { checkpoints, COMMIT } from "./checkpoints.mjs";
 import { conformFromScratch, conformNamed } from "./commands.mjs";
 import { CLAUDE_CODE, createAuth, viaClaudeCode } from "./auth.mjs";
 import { conformanceTestsOn as conformanceOf, said, standing } from "./describe.mjs";
@@ -178,6 +179,8 @@ async function open({ dir }) {
   });
   stopHearing();
   stopHearing = turri.onLedgerEvent?.(heard) ?? (() => {});
+  store = checkpoints({ projectDir, root: process.env.TURRI_APP_CHECKPOINTS, modulesDir: turri.MODULES_DIR });
+  void pruneStore();
   await startChats();
   watchSpecs();
   readEarlier();
@@ -373,12 +376,11 @@ function inProject(path) {
  * What the tree shows: the project's ***plain - its .plain files and the templates of its own they import - and the
  * resources they link, as turri's graph has them, and nothing else: no config, no test scripts, nothing turri keeps
  * for itself. On a turri without the graph, the .plain files alone; without linked resources in it, no resources. In
- * debug mode, every file of the project instead (listFiles).
+ * debug mode, every file of the project instead (listFiles). By the graph as last read, unless one is given.
  */
-function shownInTree() {
+function shownInTree(graph = turri.plainGraph !== undefined ? graphSoon() : undefined) {
   const files = new Set(everyPlainFile(projectDir));
   const ours = (file) => file !== null && file !== undefined && file.startsWith(projectDir + sep) && !relative(projectDir, file).split(sep).includes(turri.MODULES_DIR);
-  const graph = turri.plainGraph !== undefined ? graphSoon() : undefined;
   if (graph !== undefined) {
     for (const module of graph.modules) if (ours(module.file) && existsSync(module.file)) files.add(module.file);
     for (const item of graph.items) for (const resource of item.resources ?? []) if (ours(resource.file) && existsSync(resource.file)) files.add(resource.file);
@@ -1343,6 +1345,102 @@ async function answerNotice({ id, answer }) {
   return session.answerNotice(id, answer);
 }
 
+// ---------- what each reply changed of the ***plain ----------
+
+/** The project's checkpoints (engine/checkpoints.mjs): none without git, or with no place for them. */
+let store = null;
+/** Said once in the log: a checkpoint could not be taken - no git, say - and the reply shows no changes. */
+let storeFailed = false;
+
+/**
+ * A chat's replies, as each begins and ends - from its first word to the chat settling: a checkpoint of the project at
+ * each, and the files of its ***plain - the .plain files, the templates they import, the resources they link, as the
+ * tree has them at either end - that changed between the two. Whatever else changed meanwhile - the code a pulse wrote, a
+ * test script - is left out; a reply that changed none of it has none.
+ */
+const replies = {
+  /**
+   * The project now, as a reply begins or ends: taken in the order asked for, one after another - a reply's end before
+   * the next one's beginning, however long each takes.
+   */
+  checkpoint: async () => {
+    if (store === null) return null;
+    try {
+      return { commit: await store.take(), plain: plainNow() };
+    } catch (error) {
+      return lostStore(error);
+    }
+  },
+  /** What changed of the ***plain from one checkpoint to another: null for nothing. */
+  changes: async (from, to) => {
+    if (store === null || from === null || to === null) return null;
+    try {
+      const plain = new Set([...from.plain, ...to.plain]);
+      const files = (await store.changed(from.commit, to.commit)).filter((file) => plain.has(file.path) || (file.path.endsWith(".plain") && file.path.split("/")[0] !== turri.MODULES_DIR));
+      return files.length === 0 ? null : { from: from.commit, to: to.commit, files };
+    } catch (error) {
+      return lostStore(error);
+    }
+  },
+};
+
+/**
+ * The checkpoints no chat's card names any more let go, as the project opens - the replies that changed nothing, and
+ * those of conversations since deleted: the cards are read from the project's conversations, as pi keeps them. Nothing is
+ * let go when they cannot all be read.
+ */
+async function pruneStore() {
+  if (store === null) return;
+  try {
+    const kept = new Set();
+    // turri's chats are in pi's sessions for the project's folder, as the engine works in it.
+    for (const { path } of await turri.pi.SessionManager.list(process.cwd())) {
+      for (const line of readFileSync(path, "utf8").split("\n")) {
+        if (!line.includes(APP_CHANGES)) continue;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (entry?.type !== "custom" || entry.customType !== APP_CHANGES) continue;
+        for (const commit of [entry.data?.from, entry.data?.to]) if (typeof commit === "string") kept.add(commit);
+      }
+    }
+    await store.prune(kept);
+  } catch (error) {
+    emit("log", { level: "warn", text: `old checkpoints were not let go: ${error instanceof Error ? error.message : String(error)}` });
+  }
+}
+
+function lostStore(error) {
+  if (!storeFailed) emit("log", { level: "warn", text: `what each reply changed is not kept: ${error instanceof Error ? error.message : String(error)}` });
+  storeFailed = true;
+  return null;
+}
+
+/**
+ * The ***plain's files now, by their paths in the project, as git names them: the graph read again - a reply may have
+ * linked a resource the last one read does not have yet.
+ */
+function plainNow() {
+  let graph;
+  try {
+    graph = turri.plainGraph?.(projectDir);
+  } catch {
+    // Not read now - a .plain file half written, say: as last read.
+  }
+  return new Set([...shownInTree(graph ?? (turri.plainGraph !== undefined ? graphSoon() : undefined))].map((file) => relative(projectDir, file).split(sep).join("/")));
+}
+
+/** One file's change in a reply, as a unified diff - null when the checkpoints are no longer kept. */
+async function replyDiff({ from, to, path }) {
+  if (!COMMIT.test(String(from)) || !COMMIT.test(String(to))) throw new Error("Not a reply's checkpoints.");
+  if (typeof path !== "string" || path === "" || isAbsolute(path)) throw new Error("Which file?");
+  inProject(path);
+  return store === null ? null : store.patch(from, to, path);
+}
+
 /** The chats, in their order: each its id, title, what it is doing and whether it is the one shown. */
 function chats() {
   return session.chats();
@@ -1366,6 +1464,7 @@ async function startChats() {
     ask,
     browser,
     terminal,
+    replies,
     whereNow: () => looking,
     onStep: () => loopNow() !== undefined && emit("status", statusNow()),
     onChats: (now) => {
@@ -1455,7 +1554,7 @@ async function doctor({ models = false, dir = projectDir }) {
 
 // ---------- the wire ----------
 
-const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, investigate, sentinelCheck, launches: launchesNow, lookAhead, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
+const methods = { ...auth, spending, chats, openChat, closeChat, focusChat, interruptChat, declineQuestion, notices, answerNotice, look, open, vendors, initConfig, summary, projectSettings, configChoices, listFiles, treeFiles, readFile, writeFile, replyDiff, stdlib, stdlibKinds, plainLinks, concepts, conceptDefinition, linkedResource, conceptBeingTyped, readSpec, writeSpec, highlightSpec, status: statusNow, regenerate, conform, turnOnConformance, investigate, sentinelCheck, launches: launchesNow, lookAhead, earlierPulses, sendChat, sendAction, abortChat, chatHistory, commands, answer, doctor };
 
 // What the window may ask before a project is open: to open one, to start a new one, whether the machine is ready, or to
 // sign in to the model providers.

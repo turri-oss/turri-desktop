@@ -77,6 +77,10 @@ function Privacy() {
         </li>
         <li>the conversations, in pi's sessions there; each pulse's ledger and logs, and why each pulse that failed did, in the project's <code>.turri</code> folder;</li>
         <li>the preview's cookies and storage, in memory - gone when the project closes;</li>
+        <li>
+          the project as each of turri's replies began and ended - all but the code turri builds - to show what each changed of the <PlainName />, in the app's folder of the system's application support,
+          never in the project;
+        </li>
         <li>the app's own settings and recent projects, in its folder of the system's application support.</li>
       </ul>
     </div>

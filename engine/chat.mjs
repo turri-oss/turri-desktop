@@ -7,7 +7,7 @@ import turri from "./turri.mjs";
 import { browserExtension, browserTools } from "./browser.mjs";
 import { terminalExtension, terminalTools } from "./terminal.mjs";
 import { APP_SURFACE, SENTINEL, SENTINEL_SURFACE, withWhere } from "./app.mjs";
-import { APP_ACTION, APP_COMMAND, APP_DECISION, entryItem, noticeDecision, normalise, transcript } from "./entries.mjs";
+import { APP_ACTION, APP_CHANGES, APP_COMMAND, APP_DECISION, entryItem, noticeDecision, normalise, transcript } from "./entries.mjs";
 import { CLAUDE_CODE } from "./auth.mjs";
 
 const { pi } = turri;
@@ -22,25 +22,39 @@ export { SENTINEL };
  * sends an event to the window; `ask` puts a question of a chat's to the person there and resolves with the answer
  * (undefined when they dismiss it); `browser` and `terminal` ask the window's preview - its browser pane, its terminal -
  * for one of the browser or terminal tools' actions; `whereNow` says what the person has open in the window; `onStep`
- * is called as each tool of a chat ends, and as it settles; `onChats` with the chats, as they change.
+ * is called as each tool of a chat ends, and as it settles; `onChats` with the chats, as they change; `replies` is told
+ * as each reply of a chat's begins and ends, and gives what it changed of the ***plain (engine.mjs).
  */
-export async function startSession({ cwd, harnessModel, host, emit, ask, browser, terminal, whereNow, onStep, onChats }) {
+export async function startSession({ cwd, harnessModel, host, emit, ask, browser, terminal, whereNow, onStep, onChats, replies }) {
   process.env.PI_SKIP_VERSION_CHECK = "1";
   /** The chats the window is told of, by id. */
   const chats = new Map();
   /** A chat's events, each with its id. */
   const says = (id) => (event, data) => emit(event, { chat: id, data });
+  /** The chat an extension's event is of, by its session - the one there is, on a turri with one. */
+  const chatFor = (ctx) => [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
   // The window is told when a chat's model changes - /settings switches it as it runs.
   const modelWatch = (api) =>
     api.on("model_select", ({ model }, ctx) => {
-      const chat = [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
+      const chat = chatFor(ctx);
       if (chat !== undefined) says(chat.id)("chat:model", { model: `${model.provider}/${model.id}` });
     });
+  // A reply's tools wait for the checkpoint of the project as it began: what they change is the reply's, however soon
+  // the model calls them. What is said while turri answers is heard in the same run of pi's - not a new one - once it
+  // has answered: the reply before it ends there, its changes shown before what is said is.
+  const replyBegun = (api) => {
+    api.on("tool_call", async (_event, ctx) => {
+      await chatFor(ctx)?.begun();
+    });
+    api.on("message_start", async (event, ctx) => {
+      await chatFor(ctx)?.said(event.message);
+    });
+  };
   // Nothing reaches a model from a chat that cannot be on harness-model: what is typed, a skill, a prompt template, what a
   // command sends - pi hears each as input after the extension commands, which run, and before anything is sent.
   const reachGuard = (api) =>
     api.on("input", (_event, ctx) => {
-      const chat = [...chats.values()].find((each) => each.session.sessionManager === ctx?.sessionManager) ?? (chats.size === 1 ? [...chats.values()][0] : undefined);
+      const chat = chatFor(ctx);
       return chat?.refused() ? { action: "handled" } : { action: "continue" };
     });
   // turri is told it is in the app: the window's views in place of the terminal's, and what the person has open now.
@@ -51,9 +65,9 @@ export async function startSession({ cwd, harnessModel, host, emit, ask, browser
   const browsing = browserTools(browser);
   // A command line turri types at the terminal's prompt is checked as one it runs: it installs nothing.
   const trying = terminalTools(terminal, { machineChange: turri.machineChange, machineChangeReason: turri.machineChangeReason });
-  const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch, reachGuard];
+  const extensions = [browserExtension(browsing), terminalExtension(trying), modelWatch, reachGuard, replyBegun];
   const follow = (id, session, earlier) => {
-    const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep, earlier });
+    const chat = followChat({ id, session, harnessModel, emit: says(id), sendWhole: emit, onStep, replies, earlier });
     chats.set(id, chat);
     return chat;
   };
@@ -269,7 +283,7 @@ async function oneChat({ cwd, host, told, extensions, ask, says, follow, onChats
  * One chat, as the window follows it: what its session does, sent as events, and what the window asks of it. `emit`
  * says an event of this chat's; `sendWhole` one of the window's own.
  */
-function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlier = [] }) {
+function followChat({ id, session, harnessModel, emit, sendWhole, onStep, replies, earlier = [] }) {
   // The chat runs on harness-model, as `turri` starts pi with it - read from the project's config each time, so a chat
   // opened after it changed starts on the new one - and is put on it after a sign-in, when it could not be before, and
   // when it changes: every chat of the person's goes with it, not only the one /settings ran in. A model chosen in
@@ -350,13 +364,43 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
     const texts = [...steering, ...followUp];
     if (texts.length > 0) emit("chat:restore", { text: texts.join("\n\n") });
   };
+  /**
+   * The reply under way: the project as it began - a checkpoint, taken as its first word goes - until it settles. Then
+   * what it changed of the ***plain is kept in the chat (`APP_CHANGES`, never sent to the model) and shown under it; a
+   * reply that changed none of it, nothing.
+   */
+  let reply = null;
+  /** Whether turri has answered in the reply under way: what is said after that begins the next. */
+  let answered = false;
+  let followed = true;
+  /** The last reply's changes, being worked out and kept: what is said next waits for them, so it comes after them. */
+  let closing = Promise.resolve();
+  /**
+   * The reply begun ended now: the checkpoint taken at once - before any the next reply takes - its changes kept and
+   * shown once worked out. The checkpoint, for a reply after it to begin at.
+   */
+  const ended = (begun) => {
+    const at = replies.checkpoint();
+    closing = Promise.all([begun, at])
+      .then(async ([from, to]) => {
+        const changes = await replies.changes(from, to);
+        if (changes === null || !followed) return;
+        const item = entryItem(session.sessionManager.getEntry(session.sessionManager.appendCustomEntry(APP_CHANGES, changes)));
+        if (item) emit("chat:message", item);
+      })
+      .catch(() => {});
+    return at;
+  };
   const unsubscribe = session.subscribe((event) => {
     switch (event.type) {
       case "agent_start":
         emit("chat:busy", { busy: true });
+        if (replies !== undefined && reply === null) (reply = replies.checkpoint()), (answered = false);
         break;
       case "agent_settled":
         emit("chat:busy", { busy: false });
+        if (reply !== null) void ended(reply);
+        reply = null;
         // A button's turn still waiting once the chat is done was let go with what it was doing - stopped.
         if (waiting.length > 0) (waiting = []), tellWaiting();
         onStep?.();
@@ -372,6 +416,7 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
         break;
       }
       case "message_end":
+        if (event.message?.role === "assistant") answered = true;
         // A button's turn heard: no longer waiting.
         if (event.message?.role === "custom" && event.message.customType === APP_ACTION && waiting.length > 0) (waiting = waiting.slice(1)), tellWaiting();
         tellStats();
@@ -410,7 +455,20 @@ function followChat({ id, session, harnessModel, emit, sendWhole, onStep, earlie
     /** What it said - after what its sessions before said, the sentinel's earlier pulses: each a session of its own. */
     history: () => [...earlier, ...transcript(session)],
     /** Followed no more: its session replaced by a new one, under the same id. */
-    stop: () => unsubscribe(),
+    stop: () => ((followed = false), unsubscribe()),
+    /** The checkpoint of the reply under way, once taken - at once when there is none. */
+    begun: () => reply ?? undefined,
+    /**
+     * A message coming into the chat - pi waits for this before it keeps it: one of the person's, or one they see, said
+     * once turri has answered in the reply under way, ends that reply there and begins the next - the person's next
+     * words heard in the same run of pi's, said while it answered.
+     */
+    said: async (message) => {
+      if (!(message?.role === "user" || (message?.role === "custom" && message.display !== false))) return;
+      if (reply !== null && answered) (answered = false), (reply = ended(reply));
+      // The reply before it - in this run, or the last - shown first.
+      await closing;
+    },
     /** What was said while it answered and it has not heard yet: it hears each after its turn. */
     queued: () => [...session.getSteeringMessages(), ...session.getFollowUpMessages()],
     /**

@@ -503,7 +503,8 @@ function createWorkspace(): Workspace {
     const child = fork(join(ROOT, "engine", "engine.mjs"), [], {
       execPath: process.execPath,
       execArgv: [],
-      env: { ...env, ...(DEV && TURRI_DEV !== undefined ? { TURRI_DEV } : {}), ...(NODE_OPTIONS !== undefined ? { TURRI_NODE_OPTIONS: NODE_OPTIONS } : {}), ELECTRON_RUN_AS_NODE: "1" },
+      // What each reply changed is kept in the app's userData, never in the project (engine/checkpoints.mjs).
+      env: { ...env, ...(DEV && TURRI_DEV !== undefined ? { TURRI_DEV } : {}), ...(NODE_OPTIONS !== undefined ? { TURRI_NODE_OPTIONS: NODE_OPTIONS } : {}), TURRI_APP_CHECKPOINTS: join(app.getPath("userData"), "checkpoints"), ELECTRON_RUN_AS_NODE: "1" },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     engine = child;
@@ -1039,6 +1040,14 @@ function engineParams(method: string, params: unknown): unknown {
     if (!ACTION_KINDS.has(kind as string) || !text(title, 300) || !text(prompt, 20_000) || (detail !== undefined && !text(detail, 1000))) throw new Error("Not a button's action.");
     if (chat !== undefined && chat !== null && typeof chat !== "string") throw new Error("Which chat?");
     return { chat: chat ?? undefined, action: { kind, title, prompt, ...(detail !== undefined ? { detail } : {}) } };
+  }
+  // One file's change in a reply: two checkpoints, by their commits, and a path in the project - which the engine holds to it.
+  if (method === "replyDiff") {
+    const { from, to, path } = (params ?? {}) as { from?: unknown; to?: unknown; path?: unknown };
+    const commit = (value: unknown) => typeof value === "string" && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value);
+    if (!commit(from) || !commit(to)) throw new Error("Not a reply's checkpoints.");
+    if (typeof path !== "string" || path === "" || path.length > 4096 || isAbsolute(path)) throw new Error("Which file?");
+    return { from, to, path };
   }
   if (method !== "answerNotice") return params;
   const { id, answer } = (params ?? {}) as { id?: unknown; answer?: unknown };

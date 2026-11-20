@@ -24,6 +24,14 @@ export const APP_COMMAND = "turri_app_command";
 export const APP_DECISION = "turri_app_decision";
 
 /**
+ * What a reply of turri's changed of the ***plain - its .plain files and the resources they link - as T3 Code shows a
+ * turn's diff: the project's checkpoints as it began and ended, and each file changed between them, with how it changed
+ * and by how many lines (engine/checkpoints.mjs). An entry of the chat's, never sent to the model; none for a reply that
+ * changed nothing.
+ */
+export const APP_CHANGES = "turri_app_changes";
+
+/**
  * The person's decision on a notice, as the chat keeps it - or nothing for an answer that starts no work in the chat:
  * dismissed, ignored, a fix already made, or yes to starting the sentinel, which starts the sentinel, not the chat.
  */
@@ -74,6 +82,8 @@ export function entryItem(entry) {
       return { role: "action", kind: typeof data.kind === "string" ? data.kind : "start", title: String(data.title ?? ""), ...(typeof data.detail === "string" ? { detail: data.detail } : {}), prompt: String(data.command ?? ""), command: String(data.command ?? "") };
     case APP_DECISION:
       return { role: "action", kind: data.said ? "said" : "chose", title: String(data.title ?? ""), ...(typeof data.detail === "string" ? { detail: data.detail } : {}), prompt: String(data.prompt ?? "") };
+    case APP_CHANGES:
+      return Array.isArray(data.files) && data.files.length > 0 ? { role: "changes", from: String(data.from ?? ""), to: String(data.to ?? ""), files: data.files } : null;
     case "turri_command_outcome":
       // The command as typed, then what it showed - the two in one entry when it was not echoed first.
       if (data.text === undefined) return { role: "command", text: data.command };

@@ -2301,6 +2301,116 @@ code {
 .msg.sentinel-resume .icon {
   vertical-align: -2px;
 }
+/* What a reply changed of the ***plain: a card under it - how many files and lines - and the files as a tree, each
+   opening into its diff. */
+.msg.changes {
+  align-self: stretch;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 12px;
+}
+.changes-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 4px 8px;
+  color: var(--fg);
+  text-align: left;
+}
+.changes-head:hover,
+.changes-file-open:hover {
+  background: var(--hover);
+}
+.changes-head .chevron {
+  color: var(--fg-3);
+}
+.changes-title {
+  font-weight: 600;
+}
+.changes-counts {
+  margin-left: auto;
+  flex: none;
+  font: 11px var(--mono);
+}
+.changes-counts .added {
+  color: var(--green);
+}
+.changes-counts .removed {
+  color: var(--red);
+}
+.changes-tree {
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+}
+.changes-row {
+  --depth: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: calc(var(--depth) * 12px);
+}
+.changes-row.folder {
+  padding: 2px 8px 2px calc(8px + var(--depth) * 12px);
+  color: var(--fg-2);
+}
+.changes-row .icon,
+.changes-row .plain-mark {
+  flex: none;
+}
+.changes-file-open {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 2px 8px;
+  color: var(--fg);
+  text-align: left;
+}
+.changes-file[aria-expanded="true"] > .changes-row .changes-file-open {
+  background: var(--selected);
+}
+.changes-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.changes-file.deleted .changes-name {
+  text-decoration: line-through;
+  color: var(--fg-2);
+}
+.changes-status {
+  flex: none;
+  color: var(--fg-3);
+  font-size: 11px;
+}
+/* Opening the file in the window: shown on the row pointed at, or reached by the keyboard. */
+.changes-file .changes-row .icon-button {
+  margin-right: 4px;
+  opacity: 0;
+}
+.changes-file .changes-row:hover .icon-button,
+.changes-file .changes-row:focus-within .icon-button {
+  opacity: 1;
+}
+.changes-diff {
+  margin: 4px 8px 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+.changes-diff .prose pre {
+  margin: 0;
+}
+.changes-diff > p {
+  margin: 0;
+  padding: 4px 0;
+}
 .msg.note.warning {
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
 }

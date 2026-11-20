@@ -1088,6 +1088,10 @@ export function App() {
             stats={shownChat.stats}
             spending={spending}
             onShowConcept={(concept) => void showConcept(concept)}
+            onOpenFile={(path) => {
+              setSelected(`${project.dir}/${path}`);
+              setView("spec");
+            }}
             onAnswer={(value) => {
               void window.turri.call("answer", { id: shownChat.questions[0]!.id, value });
               chats.answered(chats.shownId!);
