@@ -1,5 +1,7 @@
+import { Fragment, useState } from "react";
 import type { Launch } from "./types.ts";
 import { Icon, Spinner } from "./ui.tsx";
+import { Prose } from "./Chat.tsx";
 
 // What turri launches (turri's docs/launch.md), as the window shows it: each codebase's launches one at a time, the
 // newest commit winning - after a pulse, under launch-after-pulse, or when a chat asks. The window says only what a
@@ -69,9 +71,17 @@ export function whyNotUp(launch: Launch): string {
  * What runs, in the preview's bar, for each codebase launched this session: its launch under way - "launching hello at
  * 3f2a1bc…" - or the last one's end: where it runs, why it did not come up, that it was stopped. One out already - its
  * code running, a tests-only pulse's or the chat's asking for what runs - started nothing: what runs is still the last
- * one's, now at its commit. Nothing before the first.
+ * one's, now at its commit. Nothing before the first. Each is one line, cut short at the bar's edge: one whose launch said
+ * something opens at a click into the whole of it, wrapped, to read and copy - and closes again.
  */
 export function LaunchLine({ launches }: { launches: Launch[] }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (codebase: string) =>
+    setOpen((was) => {
+      const now = new Set(was);
+      if (!now.delete(codebase)) now.add(codebase);
+      return now;
+    });
   const codebases = [...new Set(inOrder(launches).map((launch) => launch.codebase))];
   const shown = codebases.map((codebase) => nowOf(launches, codebase)).filter((launch): launch is Launch => launch !== undefined);
   if (shown.length === 0) return null;
@@ -80,47 +90,66 @@ export function LaunchLine({ launches }: { launches: Launch[] }) {
       {shown.map((launch) => {
         const waiting = launches.filter((each) => each.codebase === launch.codebase && each.status === "waiting" && each.id !== launch.id).at(-1);
         const said = firstLine(launch.summary);
+        const whole = launch.summary?.trim() ?? "";
+        const Row = whole !== "" ? "button" : "span";
         const at = (
           <>
             <strong>{launch.codebase}</strong> at <code>{launch.short}</code>
           </>
         );
         return (
-          <span key={launch.codebase} className={`preview-launch ${launch.status}${launch.already ? " already" : ""}`} data-codebase={launch.codebase} title={launch.summary?.trim() || undefined}>
-            {launch.status === "running" ? (
-              <>
-                <Spinner /> launching {at}…{waiting && <span className="muted"> then {waiting.short}</span>}
-              </>
-            ) : launch.status === "waiting" ? (
-              <>
-                <Icon name="clock" size={13} /> {at} waits to launch
-              </>
-            ) : launch.status === "launched" && launch.replacedBy !== undefined ? (
-              // Up, and replaced at once by the newer one waiting, which stops what it started: not what runs.
-              <>
-                <Icon name="forward" size={13} /> {at} was replaced by a newer launch{launches.find((each) => each.id === launch.replacedBy) && <> at <code>{launches.find((each) => each.id === launch.replacedBy)!.short}</code></>}
-              </>
-            ) : launch.status === "launched" && launch.already ? (
-              // Out already - its code what runs: nothing launched anew, what runs is still the last one's, now at this commit.
-              <>
-                <Icon name="play" size={13} /> <strong>{launch.codebase}</strong> still runs, now at <code>{launch.short}</code> - out already
-                {said && <span className="preview-launch-said"> - {said}</span>}
-              </>
-            ) : launch.status === "launched" ? (
-              <>
-                <Icon name="play" size={13} /> {at} runs
-                {said && <span className="preview-launch-said"> - {said}</span>}
-              </>
-            ) : launch.status === "failed" ? (
-              <>
-                <Icon name="warn" size={13} /> {at} did not come up{whyNotUp(launch) && <span className="preview-launch-said"> - {whyNotUp(launch)}</span>}
-              </>
-            ) : (
-              <>
-                <Icon name="stop" size={13} /> {at} was stopped - nothing of it runs
-              </>
+          <Fragment key={launch.codebase}>
+            <Row
+              className={`preview-launch ${launch.status}${launch.already ? " already" : ""}`}
+              data-codebase={launch.codebase}
+              title={whole || undefined}
+              {...(Row === "button" && { type: "button" as const, "aria-expanded": open.has(launch.codebase), onClick: () => toggle(launch.codebase) })}
+            >
+              {launch.status === "running" ? (
+                <>
+                  <Spinner /> launching {at}…{waiting && <span className="muted"> then {waiting.short}</span>}
+                </>
+              ) : launch.status === "waiting" ? (
+                <>
+                  <Icon name="clock" size={13} /> {at} waits to launch
+                </>
+              ) : launch.status === "launched" && launch.replacedBy !== undefined ? (
+                // Up, and replaced at once by the newer one waiting, which stops what it started: not what runs.
+                <>
+                  <Icon name="forward" size={13} /> {at} was replaced by a newer launch{launches.find((each) => each.id === launch.replacedBy) && <> at <code>{launches.find((each) => each.id === launch.replacedBy)!.short}</code></>}
+                </>
+              ) : launch.status === "launched" && launch.already ? (
+                // Out already - its code what runs: nothing launched anew, what runs is still the last one's, now at this commit.
+                <>
+                  <Icon name="play" size={13} /> <strong>{launch.codebase}</strong> still runs, now at <code>{launch.short}</code> - out already
+                  {said && <span className="preview-launch-said"> - {said}</span>}
+                </>
+              ) : launch.status === "launched" ? (
+                <>
+                  <Icon name="play" size={13} /> {at} runs
+                  {said && <span className="preview-launch-said"> - {said}</span>}
+                </>
+              ) : launch.status === "failed" ? (
+                <>
+                  <Icon name="warn" size={13} /> {at} did not come up{whyNotUp(launch) && <span className="preview-launch-said"> - {whyNotUp(launch)}</span>}
+                </>
+              ) : (
+                <>
+                  <Icon name="stop" size={13} /> {at} was stopped - nothing of it runs
+                </>
+              )}
+              {Row === "button" && (
+                <span className="preview-launch-chevron">
+                  <Icon name="chevron" size={12} />
+                </span>
+              )}
+            </Row>
+            {Row === "button" && open.has(launch.codebase) && (
+              <div className="preview-launch-whole" aria-label={`all ${launch.codebase}'s launch said`}>
+                <Prose text={whole} />
+              </div>
             )}
-          </span>
+          </Fragment>
         );
       })}
     </div>

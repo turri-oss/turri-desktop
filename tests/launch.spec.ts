@@ -121,6 +121,15 @@ test.describe("launching", () => {
     await send(app, "engine:launch", launch("launch-2", "launched", { summary: "Runs at http://localhost:8000.\nThe API docs are at /docs.", finishedAt: Date.now() }));
     await expect(line).toHaveText("hello at 2f2a1bc runs - Runs at http://localhost:8000.");
     await expect(line).toHaveAttribute("title", "Runs at http://localhost:8000.\nThe API docs are at /docs.");
+    // A click opens all it said, under its line, to read and copy - another puts it away.
+    const whole = window.locator(".preview-launch-whole");
+    await expect(whole).toHaveCount(0);
+    await line.click();
+    await expect(line).toHaveAttribute("aria-expanded", "true");
+    await expect(whole).toContainText("Runs at http://localhost:8000.");
+    await expect(whole).toContainText("The API docs are at /docs.");
+    await line.click();
+    await expect(whole).toHaveCount(0);
 
     // Every pane says it - the browser's and the terminal's bar too.
     await window.getByRole("tab", { name: "browser" }).click();

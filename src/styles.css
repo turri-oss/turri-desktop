@@ -3286,9 +3286,48 @@ code {
 .preview-launch code {
   font: 11px var(--mono);
 }
+button.preview-launch {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+button.preview-launch:hover {
+  color: var(--fg);
+}
 .preview-launch-said {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* A line with more to say opens into all of it: its chevron at the right, turning down while it is open. */
+.preview-launch-chevron {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  color: var(--fg-3);
+  transition: transform 0.15s ease;
+}
+.preview-launch[aria-expanded="true"] .preview-launch-chevron {
+  transform: rotate(90deg);
+}
+/* All a launch said, under its line: wrapped, to read and copy, scrolling once it is long. */
+.preview-launch-whole {
+  max-height: 160px;
+  overflow: auto;
+  padding: 4px 0 4px 17px;
+  color: var(--fg);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.preview-launch-whole .prose > :first-child {
+  margin-top: 0;
+}
+.preview-launch-whole .prose > :last-child {
+  margin-bottom: 0;
 }
 .preview-launch.launched .icon {
   color: var(--green);
