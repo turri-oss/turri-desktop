@@ -204,6 +204,26 @@ export async function showRegen(window: Page) {
   await expect(window.locator(".dive").getByRole("tab", { name: /^regen/, selected: true })).toBeVisible();
 }
 
+/**
+ * The ***plain editor still: a jump to a line scrolls it smoothly, so a point read from its colours mid-scroll is not
+ * where a click lands a moment later - read once its scroll has held for a few polls.
+ */
+export async function editorStill(window: Page) {
+  let last: number | undefined;
+  let held = 0;
+  await expect
+    .poll(
+      async () => {
+        const now = await window.locator(".editor").evaluate((editor) => editor.scrollTop);
+        held = now === last ? held + 1 : 0;
+        last = now;
+        return held;
+      },
+      { intervals: [50] },
+    )
+    .toBeGreaterThanOrEqual(3);
+}
+
 /** Back from the dive to the project's window, by its ‹. */
 export async function leaveRegen(window: Page) {
   await window.locator(".dive .dive-back").click();

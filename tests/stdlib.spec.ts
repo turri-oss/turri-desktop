@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ElectronApplication, Locator, Page } from "@playwright/test";
-import { expect, offers, test } from "./app.ts";
+import { editorStill, expect, offers, test } from "./app.ts";
 
 /**
  * ⌘-click - Ctrl on Linux - on a piece of the coloured ***plain, through the textarea over it: in the middle of one of
@@ -9,6 +9,7 @@ import { expect, offers, test } from "./app.ts";
  * the middle of that box may be on other words.
  */
 async function modClick(window: Page, piece: Locator, part: "first" | "last" = "first") {
+  await editorStill(window);
   const rects = await piece.evaluate((element) => [...element.getClientRects()].map(({ x, y, width, height }) => ({ x, y, width, height })));
   const at = part === "first" ? rects[0]! : rects.at(-1)!;
   const area = window.locator(".editor textarea");

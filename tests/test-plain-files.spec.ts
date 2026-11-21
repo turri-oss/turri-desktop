@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { entryItem, normalise } from "../engine/entries.mjs";
-import { clickMenu, expect, tellChat, test } from "./app.ts";
+import { clickMenu, editorStill, expect, tellChat, test } from "./app.ts";
 import { keys } from "./keys.ts";
 
 /** A test plain file of hello's print-hello: one conformance scenario, naming a concept of hello's. */
@@ -10,6 +10,7 @@ const SCENARIOS = "---\nmodule: hello\nfunc_id: print-hello\n---\n\n***conforman
 
 /** A piece of the coloured text ⌘-clicked: at its middle, on the textarea over it, which takes the pointer. */
 async function modClick(window: Page, piece: Locator) {
+  await editorStill(window);
   const at = (await piece.boundingBox())!;
   const area = window.locator(".editor textarea");
   const box = (await area.boundingBox())!;

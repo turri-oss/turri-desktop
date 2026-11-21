@@ -725,6 +725,8 @@ test.describe("the regen view", () => {
     await app.evaluate(({ BrowserWindow }, job) => BrowserWindow.getAllWindows()[0]!.webContents.send("engine:job", job), { ...pulse(), diff, diffWhere });
     await showRegen(window);
     const card = await unfold(await opened(window.locator(".job", { hasText: "the greeting by name" })), "greeter_stack.plain");
+    // Its lines open in the ***plain once they are found still in the template - read after the card is drawn.
+    await card.locator(".opens-in-plain").waitFor();
     await card.locator(".pulse-spec-lines > div", { hasText: "uv." }).click();
     await expect(window.locator(".toolbar").getByRole("tab", { name: "***plain", selected: true })).toBeVisible();
     await expect(window.locator(".pane-title")).toHaveText(/template\/greeter_stack\.plain$/);
